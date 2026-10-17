@@ -57,6 +57,13 @@ export default function TicketDetail() {
       <NavBar title={labelStatus(ticket.status)} />
       <TokenHero ticket={ticket} />
 
+      <div className="px-5 pt-6">
+        <h2 className="text-[19px] font-semibold tracking-[-0.02em]">{ticket.title}</h2>
+        <p className="mt-1 text-[13.5px] text-muted">{locationLine(ticket)} · {cat.nameEn.toLowerCase()}{ticket.subtype ? ` · ${ticket.subtype.toLowerCase()}` : ''}</p>
+        {ticket.description && <p className="mt-3 max-w-[62ch] text-[14.5px] leading-6">{ticket.description}</p>}
+        <p className="mt-3 text-[12.5px] text-muted">Reported by {ticket.reporterName} · {new Date(ticket.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'long' })}</p>
+      </div>
+
       <div className="px-5">
         {ticket.status === 'Resolved' && !ticket.verifiedByReporter && (
           <div className="mt-5 rounded-lg border border-line p-4">
