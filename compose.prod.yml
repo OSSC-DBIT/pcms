@@ -1,0 +1,158 @@
+# Production stack for the college server. See docs/DEPLOYMENT.md.
+#   docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env up -d
+# Only nginx publishes ports. PostgreSQL, the API, ClamAV and the jobs are on an
+# internal network. The tunnel reaches nginx's public listener (webhooks and
+# signed photos only) from inside the stack; port 8081 is never published.
+name: pcms
+
+x-app: &app
+  image: ${PCMS_IMAGE_API:-pcms-api:release}
+  build: { context: ./backend, target: prod }
+  restart: unless-stopped
+  env_file: ${PCMS_ENV_FILE:-./pcms.env}
+  environment:
+    PCMS_ENV: prod
+    PCMS_COOKIE_SECURE: "true"
+    PCMS_CLAMAV_REQUIRED: "true"
+    PCMS_MEDIA_ROOT: /data/media
+    TZ: UTC
+  volumes:
+    - media:/data/media
+  networks: [internal]
+  read_only: true
+  tmpfs: [/tmp]
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+
+services:
+  db:
+    image: postgres:17.11-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: pcms
+      POSTGRES_DB: pcms
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+      TZ: UTC
+    secrets: [db_password]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcms -d pcms"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    security_opt: ["no-new-privileges:true"]
+    shm_size: 256m
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "5" } }
+
+  migrate:
+    <<: *app
+    restart: "no"
+    command: ["sh", "-c", "python -m app.cli check-config && alembic upgrade head && python -m app.cli seed"]
+    depends_on: { db: { condition: service_healthy } }
+
+  api:
+    <<: *app
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4",
+              "--proxy-headers", "--forwarded-allow-ips", "*", "--no-server-header"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health/ready', timeout=3).status == 200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    <<: *app
+    command: ["python", "-m", "app.jobs.worker"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+    networks: [internal, egress]
+
+  scheduler:
+    <<: *app
+    command: ["python", "-m", "app.jobs.scheduler"]
+    depends_on: { migrate: { condition: service_completed_successfully } }
+
+  clamav:
+    image: clamav/clamav:1.5.4
+    restart: unless-stopped
+    volumes: [clamdb:/var/lib/clamav]
+    networks: [internal, egress]  # egress only for signature updates (freshclam)
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --ping 1 || exit 1"]
+      interval: 60s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+  nginx:
+    image: ${PCMS_IMAGE_WEB:-pcms-web:release}
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+      args: { NGINX_CONF: pcms-tls.conf }
+    restart: unless-stopped
+    ports:
+      - "${PCMS_HTTP_PORT:-80}:8080"
+      - "${PCMS_HTTPS_PORT:-443}:8443"
+    volumes:
+      - ${PCMS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
+    depends_on: { api: { condition: service_healthy } }
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --no-check-certificate -O /dev/null https://127.0.0.1:8443/ || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    security_opt: ["no-new-privileges:true"]
+
+  tunnel:
+    image: cloudflare/cloudflared:2026.10.1
+    restart: unless-stopped
+    # Named tunnel managed by College IT; its public hostname must point to http://nginx:8081.
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${PCMS_TUNNEL_TOKEN:-}
+    depends_on: [nginx]
+    networks: [internal, egress]
+    profiles: [tunnel]
+
+  backup:
+    image: ${PCMS_IMAGE_BACKUP:-pcms-backup:release}
+    build: { context: ./ops/backup }
+    restart: unless-stopped
+    environment:
+      PGHOST: db
+      PGUSER: pcms
+      PGDATABASE: pcms
+      PGPASSFILE: /run/secrets/pgpass
+      BACKUP_RECIPIENT_FILE: /run/secrets/backup_recipient
+      BACKUP_DIR: /backups
+      BACKUP_AT: ${PCMS_BACKUP_AT:-0130}
+      TZ: Asia/Kolkata
+    secrets: [pgpass, backup_recipient]
+    volumes:
+      - media:/data/media:ro
+      - ${PCMS_BACKUP_DIR:-./backups}:/backups
+    depends_on: { db: { condition: service_healthy } }
+    networks: [internal]
+
+networks:
+  internal:
+    internal: true
+  egress: {}
+
+volumes:
+  pgdata:
+  media:
+  clamdb:
+
+secrets:
+  db_password:
+    file: ${PCMS_SECRETS_DIR:-./secrets}/db_password
+  pgpass:
+    file: ${PCMS_SECRETS_DIR:-./secrets}/pgpass
+  backup_recipient:
+    file: ${PCMS_SECRETS_DIR:-./secrets}/backup_recipient.txt

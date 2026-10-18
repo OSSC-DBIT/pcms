@@ -1,0 +1,141 @@
+import asyncio
+import re
+import uuid
+
+from sqlalchemy import func, select
+
+from app.db import sessionmaker
+from app.models import Outbox, Ticket
+from app.services.tickets import format_token, ist_year
+from tests.factories import API, make_user, new_client, sign_in, ticket_body
+
+
+async def _faculty(client, emp="DB2101"):
+    await make_user(emp, "faculty", f"Faculty {emp}")
+    return await sign_in(client, emp)
+
+
+async def test_create_returns_token_and_replays(client):
+    s = await _faculty(client)
+    body = ticket_body()
+    r = await s.post(f"{API}/tickets", json=body)
+    assert r.status_code == 201, r.text
+    created = r.json()
+    yy = ist_year() % 100
+    assert created["token"] == f"C{yy:02d}-0001"
+    assert created["status"] == "Submitted" and created["version"] == 1 and created["attachmentUploadAllowed"]
+
+    again = await s.post(f"{API}/tickets", json=body)
+    assert again.status_code == 200 and again.json()["id"] == created["id"]
+
+    changed = await s.post(f"{API}/tickets", json={**body, "title": "Something else entirely"})
+    assert changed.status_code == 409 and changed.json()["code"] == "idempotency_conflict"
+
+    t = (await s.get(f"{API}/tickets/{created['id']}")).json()
+    assert t["priority"] == "P2" and t["reporterName"] == "Faculty DB2101"
+    assert t["events"][0]["action"] == "Your report was received"
+
+
+async def test_validation_errors(client):
+    s = await _faculty(client)
+    r = await s.post(f"{API}/tickets", json=ticket_body(title="no", categoryCode="nope"))
+    assert r.status_code == 400
+    assert {"title", "categoryCode"} <= set(r.json()["field_errors"])
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={"building": "CSE", "floor": "99", "room": "1"}))
+    assert r.status_code == 400 and "location" in r.json()["field_errors"]
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={"outdoors": True}))
+    assert r.status_code == 400
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={"outdoors": True, "landmark": "Main gate"}))
+    assert r.status_code == 201
+
+
+async def test_staff_cannot_create_without_capability(client):
+    await make_user("DB0002", "management")
+    s = await sign_in(client, "DB0002")
+    assert (await s.post(f"{API}/tickets", json=ticket_body())).status_code == 403
+
+
+async def test_100_parallel_creates_yield_unique_sequential_tokens(client):
+    await make_user("DB2101", "faculty")
+    clients = [new_client() for _ in range(4)]
+    sessions = [await sign_in(c, "DB2101") for c in clients]
+    gate = asyncio.Semaphore(25)
+
+    async def one(i):
+        async with gate:
+            return await sessions[i % 4].post(f"{API}/tickets", json=ticket_body())
+
+    results = await asyncio.gather(*(one(i) for i in range(100)))
+    for c in clients:
+        await c.aclose()
+    assert all(r.status_code == 201 for r in results), {r.status_code for r in results}
+    tokens = [r.json()["token"] for r in results]
+    assert len(set(tokens)) == 100
+    serials = sorted(int(re.search(r"-(\d{4,})$", t).group(1)) for t in tokens)
+    assert serials == list(range(1, 101))
+
+
+async def test_concurrent_identical_retries_create_one_ticket(client):
+    s = await _faculty(client)
+    body = ticket_body()
+    results = await asyncio.gather(*(s.post(f"{API}/tickets", json=body) for _ in range(8)))
+    assert sorted(r.status_code for r in results).count(201) == 1
+    assert {r.json()["id"] for r in results} == {results[0].json()["id"]}
+    async with sessionmaker()() as db:
+        assert await db.scalar(select(func.count()).select_from(Ticket)) == 1
+
+
+async def test_faculty_cannot_see_other_reporters_tickets(client):
+    s1 = await _faculty(client, "DB2101")
+    created = (await s1.post(f"{API}/tickets", json=ticket_body())).json()
+    async with new_client() as other:
+        s2 = await _faculty(other, "DB2102")
+        assert (await s2.get(f"{API}/tickets/{created['id']}")).status_code == 404
+        assert (await s2.get(f"{API}/tickets/{uuid.uuid4()}")).status_code == 404
+        assert (await s2.get(f"{API}/tickets?scope=mine")).json()["total"] == 0
+        assert (await s2.get(f"{API}/tickets?scope=queue")).status_code == 403
+        # Duplicate hints show token and title only.
+        d = (await s2.get(f"{API}/tickets/duplicates", params={"category": "carpentry", "building": "CSE", "room": "203"})).json()
+        assert d == [{"token": created["token"], "title": "Broken chair in lecture room", "status": "Submitted"}]
+
+
+async def test_create_queues_receipt_and_manager_alerts(client):
+    u = await make_user("DB2101", "faculty")
+    async with sessionmaker()() as db:
+        (await db.get(type(u), u.id)).email = "faculty@example.edu"
+        await db.commit()
+    await make_user("DB0001", "facility_manager")
+    s = await sign_in(client, "DB2101")
+    await s.post(f"{API}/tickets", json=ticket_body())
+    async with sessionmaker()() as db:
+        rows = (await db.scalars(select(Outbox))).all()
+    templates = {(o.template, o.channel) for o in rows}
+    assert ("receipt", "email") in templates
+
+
+def test_token_starts_with_type_letter_and_grows_past_9999():
+    assert format_token("C", 2026, 123) == "C26-0123"
+    assert format_token("W", 2027, 10000) == "W27-10000"
+
+
+async def test_other_needs_a_description(client):
+    s = await _faculty(client)
+    r = await s.post(f"{API}/tickets", json=ticket_body(subtype="Other"))
+    assert r.status_code == 400 and "otherDetail" in r.json()["field_errors"]
+    r = await s.post(f"{API}/tickets", json=ticket_body(subtype="Other", otherDetail="Bench"))
+    assert r.status_code == 201
+    t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
+    assert t["subtype"] == "Other: Bench"
+    r = await s.post(f"{API}/tickets", json=ticket_body(categoryCode="other", subtype=None, otherDetail="Water cooler"))
+    assert r.status_code == 201 and r.json()["token"].startswith("O")
+
+
+
+async def test_cli_test_accounts_refuse_production(monkeypatch):
+    import argparse
+
+    from app.cli import _test_accounts
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "env", "prod")
+    assert await _test_accounts(argparse.Namespace()) == 2

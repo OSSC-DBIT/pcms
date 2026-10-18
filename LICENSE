@@ -1,0 +1,32 @@
+PCMS (Campus Maintenance System) - Proprietary Software License
+
+Copyright (c) 2026 Don Bosco Institute of Technology, Bengaluru ("DBIT")
+and the Open Source Student Club, Don Bosco Institute of Technology ("OSSC DBIT").
+All rights reserved.
+
+1. Ownership. This software, including its source code, documentation, designs and
+   associated files (the "Software"), is the joint property of DBIT and OSSC DBIT
+   (together, the "Owners"). The Software is maintained and regulated by OSSC DBIT
+   on behalf of the Owners.
+
+2. Permitted use. DBIT, its staff and its students may use the Software for the
+   operation of DBIT's campus. Members of OSSC DBIT authorised by the club may
+   copy and modify the Software to develop, test, maintain and operate it for DBIT.
+
+3. Restrictions. Except as allowed in section 2, or with prior written permission
+   from both Owners, no one may copy, modify, publish, distribute, sublicense, sell,
+   host for third parties, or create derivative works of the Software.
+
+4. Contributions. Contributions made by OSSC DBIT members or DBIT staff become part
+   of the Software and are owned jointly by the Owners under this license.
+
+5. Third-party components. The Software uses third-party open-source components that
+   remain under their own licenses (see each package's license). Nothing in this
+   license restricts rights granted by those licenses for those components.
+
+6. No warranty. The Software is provided "as is", without warranty of any kind. In no
+   event shall the Owners or contributors be liable for any claim, damages or other
+   liability arising from the use of the Software.
+
+7. Contact. Permission requests: Team OSSC, Don Bosco Institute of Technology,
+   Mysuru Road, Kumbalagodu, Bengaluru 560074, India.

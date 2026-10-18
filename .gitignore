@@ -3,3 +3,11 @@ dist
 dev-dist
 .vercel
 *.local
+# Local and production secrets
+.env
+pcms.env
+secrets/
+certs/
+backups/
+__pycache__/
+.pytest_cache/

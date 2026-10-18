@@ -1,56 +1,96 @@
-import { Moon, Sun, Monitor, LogOut } from 'lucide-react'
-import { PageTitle, Segmented, Fade } from '../components/ui'
-import { useTheme } from '../lib/hooks'
-import { LANGS, useT } from '../lib/i18n'
-import { api } from '../lib/api'
-import { useAuth } from '../App'
+import { useEffect, useState } from 'react'
+import { LogOut } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../App'
+import InstallCard from '../components/InstallCard'
+import { Alert, Button, Card, Field, Input, PageHeader, Stack, Tabs, errorMessage } from '../components/ui'
+import { api } from '../lib/api'
+import { useTheme, type Theme } from '../lib/hooks'
+import { LANGS, useT, type Lang, type TKey } from '../lib/i18n'
+import { disablePush, enablePush, pushState, sendTestPush, type PushState } from '../lib/push'
+
+const PUSH_TEXT: Partial<Record<PushState, TKey>> = {
+  'needs-install': 'settings.notif.install', unsupported: 'settings.notif.unsupported',
+  'disabled-on-server': 'settings.notif.serverOff', denied: 'settings.notif.denied', on: 'settings.notif.on',
+}
 
 export default function Settings() {
   const { t, lang, setLang } = useT()
   const { theme, setTheme } = useTheme()
-  const { user, setUser } = useAuth()
+  const { user, signOut } = useAuth()
   const nav = useNavigate()
-
-  const isAdmin = user && user.role !== 'faculty'
-
   return (
-    <Fade>
-      <PageTitle title={t('nav.settings')} />
-      <section className="px-5">
-        <p className="mb-2 text-[13px] font-medium text-muted">{t('settings.theme')}</p>
-        <Segmented label="theme" value={theme} onChange={setTheme} options={[
-          { value: 'light', label: <span className="flex items-center justify-center gap-1.5"><Sun size={14} />{t('settings.theme.light')}</span> },
-          { value: 'dark', label: <span className="flex items-center justify-center gap-1.5"><Moon size={14} />{t('settings.theme.dark')}</span> },
-          { value: 'system', label: <span className="flex items-center justify-center gap-1.5"><Monitor size={14} />{t('settings.theme.system')}</span> },
-        ]} />
-      </section>
-      <section className="mt-7 px-5">
-        <p className="mb-2 text-[13px] font-medium text-muted">{t('settings.language')}</p>
-        <Segmented label="lang" value={lang} onChange={setLang} options={LANGS.map((l) => ({ value: l.code, label: l.label }))} />
-      </section>
-      <section className="mt-9 px-5">
-        {user && (
-          <div className="hairline-b flex items-center justify-between py-3">
-            <div>
-              <p className="text-[14.5px] font-medium">{user.name}</p>
-              <p className="token text-[12.5px] text-muted">{user.employeeId} · {user.role.replace('_', ' ')}</p>
-            </div>
-            {isAdmin && (
-              <button onClick={() => nav('/toal')} className="token rounded-full border border-line px-3.5 py-1.5 text-[12.5px] font-medium">
-                TOAL
-              </button>
-            )}
+    <Stack className="mx-auto max-w-2xl">
+      <PageHeader title={t('nav.settings')} subtitle={user ? `${user.name} · ${user.employeeId}` : undefined} />
+      <InstallCard />
+      <Card title={t('settings.appearance')}>
+        <Stack>
+          <Tabs label={t('settings.appearance')} value={theme} onChange={(v: Theme) => setTheme(v)}
+            tabs={[{ value: 'light', label: t('settings.light') }, { value: 'dark', label: t('settings.dark') }, { value: 'system', label: t('settings.system') }]} />
+          <div>
+            <p className="mb-1.5 text-[14px] font-medium">{t('settings.language')}</p>
+            <Tabs label={t('settings.language')} value={lang} onChange={(v: Lang) => setLang(v)} tabs={LANGS.map((l) => ({ value: l.code, label: l.label }))} />
           </div>
+        </Stack>
+      </Card>
+      <Notifications />
+      <PasswordCard />
+      <Button variant="secondary" full onClick={async () => { await signOut(); nav('/login', { replace: true }) }}><LogOut size={17} /> {t('action.signOut')}</Button>
+      <p className="text-center text-[13px] text-muted">{t('settings.signOutNote')}</p>
+    </Stack>
+  )
+}
+
+function Notifications() {
+  const { t } = useT()
+  const [state, setState] = useState<PushState | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+  useEffect(() => { pushState().then(setState).catch(() => setState('unsupported')) }, [])
+  async function run(fn: () => Promise<PushState>) {
+    setBusy(true); setMsg(null)
+    try { setState(await fn()) } catch (e) { setMsg(errorMessage(e)) } finally { setBusy(false) }
+  }
+  const text = state ? PUSH_TEXT[state] : undefined
+  return (
+    <Card title={t('settings.notifications')}>
+      <p className="text-[14px] text-muted">{text ? t(text) : t('settings.notif.help')}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {state === 'off' && <Button loading={busy} onClick={() => run(enablePush)}>{t('settings.notif.enable')}</Button>}
+        {state === 'on' && (
+          <>
+            <Button variant="secondary" loading={busy} onClick={() => run(disablePush)}>{t('settings.notif.disable')}</Button>
+            <Button variant="secondary" onClick={async () => {
+              try { const r = await sendTestPush(); setMsg(r.sent ? 'Test sent. It should appear in a few seconds.' : 'The test could not be delivered.') } catch (e) { setMsg(errorMessage(e)) }
+            }}>{t('settings.notif.test')}</Button>
+          </>
         )}
-        <button
-          onClick={async () => { await api.signOut(); setUser(null); nav('/login', { replace: true }) }}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-md border border-line py-3.5 text-[14.5px] font-medium active:bg-subtle"
-        >
-          <LogOut size={15} /> Sign out
-        </button>
-        <p className="mt-6 text-center text-[12px] text-muted/70">Private drafts are cleared on sign out.</p>
-      </section>
-    </Fade>
+      </div>
+      {msg && <div className="mt-3"><Alert>{msg}</Alert></div>}
+    </Card>
+  )
+}
+
+function PasswordCard() {
+  const { t } = useT()
+  const [current, setCurrent] = useState('')
+  const [next, setNext] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ tone: 'ok' | 'bad'; text: string } | null>(null)
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true); setMsg(null)
+    try { await api.changePassword(current, next); setCurrent(''); setNext(''); setMsg({ tone: 'ok', text: t('settings.password.saved') }) }
+    catch (err) { setMsg({ tone: 'bad', text: errorMessage(err) }) } finally { setBusy(false) }
+  }
+  return (
+    <Card title={t('settings.password')}>
+      <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
+        <Field label={t('settings.password.current')}>{(id) => <Input id={id} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />}</Field>
+        <Field label={t('login.newPassword')} hint={t('login.passwordRule')}>{(id, d) => <Input id={id} aria-describedby={d} type="password" autoComplete="new-password" minLength={10} maxLength={128} value={next} onChange={(e) => setNext(e.target.value)} required />}</Field>
+        <div className="sm:col-span-2"><Button type="submit" variant="secondary" loading={busy}>{t('settings.password.change')}</Button></div>
+        {msg && <div className="sm:col-span-2"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
+      </form>
+    </Card>
   )
 }

@@ -1,0 +1,113 @@
+# Development stack. Usage:
+#   docker compose -f compose.dev.yml up --build
+# PWA (Vite HMR): http://localhost:5173   API docs: http://localhost:8000/api/v1/docs
+# Mailpit UI:     http://localhost:8025   Full nginx stack: --profile nginx -> http://localhost:8080
+name: pcms-dev
+
+x-api-env: &api-env
+  PCMS_ENV: dev
+  PCMS_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms
+  PCMS_TEST_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms_test
+  PCMS_SECRET_KEY: dev-only-secret-key-change-me
+  PCMS_CLAMAV_REQUIRED: "false"
+  PCMS_VAPID_PUBLIC_KEY: ${PCMS_VAPID_PUBLIC_KEY:-}
+  PCMS_VAPID_PRIVATE_KEY: ${PCMS_VAPID_PRIVATE_KEY:-}
+  PCMS_VAPID_SUBJECT: ${PCMS_VAPID_SUBJECT:-mailto:facilities@localhost}
+  PCMS_MESSAGING_PROVIDER: ${PCMS_MESSAGING_PROVIDER:-none}
+  PCMS_TWILIO_ACCOUNT_SID: ${PCMS_TWILIO_ACCOUNT_SID:-}
+  PCMS_TWILIO_AUTH_TOKEN: ${PCMS_TWILIO_AUTH_TOKEN:-}
+  PCMS_TWILIO_WHATSAPP_FROM: ${PCMS_TWILIO_WHATSAPP_FROM:-}
+  PCMS_TWILIO_SMS_FROM: ${PCMS_TWILIO_SMS_FROM:-}
+  PCMS_TWILIO_JOB_CONTENT_SID: ${PCMS_TWILIO_JOB_CONTENT_SID:-}
+  PCMS_PUBLIC_BASE_URL: ${PCMS_PUBLIC_BASE_URL:-http://localhost:8081}
+  WATCHFILES_FORCE_POLLING: "true"
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: pcms
+      POSTGRES_PASSWORD: pcms_dev
+      POSTGRES_DB: pcms
+      TZ: UTC
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./backend/docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pcms -d pcms"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: { context: ./backend, target: dev }
+    environment: *api-env
+    command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
+    volumes:
+      - ./backend:/app
+      - media:/data/media
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db: { condition: service_healthy }
+
+  worker:
+    build: { context: ./backend, target: dev }
+    environment: *api-env
+    command: ["python", "-m", "app.jobs.worker"]
+    volumes:
+      - ./backend:/app
+      - media:/data/media
+    depends_on:
+      api: { condition: service_started }
+    profiles: ["jobs"]
+
+  scheduler:
+    build: { context: ./backend, target: dev }
+    environment: *api-env
+    command: ["python", "-m", "app.jobs.scheduler"]
+    volumes:
+      - ./backend:/app
+    depends_on:
+      api: { condition: service_started }
+    profiles: ["jobs"]
+
+  web:
+    build: { context: ./frontend, target: dev }
+    # node_modules lives in a container volume; reinstall whenever package-lock.json changes
+    # (otherwise newly added packages such as qrcode are missing in the container).
+    command: ["sh", "-c", "h=$$(sha256sum package-lock.json | cut -d' ' -f1); if [ \"$$(cat node_modules/.pcms-lock 2>/dev/null)\" != \"$$h\" ]; then npm ci && echo $$h > node_modules/.pcms-lock; fi; exec npm run dev -- --host 0.0.0.0 --port 5173"]
+    environment:
+      VITE_USE_POLLING: "true"
+      VITE_PROXY_TARGET: http://api:8000
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "127.0.0.1:5173:5173"
+
+  mailpit:
+    image: axllent/mailpit:v1.31.6
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  nginx:
+    build: { context: ., dockerfile: nginx/Dockerfile }
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:8081:8081"
+    depends_on: [api]
+    profiles: ["nginx"]
+
+  cloudflared:
+    image: cloudflare/cloudflared:2026.10.1
+    # Quick tunnel for development; prints a trycloudflare.com URL in the logs.
+    # Points only at the public nginx listener (webhooks + signed media).
+    command: ["tunnel", "--no-autoupdate", "--url", "http://nginx:8081"]
+    depends_on: [nginx]
+    profiles: ["tunnel"]
+
+volumes:
+  pgdata:
+  media:

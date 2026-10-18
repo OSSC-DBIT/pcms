@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests (FastAPI + PostgreSQL)
+    runs-on: ubuntu-24.04
+    services:
+      db:
+        image: postgres:17.11-alpine
+        env:
+          POSTGRES_USER: pcms
+          POSTGRES_PASSWORD: pcms_dev
+          POSTGRES_DB: pcms_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pcms -d pcms_test"
+          --health-interval 3s --health-timeout 3s --health-retries 20
+    env:
+      PCMS_TEST_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@localhost:5432/pcms_test
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: System packages (libmagic, ffmpeg)
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libmagic1 ffmpeg
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: "0.13.1"
+      - run: uv python install 3.13
+      - run: uv sync --locked
+      - run: uv run pytest -q
+
+  frontend:
+    name: Frontend build and lint
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
+
+  compose:
+    name: Compose files are valid
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - run: docker compose -f compose.dev.yml config --quiet
+      - name: Production compose (with placeholder env and secrets)
+        env:
+          PCMS_SECRETS_DIR: ./secrets
+          PCMS_ENV_FILE: ./pcms.env
+        run: |
+          cp .env.example pcms.env
+          mkdir -p secrets && touch secrets/db_password secrets/pgpass secrets/backup_recipient.txt
+          docker compose -f compose.prod.yml --env-file pcms.env config --quiet
+
+  e2e:
+    name: Browser test (phone and desktop)
+    runs-on: ubuntu-24.04
+    needs: [backend, frontend]
+    env:
+      SMOKE_PASSWORD: Smoke-Test-Pass-91
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Start the stack
+        run: docker compose -f compose.dev.yml --profile nginx up -d --build --wait db api nginx
+      - name: Wait for the API through nginx
+        run: |
+          for i in $(seq 1 60); do curl -fsS http://localhost:8080/api/v1/health/ready && exit 0; sleep 2; done
+          docker compose -f compose.dev.yml logs api nginx; exit 1
+      - name: Smoke accounts
+        run: docker compose -f compose.dev.yml exec -T api python -m app.cli create-smoke-accounts --password "$SMOKE_PASSWORD"
+      - name: Playwright
+        run: |
+          docker run --rm --network container:$(docker compose -f compose.dev.yml ps -q nginx) \
+            -e SMOKE_PASSWORD -v "$PWD/e2e:/e2e" -w /e2e mcr.microsoft.com/playwright:v1.64.1-noble \
+            sh -c "npm ci --no-audit --no-fund && npx playwright test"
+      - if: always()
+        uses: actions/upload-artifact@v7.0.2
+        with:
+          name: e2e-screenshots
+          path: e2e/out
+          retention-days: 7
+      - if: failure()
+        run: docker compose -f compose.dev.yml logs --tail 200

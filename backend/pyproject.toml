@@ -1,0 +1,40 @@
+[project]
+name = "pcms-backend"
+version = "0.1.0"
+description = "PCMS campus maintenance ticketing API (FastAPI)"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+    "fastapi==0.143.3",
+    "uvicorn[standard]==0.54.0",
+    "sqlalchemy[asyncio]==2.1.5",
+    "asyncpg==0.32.0",
+    "alembic==1.20.0",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.0",
+    "argon2-cffi==25.1.0",
+    "pyotp==2.10.0",
+    "python-multipart==0.0.32",
+    "twilio==9.12.0",
+    "pillow==13.0.0",
+    "httpx==0.28.1",
+    "aiosmtplib==5.1.3",
+    "python-magic==0.4.27",
+    "pywebpush==2.5.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+filterwarnings = ["error::pytest.PytestUnraisableExceptionWarning"]

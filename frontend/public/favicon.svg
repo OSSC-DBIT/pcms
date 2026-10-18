@@ -1,4 +1,4 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <rect width="512" height="512" rx="112" fill="#0a0a0a"/>
-  <text x="256" y="330" font-family="ui-monospace, Menlo, monospace" font-size="240" font-weight="700" text-anchor="middle" fill="#ffffff">P</text>
+  <path fill="#ffffff" fill-rule="evenodd" d="M176 128h112a88 88 0 0 1 0 176h-56v80h-56z M232 184v64h56a32 32 0 0 0 0-64z"/>
 </svg>

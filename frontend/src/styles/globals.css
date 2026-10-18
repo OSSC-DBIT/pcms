@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Geist Variable", ui-sans-serif, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Geist Variable", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
   --color-bg: var(--c-bg);
@@ -10,83 +10,93 @@
   --color-line: var(--c-line);
   --color-subtle: var(--c-subtle);
   --color-surface: var(--c-surface);
-  --color-inverse: var(--c-inverse);
-  --color-inverse-fg: var(--c-inverse-fg);
+  --color-accent: var(--c-accent);
+  --color-accent-fg: var(--c-accent-fg);
+  --color-accent-soft: var(--c-accent-soft);
+  --color-ok: var(--c-ok);
+  --color-ok-soft: var(--c-ok-soft);
+  --color-warn: var(--c-warn);
+  --color-warn-soft: var(--c-warn-soft);
+  --color-bad: var(--c-bad);
+  --color-bad-soft: var(--c-bad-soft);
 
-  --radius-xs: 6px;
-  --radius-sm: 10px;
-  --radius-md: 14px;
-  --radius-lg: 20px;
-
-  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-spring: linear(0, 0.006, 0.025 2.8%, 0.101 6.1%, 0.539 18.9%, 0.721 25.3%, 0.849 31.5%, 0.937 38.1%, 0.968 41.8%, 0.991 45.7%, 1 53.3%, 1.006 59.2%, 1.007 67.7%, 1.001 80.1%, 0.999 100%);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
 }
 
-:root[data-theme="light"] {
-  --c-bg: #ffffff;
-  --c-fg: #0a0a0a;
-  --c-muted: #6f6f6f;
-  --c-line: #e6e6e6;
-  --c-subtle: #f5f5f5;
+:root, :root[data-theme="light"] {
+  --c-bg: #f6f7f9;
   --c-surface: #ffffff;
-  --c-inverse: #0a0a0a;
-  --c-inverse-fg: #ffffff;
+  --c-fg: #111827;
+  --c-muted: #5b6472;
+  --c-line: #e3e6eb;
+  --c-subtle: #eef0f3;
+  --c-accent: #1d4ed8;
+  --c-accent-fg: #ffffff;
+  --c-accent-soft: #e6edfd;
+  --c-ok: #15803d;
+  --c-ok-soft: #e5f5ea;
+  --c-warn: #b45309;
+  --c-warn-soft: #fdf1e3;
+  --c-bad: #b91c1c;
+  --c-bad-soft: #fde8e8;
   color-scheme: light;
 }
 
 :root[data-theme="dark"] {
-  --c-bg: #000000;
-  --c-fg: #f4f4f4;
-  --c-muted: #9a9a9a;
-  --c-line: #262626;
-  --c-subtle: #111111;
-  --c-surface: #0d0d0d;
-  --c-inverse: #f4f4f4;
-  --c-inverse-fg: #0a0a0a;
+  --c-bg: #0b0d10;
+  --c-surface: #14171c;
+  --c-fg: #eef0f3;
+  --c-muted: #9aa3b0;
+  --c-line: #262b33;
+  --c-subtle: #1b1f26;
+  --c-accent: #6b93ff;
+  --c-accent-fg: #0b0d10;
+  --c-accent-soft: #1b2440;
+  --c-ok: #4ade80;
+  --c-ok-soft: #12261a;
+  --c-warn: #fbbf24;
+  --c-warn-soft: #2a2010;
+  --c-bad: #f87171;
+  --c-bad-soft: #2d1414;
   color-scheme: dark;
 }
 
-html,
-body {
+html, body {
   background: var(--c-bg);
   color: var(--c-fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeLegibility;
-  overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
-  touch-action: pan-x pan-y;
 }
 
-* { touch-action: manipulation; }
+body { min-height: 100dvh; }
 
-button, a { touch-action: manipulation; }
-
-::selection { background: var(--c-fg); color: var(--c-bg); }
-
-:where(a, button, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--c-fg);
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--c-accent);
   outline-offset: 2px;
-  border-radius: var(--radius-xs);
 }
+
+/* 16px inputs stop iOS from zooming the page on focus. */
+input, textarea, select { font-size: 16px; }
 
 .token {
   font-family: var(--font-mono);
-  letter-spacing: -0.01em;
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
 }
 
 .safe-top { padding-top: env(safe-area-inset-top); }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
+dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
-  }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
 
-input, textarea, select { font-size: 16px; }
-
-.hairline-b { border-bottom: 1px solid var(--c-line); }
-.hairline-t { border-top: 1px solid var(--c-line); }
+@media print {
+  nav, header button, .no-print { display: none !important; }
+  body { background: white; }
+}

@@ -1,0 +1,93 @@
+import pytest
+from alembic import command
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import DBAPIError
+
+from app.db import sessionmaker
+from app.models import AuditEvent, Category
+from app.seed import seed_all
+from tests.conftest import run_alembic
+
+EXPECTED_LETTERS = {
+    "carpentry": "C", "plumbing": "P", "internet": "I", "phone": "T", "projector": "R",
+    "flooring": "F", "toilets": "W", "electrical": "E", "other": "O",
+}
+
+
+async def test_catalogs_shape_matches_frontend(client):
+    r = await client.get("/api/v1/catalogs")
+    assert r.status_code == 200
+    body = r.json()
+    cats = {c["code"]: c for c in body["categories"]}
+    assert {k: v["letter"] for k, v in cats.items()} == EXPECTED_LETTERS
+    assert set(cats["carpentry"]) == {"code", "letter", "nameEn", "nameHi", "subtypesEn", "subtypesHi", "active"}
+    assert cats["carpentry"]["subtypesEn"][0] == "Chair"
+    assert cats["carpentry"]["nameHi"] == "बढ़गीरी"
+    codes = [b["code"] for b in body["buildings"]]
+    assert codes[0] == "ADMIN" and {"CSE", "ISE", "ECE", "EEE", "LIB", "HOSTEL"} <= set(codes)
+    assert set(body["buildings"][0]) == {"code", "nameEn", "nameHi", "floors"}
+
+
+async def test_seed_is_idempotent_and_keeps_admin_edits():
+    async with sessionmaker()() as s:
+        cat = await s.scalar(select(Category).where(Category.code == "other"))
+        cat.name_en = "Miscellaneous"
+        await s.commit()
+    await seed_all()
+    await seed_all()
+    async with sessionmaker()() as s:
+        assert await s.scalar(select(func.count()).select_from(Category)) == 9
+        assert (await s.scalar(select(Category).where(Category.code == "other"))).name_en == "Miscellaneous"
+
+
+async def test_inactive_category_hidden(client):
+    async with sessionmaker()() as s:
+        await s.execute(text("UPDATE category SET active = false WHERE code = 'phone'"))
+        await s.commit()
+    r = await client.get("/api/v1/catalogs")
+    assert "phone" not in {c["code"] for c in r.json()["categories"]}
+
+
+async def test_duplicate_letter_rejected():
+    async with sessionmaker()() as s:
+        s.add(Category(code="glass", letter="C", name_en="Glass", name_hi="x", subtypes_en=[], subtypes_hi=[]))
+        with pytest.raises(DBAPIError):
+            await s.commit()
+
+
+async def test_audit_events_are_append_only():
+    async with sessionmaker()() as s:
+        s.add(AuditEvent(actor_label="t", action="x", entity_type="t", entity_id="1"))
+        await s.commit()
+    async with sessionmaker()() as s:
+        with pytest.raises(DBAPIError, match="append-only"):
+            await s.execute(text("UPDATE audit_event SET action = 'y'"))
+    async with sessionmaker()() as s:
+        with pytest.raises(DBAPIError, match="append-only"):
+            await s.execute(text("DELETE FROM audit_event"))
+
+
+async def test_upgrade_with_existing_users():
+    """Regression: 0002 added NOT NULL columns without defaults and failed on populated tables."""
+    await run_alembic(command.downgrade, "0001")
+    async with sessionmaker()() as s:
+        await s.execute(text(
+            "INSERT INTO app_user (id, employee_id, name, role, active, totp_enabled, recovery_code_hashes) "
+            "VALUES (gen_random_uuid(), 'DB9999', 'Existing', 'ossc', true, false, '{}')"
+        ))
+        await s.commit()
+    await run_alembic(command.upgrade, "head")
+    async with sessionmaker()() as s:
+        row = (await s.execute(text("SELECT must_change_password, version FROM app_user WHERE employee_id='DB9999'"))).one()
+    assert row == (True, 1)
+
+
+async def test_migrations_downgrade_and_upgrade():
+    await run_alembic(command.downgrade, "base")
+    async with sessionmaker()() as s:
+        n = await s.scalar(text("SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename <> 'alembic_version'"))
+        assert n == 0
+    await run_alembic(command.upgrade, "head")
+    await seed_all()
+    async with sessionmaker()() as s:
+        assert await s.scalar(select(func.count()).select_from(Category)) == 9
