@@ -69,7 +69,8 @@ function demoWorkers(): Worker[] {
   ]
 }
 
-const KEY = 'pcms.db.v1'
+const KEY = 'pcms.db.v2'
+try { localStorage.removeItem('pcms.db.v1') } catch { /* private mode */ }
 interface DB { tickets: Ticket[]; workers: Worker[] }
 
 function load(): DB {
