@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { Home as HomeIcon, Plus, Inbox, Settings, History as HistoryIcon } from 'lucide-react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { api } from './lib/api'
@@ -79,9 +79,8 @@ export default function App() {
   const loc = useLocation()
   return (
     <AuthCtx.Provider value={{ user, setUser }}>
-      <AnimatePresence initial={false} mode="popLayout">
-        <motion.div key={loc.pathname} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, position: 'absolute', inset: 0, pointerEvents: 'none' }} transition={{ duration: 0.16, ease: 'easeOut' }} className="min-h-dvh">
-          <Routes location={loc}>
+      <motion.div key={loc.pathname} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.14, ease: 'easeOut' }} className="min-h-dvh">
+        <Routes location={loc}>
             <Route path="/login" element={<Login />} />
             <Route path="/" element={<Protected><FacultyLayout><Home /></FacultyLayout></Protected>} />
             <Route path="/raise/*" element={<Protected><Raise /></Protected>} />
@@ -97,8 +96,7 @@ export default function App() {
             <Route path="/toal/admin" element={<Protected admin><ToalAdmin /></Protected>} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
-        </motion.div>
-      </AnimatePresence>
+      </motion.div>
     </AuthCtx.Provider>
   )
 }
