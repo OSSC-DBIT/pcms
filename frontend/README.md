@@ -1,8 +1,33 @@
 # PCMS frontend
 
-Campus maintenance ticketing PWA — faculty portal + admin portal at `/toal`.
+Campus maintenance ticketing PWA — faculty portal + admin portal at `/admin`.
 Design: strict grayscale (white / black / grey), light + dark, Geist Sans + Geist Mono,
-Apple-minimal, mobile-first, installable offline shell.
+native-app interaction model, installable, same UI on phone and laptop.
+
+## Roles (exactly as the plan defines)
+
+| Role | Portal | Sign in |
+|------|--------|---------|
+| Faculty | Report, track, verify own tickets | Employee ID + password |
+| Facility manager | `/admin` role-based copy: queue, triage, dispatch, close | + second factor (backend-enforced) |
+| Management | `/admin` role-based copy: cost decisions and reports only | + second factor |
+| Team OSSC | `/admin` full portal: users, catalogs, locations, templates, audit | + second factor |
+| Workers | No account — WhatsApp job with SMS/call fallback | — |
+
+The admin portal is one application with server-enforced permission sets; the UI shows
+only the screens a role may use.
+
+## Languages
+
+English, हिन्दी, ಕನ್ನಡ — switchable in Settings, persisted per device. Category and
+subtype catalogs carry all three names; adding a language means one dictionary file.
+
+## Data policy
+
+The app ships **empty** — no fabricated tickets, workers or history. The mock persists to
+`localStorage`; a deliberate *Load demo workers* control lives under
+`/admin/settings → Demo`, and *Reset all local data* clears it.
+
 
 ## Stack
 
@@ -18,11 +43,11 @@ Apple-minimal, mobile-first, installable offline shell.
 src/
   lib/types.ts    domain model mirroring plan §16 (ticket, token, assignment, proposal…)
   lib/api.ts      single API layer — mock today, real backend tomorrow
-  lib/i18n.tsx    English + हिन्दी, extensible locale dictionaries
+  lib/i18n.tsx    English / हिन्दी / ಕನ್ನಡ dictionaries
   lib/hooks.ts    theme, edge-swipe back, online status
   components/     design-system kit (Button, chips, fields, NavBar, TabBar…)
-  pages/faculty/  home, raise (6-step wizard), track, history, detail, receipt, settings
-  pages/toal/     queue, ticket ops (triage/dispatch/assess/propose/decide), workers, approvals, admin
+  pages/faculty/  home, report (6-step wizard), track, history, detail, receipt
+  pages/admin/    queue, ticket ops (triage/dispatch/assess/propose/decide), workers, approvals, administration
 ```
 
 ## Wiring the backend (one file)

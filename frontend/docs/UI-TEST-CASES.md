@@ -8,7 +8,7 @@ and an iPhone (Safari, added to home screen), plus desktop.
 |---|------|------|----------|
 | T01 | Identity | Sign in with unknown employee ID or short password | Inline error, no stack trace, form values kept, never reveals whether the ID exists beyond "incorrect" |
 | T02 | Identity | Suspended/expired session mid-form | Redirect to sign-in; after re-login the draft is still there and submission requires a deliberate resume |
-| T03 | Permissions | Faculty opens `/toal` directly by URL | Redirected to faculty home; API-level role check is the real gate (UI is only signposting) |
+| T03 | Permissions | Faculty opens `/admin` directly by URL | Redirected to faculty home; API-level role check is the real gate (UI is only signposting) |
 | T04 | Permissions | Facility manager views an `AwaitingApproval` ticket | No decision controls rendered; management sees decision controls and no dispatch controls |
 | T05 | Core journey | Raise carpentry ticket with photo on a phone | Server token shown only after commit; token stable across refresh; receipt printable |
 | T06 | Core journey | Submit twice rapidly / refresh after submit | Exactly one ticket — client request key replays the original receipt, never a second token |

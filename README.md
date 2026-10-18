@@ -3,7 +3,7 @@
 Ticketing PWA per the PCMS implementation plan v1.2 (16 Oct 2026).
 
 ```
-frontend/   React + TS PWA — faculty portal and /toal admin portal (UI complete, mock API)
+frontend/   React + TS PWA — faculty portal and /admin admin portal (UI complete, mock API)
 backend/    reserved — Django + PostgreSQL + outbox worker (Team OSSC)
 ```
 
