@@ -1,16 +1,8 @@
-import { motion } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import type { Ticket } from '../lib/types'
-import { StatusChip, FlagMark, spring } from './ui'
-import { category } from '../lib/api'
-import { useT, type TKey } from '../lib/i18n'
-
-const IMPACT_KEY: Record<Ticket['impact'], TKey> = {
-  safety: 'form.impact.safety',
-  class_interrupted: 'form.impact.class',
-  multiple_areas: 'form.impact.multiple',
-  routine: 'form.impact.routine',
-}
+import { StatusChip, FlagMark, Row } from './ui'
+import { category, localName, localSubtypes } from '../lib/api'
+import { useT } from '../lib/i18n'
 
 export function relTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime()
@@ -24,45 +16,42 @@ export function relTime(iso: string): string {
   return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
 }
 
-export function locationLine(t: Ticket): string {
+export function locationLine(t: Ticket, lang: string): string {
   const l = t.location
   if (l.outdoors) return l.landmark ? `Outdoors · ${l.landmark}` : 'Outdoors'
-  return `Block ${l.building} · ${l.floor === 'Ground' ? 'Ground' : `Floor ${l.floor}`} · ${l.room}`
+  const b = localName({ nameEn: `Block ${l.building}`, nameHi: `ब्लॉक ${l.building}`, nameKn: `ಬ್ಲಾಕ್ ${l.building}` }, lang)
+  return `${b} · ${l.floor === 'Ground' ? 'Ground' : `Floor ${l.floor}`} · ${l.room}`
 }
 
 export default function TicketRow({ ticket }: { ticket: Ticket }) {
   const nav = useNavigate()
-  const { t, lang } = useT()
+  const { lang } = useT()
   const cat = category(ticket.categoryCode)
+  const sub = ticket.subtype
+    ? (localSubtypes(cat, lang)[cat.subtypesEn.indexOf(ticket.subtype)] ?? ticket.subtype)
+    : undefined
   return (
-    <motion.button
-      whileTap={{ scale: 0.985 }}
-      transition={spring}
-      onClick={() => nav(`/t/${ticket.id}`)}
-      className="hairline-b block w-full px-5 py-4 text-left"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-medium tracking-[-0.01em]">{ticket.title}</p>
-          <p className="token mt-1 text-[12.5px] text-muted">
-            {ticket.token}
-            <span className="mx-1.5 font-sans">·</span>
-            {lang === 'hi' ? cat.nameHi : cat.nameEn}
-            {ticket.subtype && <span className="font-sans"> · {ticket.subtype}</span>}
-          </p>
-          <p className="mt-1 truncate text-[13px] text-muted">{locationLine(ticket)}</p>
-        </div>
-        <div className="flex shrink-0 flex-col items-end gap-2">
+    <Row
+      title={ticket.title}
+      detail={
+        <span className="flex flex-wrap items-center gap-x-1.5">
+          <span className="token">{ticket.token}</span>
+          <span aria-hidden>·</span>
+          <span>{localName(cat, lang)}{sub ? ` · ${sub}` : ''}</span>
+          <span aria-hidden>·</span>
+          <span>{locationLine(ticket, lang)}</span>
+        </span>
+      }
+      right={
+        <span className="flex shrink-0 flex-col items-end gap-1.5">
           <StatusChip status={ticket.status} />
-          <span className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5 text-[11.5px] text-muted">
             {ticket.flag && <FlagMark flag={ticket.flag} />}
-            <span className="text-[12px] text-muted">{relTime(ticket.createdAt)}</span>
+            {relTime(ticket.createdAt)}
           </span>
-        </div>
-      </div>
-      {ticket.impact === 'safety' && (
-        <p className="mt-2 inline-block rounded border border-fg/30 px-2 py-0.5 text-[12px] font-medium">{t(IMPACT_KEY.safety)}</p>
-      )}
-    </motion.button>
+        </span>
+      }
+      onClick={() => nav(`/t/${ticket.id}`)}
+    />
   )
 }

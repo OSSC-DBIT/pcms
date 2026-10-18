@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
+import { useNavigate } from 'react-router-dom'
 import { Button, spring } from '../components/ui'
 import { api, HttpError } from '../lib/api'
 import { useT } from '../lib/i18n'
 import { useAuth } from '../App'
-import { useNavigate } from 'react-router-dom'
 
 export default function Login() {
   const { t } = useT()
@@ -22,7 +22,7 @@ export default function Login() {
     try {
       const user = await api.signIn(employeeId, password)
       setUser(user)
-      nav(user.role === 'faculty' ? '/' : '/toal', { replace: true })
+      nav(user.role === 'faculty' ? '/' : '/admin', { replace: true })
     } catch (err) {
       setError(err instanceof HttpError ? err.message : 'Something went wrong. Try again.')
     } finally {
@@ -31,34 +31,40 @@ export default function Login() {
   }
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-lg flex-col justify-center px-8">
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, stiffness: 300 }}>
-        <p className="token text-[13px] tracking-[0.08em] text-muted">DBIT</p>
-        <h1 className="mt-1 text-[34px] font-semibold tracking-[-0.03em]">{t('app.name')}</h1>
-        <p className="mt-1 text-[15px] text-muted">{t('app.tagline')}</p>
-
-        <form onSubmit={submit} className="mt-10 space-y-4">
+    <main className="mx-auto flex min-h-dvh max-w-lg flex-col justify-end px-6 pb-14 pt-16 sm:justify-center sm:pb-20">
+      <motion.div initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} transition={{ ...spring, stiffness: 280 }}>
+        <div className="mb-10 flex items-center gap-3.5">
+          <span aria-hidden className="flex h-14 w-14 items-center justify-center rounded-[16px] bg-inverse text-[24px] font-bold text-inverse-fg shadow-[0_4px_16px_rgba(0,0,0,0.18)]">
+            <span className="token">P</span>
+          </span>
           <div>
-            <label htmlFor="emp" className="mb-2 block text-[13px] font-medium text-muted">{t('login.employeeId')}</label>
-            <input id="emp" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} autoComplete="username"
-              inputMode="text" required
-              className="w-full rounded-md border border-line bg-surface px-4 py-3.5 text-[16px] focus:border-fg/40" />
+            <h1 className="text-[26px] font-bold leading-none tracking-[-0.03em]">{t('app.name')}</h1>
+            <p className="mt-1.5 text-[14px] text-muted">{t('app.tagline')}</p>
           </div>
-          <div>
-            <label htmlFor="pw" className="mb-2 block text-[13px] font-medium text-muted">{t('login.password')}</label>
-            <input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required
-              className="w-full rounded-md border border-line bg-surface px-4 py-3.5 text-[16px] focus:border-fg/40" />
+        </div>
+
+        <form onSubmit={submit} className="space-y-3.5">
+          <div className="overflow-hidden rounded-[14px] bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.05)]">
+            <div className="flex items-center gap-3 border-b border-line px-4">
+              <label htmlFor="emp" className="w-28 shrink-0 text-[14px] font-semibold text-muted">{t('login.employeeId')}</label>
+              <input id="emp" value={employeeId} onChange={(e) => setEmployeeId(e.target.value)} autoComplete="username" required
+                className="h-[54px] w-full bg-transparent text-[16px] outline-none placeholder:text-muted/50" placeholder="DB0000" />
+            </div>
+            <div className="flex items-center gap-3">
+              <label htmlFor="pw" className="w-28 shrink-0 px-0 text-[14px] font-semibold text-muted">{t('login.password')}</label>
+              <input id="pw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" required
+                className="h-[54px] w-full bg-transparent pr-4 text-[16px] outline-none placeholder:text-muted/50" placeholder="••••••••" />
+            </div>
           </div>
           {error && (
-            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} role="alert"
-              className="rounded-md border border-fg/25 px-4 py-3 text-[14px] leading-5">
+            <motion.p initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} role="alert"
+              className="rounded-[13px] border border-fg/25 bg-surface px-4 py-3 text-[13.5px] font-medium leading-5">
               {error}
             </motion.p>
           )}
           <Button type="submit" loading={busy}>{t('login.submit')}</Button>
         </form>
-        <p className="mt-5 text-[13px] leading-5 text-muted">{t('login.help')}</p>
-        {!api.mock && <p className="token mt-2 text-[11px] text-muted/70">api: {import.meta.env.VITE_API_BASE_URL}</p>}
+        <p className="pretty mx-auto mt-6 max-w-[36ch] text-center text-[12.5px] leading-5 text-muted">{t('login.help')}</p>
       </motion.div>
     </main>
   )

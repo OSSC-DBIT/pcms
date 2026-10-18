@@ -23,24 +23,31 @@ export class HttpError extends Error implements ApiError {
 }
 
 export const CATEGORIES: Category[] = [
-  { code: 'carpentry', letter: 'C', nameEn: 'Carpentry', nameHi: 'बढ़गीरी', subtypesEn: ['Chair', 'Desk', 'Door', 'Window', 'Cupboard', 'Other'], subtypesHi: ['कुर्सी', 'मेज़', 'दरवाज़ा', 'खिड़की', 'अलमारी', 'अन्य'], active: true },
-  { code: 'plumbing', letter: 'P', nameEn: 'Plumbing', nameHi: 'प्लंबिंग', subtypesEn: ['Tap', 'Drain', 'Leak', 'Tank', 'Other'], subtypesHi: ['नल', 'नाली', 'लीक', 'टैंक', 'अन्य'], active: true },
-  { code: 'internet', letter: 'I', nameEn: 'Internet', nameHi: 'इंटरनेट', subtypesEn: ['Wi-Fi', 'LAN port', 'Router', 'Other'], subtypesHi: ['वाई-फ़ाई', 'LAN पोर्ट', 'राउटर', 'अन्य'], active: true },
-  { code: 'phone', letter: 'T', nameEn: 'Phone', nameHi: 'फ़ोन', subtypesEn: ['Extension', 'Line', 'Other'], subtypesHi: ['एक्सटेंशन', 'लाइन', 'अन्य'], active: true },
-  { code: 'projector', letter: 'R', nameEn: 'Projector', nameHi: 'प्रोजेक्टर', subtypesEn: ['Lamp', 'Remote', 'Screen', 'HDMI', 'Other'], subtypesHi: ['लैंप', 'रीमोट', 'स्क्रीन', 'HDMI', 'अन्य'], active: true },
-  { code: 'flooring', letter: 'F', nameEn: 'Flooring', nameHi: 'फ़र्श', subtypesEn: ['Tile', 'Crack', 'Other'], subtypesHi: ['टाइल', 'दरार', 'अन्य'], active: true },
-  { code: 'toilets', letter: 'W', nameEn: 'Toilets', nameHi: 'शौचालय', subtypesEn: ['Flush', 'Tap', 'Blockage', 'Other'], subtypesHi: ['फ़्लश', 'नल', 'जाम', 'अन्य'], active: true },
-  { code: 'electrical', letter: 'E', nameEn: 'Electrical', nameHi: 'बिजली', subtypesEn: ['Fan', 'Light', 'Socket', 'Switchboard', 'Other'], subtypesHi: ['पंखा', 'लाइट', 'सॉकेट', 'स्विचबोर्ड', 'अन्य'], active: true },
-  { code: 'other', letter: 'O', nameEn: 'Other', nameHi: 'अन्य', subtypesEn: ['Other'], subtypesHi: ['अन्य'], active: true },
+  { code: 'carpentry', letter: 'C', nameEn: 'Carpentry', nameHi: 'बढ़गीरी', nameKn: 'ಬಡಗಲಿ ಕೆಲಸ', subtypesEn: ['Chair', 'Desk', 'Door', 'Window', 'Cupboard', 'Other'], subtypesHi: ['कुर्सी', 'मेज़', 'दरवाज़ा', 'खिड़की', 'अलमारी', 'अन्य'], subtypesKn: ['ಕುರ್ಚಿ', 'ಮೇಜು', 'ಬಾಗಿಲು', 'ಕಿಟಕಿ', 'ಅಲ್ಮಾರಿ', 'ಇತರೆ'], active: true },
+  { code: 'plumbing', letter: 'P', nameEn: 'Plumbing', nameHi: 'प्लंबिंग', nameKn: 'ಕೊಳಾಯಿ ಕೆಲಸ', subtypesEn: ['Tap', 'Drain', 'Leak', 'Tank', 'Other'], subtypesHi: ['नल', 'नाली', 'लीक', 'टैंक', 'अन्य'], subtypesKn: ['ನಳಿಕೆ', 'ಒಳಚರಂಡಿ', 'ಸೋರಿಕೆ', 'ಟ್ಯಾಂಕ್', 'ಇತರೆ'], active: true },
+  { code: 'internet', letter: 'I', nameEn: 'Internet', nameHi: 'इंटरनेट', nameKn: 'ಇಂಟರ್ನೆಟ್', subtypesEn: ['Wi-Fi', 'LAN port', 'Router', 'Other'], subtypesHi: ['वाई-फ़ाई', 'LAN पोर्ट', 'राउटर', 'अन्य'], subtypesKn: ['ವೈ-ಫೈ', 'LAN ಪೋರ್ಟ್', 'ರೌಟರ್', 'ಇತರೆ'], active: true },
+  { code: 'phone', letter: 'T', nameEn: 'Phone', nameHi: 'फ़ोन', nameKn: 'ದೂರವಾಣಿ', subtypesEn: ['Extension', 'Line', 'Other'], subtypesHi: ['एक्सटेंशन', 'लाइन', 'अन्य'], subtypesKn: ['ಎಕ್ಸ್ಟೆನ್ಷನ್', 'ಲೈನ್', 'ಇತರೆ'], active: true },
+  { code: 'projector', letter: 'R', nameEn: 'Projector', nameHi: 'प्रोजेक्टर', nameKn: 'ಪ್ರೊಜೆಕ್ಟರ್', subtypesEn: ['Lamp', 'Remote', 'Screen', 'HDMI', 'Other'], subtypesHi: ['लैंप', 'रीमोट', 'स्क्रीन', 'HDMI', 'अन्य'], subtypesKn: ['ಲ್ಯಾಂಪ್', 'ರಿಮೋಟ್', 'ತೆರೆ', 'HDMI', 'ಇತರೆ'], active: true },
+  { code: 'flooring', letter: 'F', nameEn: 'Flooring', nameHi: 'फ़र्श', nameKn: 'ನೆಲ ಹಾಸು', subtypesEn: ['Tile', 'Crack', 'Other'], subtypesHi: ['टाइल', 'दरार', 'अन्य'], subtypesKn: ['ಟೈಲ್', 'ಬಿರುಕು', 'ಇತರೆ'], active: true },
+  { code: 'toilets', letter: 'W', nameEn: 'Toilets', nameHi: 'शौचालय', nameKn: 'ಶೌಚಾಲಯ', subtypesEn: ['Flush', 'Tap', 'Blockage', 'Other'], subtypesHi: ['फ़्लश', 'नल', 'जाम', 'अन्य'], subtypesKn: ['ಫ್ಲಶ್', 'ನಳಿಕೆ', 'ಅಡ್ಡಿ', 'ಇತರೆ'], active: true },
+  { code: 'electrical', letter: 'E', nameEn: 'Electrical', nameHi: 'बिजली', nameKn: 'ವಿದ್ಯುತ್', subtypesEn: ['Fan', 'Light', 'Socket', 'Switchboard', 'Other'], subtypesHi: ['पंखा', 'लाइट', 'सॉकेट', 'स्विचबोर्ड', 'अन्य'], subtypesKn: ['ಪಂಖ', 'ಬೆಳಕು', 'ಸಾಕೆಟ್', 'ಸ್ವಿಚ್‌ಬೋರ್ಡ್', 'ಇತರೆ'], active: true },
+  { code: 'other', letter: 'O', nameEn: 'Other', nameHi: 'अन्य', nameKn: 'ಇತರೆ', subtypesEn: ['Other'], subtypesHi: ['अन्य'], subtypesKn: ['ಇತರೆ'], active: true },
 ]
 
-export const BUILDINGS: { code: string; nameEn: string; nameHi: string; floors: string[] }[] = [
-  { code: 'A', nameEn: 'Block A', nameHi: 'ब्लॉक A', floors: ['Ground', '1', '2', '3'] },
-  { code: 'B', nameEn: 'Block B', nameHi: 'ब्लॉक B', floors: ['Ground', '1', '2'] },
-  { code: 'C', nameEn: 'Block C', nameHi: 'ब्लॉक C', floors: ['Ground', '1', '2', '3', '4'] },
-  { code: 'Lab', nameEn: 'Lab Complex', nameHi: 'प्रयोगशाला', floors: ['Ground', '1'] },
-  { code: 'Lib', nameEn: 'Library', nameHi: 'पुस्तकालय', floors: ['Ground', '1', '2'] },
+export const BUILDINGS: { code: string; nameEn: string; nameHi: string; nameKn: string; floors: string[] }[] = [
+  { code: 'A', nameEn: 'Block A', nameHi: 'ब्लॉक A', nameKn: 'ಬ್ಲಾಕ್ A', floors: ['Ground', '1', '2', '3'] },
+  { code: 'B', nameEn: 'Block B', nameHi: 'ब्लॉक B', nameKn: 'ಬ್ಲಾಕ್ B', floors: ['Ground', '1', '2'] },
+  { code: 'C', nameEn: 'Block C', nameHi: 'ब्लॉक C', nameKn: 'ಬ್ಲಾಕ್ C', floors: ['Ground', '1', '2', '3', '4'] },
+  { code: 'Lab', nameEn: 'Lab Complex', nameHi: 'प्रयोगशाला', nameKn: 'ಪ್ರಯೋಗಾಲಯ', floors: ['Ground', '1'] },
+  { code: 'Lib', nameEn: 'Library', nameHi: 'पुस्तकालय', nameKn: 'ಗ್ರಂಥಾಲಯ', floors: ['Ground', '1', '2'] },
 ]
+
+export function localName(item: { nameEn: string; nameHi: string; nameKn: string }, lang: string): string {
+  return lang === 'hi' ? item.nameHi : lang === 'kn' ? item.nameKn : item.nameEn
+}
+export function localSubtypes(cat: Category, lang: string): string[] {
+  return lang === 'hi' ? cat.subtypesHi : lang === 'kn' ? cat.subtypesKn : cat.subtypesEn
+}
 
 const IMPACT_TARGET: Record<Ticket['impact'], { priority: Priority; sla: string }> = {
   safety: { priority: 'P1', sla: '30 min' },
@@ -49,56 +56,16 @@ const IMPACT_TARGET: Record<Ticket['impact'], { priority: Priority; sla: string 
   routine: { priority: 'P4', sla: '5 working days' },
 }
 
-function seedWorkers(): Worker[] {
-  return [
-    { id: 'w1', name: 'Ramesh Kulkarni', phoneMasked: '+91 ••••• 2214', trades: ['carpentry'], area: 'Blocks A, B', language: 'hi', mode: 'whatsapp', kind: 'employee', active: true, workload: 2, lastVerified: '2026-10-01' },
-    { id: 'w2', name: 'Suresh Pawar', phoneMasked: '+91 ••••• 7781', trades: ['plumbing', 'toilets'], area: 'All campus', language: 'hi', mode: 'sms', kind: 'employee', active: true, workload: 1, lastVerified: '2026-10-05' },
-    { id: 'w3', name: 'Nilesh (V: SparkNet)', phoneMasked: '+91 ••••• 4092', trades: ['internet', 'phone'], area: 'Blocks A, C, Lab', language: 'en', mode: 'whatsapp', kind: 'vendor', active: true, workload: 0, lastVerified: '2026-09-20' },
-    { id: 'w4', name: 'Amit Jadhav', phoneMasked: '+91 ••••• 3157', trades: ['electrical'], area: 'All campus', language: 'hi', mode: 'call', kind: 'employee', active: true, workload: 3, lastVerified: '2026-10-12' },
-    { id: 'w5', name: 'Ganesh More', phoneMasked: '+91 ••••• 8860', trades: ['projector', 'electrical'], area: 'Lab Complex', language: 'en', mode: 'whatsapp', kind: 'employee', active: false, workload: 0, lastVerified: '2026-08-01' },
-  ]
-}
+// The mock database starts empty — no fabricated tickets, workers or history.
+// `demoSeed()` exists only for walkthroughs and is triggered deliberately from
+// the admin portal; it is clearly labelled demo data.
 
-function seedTickets(): Ticket[] {
-  const t = (partial: Partial<Ticket>): Ticket => ({
-    id: uid(), token: 'DB26P0001', reporterId: 'u-fac-1', reporterName: 'S. Deshmukh',
-    originalCategoryCode: 'plumbing', categoryCode: 'plumbing', location: { building: 'B', floor: '1', room: '104' },
-    title: '', description: '', impact: 'routine', priority: 'P4', assessments: [], status: 'Submitted',
-    version: 1, createdAt: now(), updatedAt: now(), assignments: [], attachments: [], events: [], comments: [],
-    ...partial,
-  })
+function demoWorkers(): Worker[] {
   return [
-    t({ token: 'DB26C0123', categoryCode: 'carpentry', originalCategoryCode: 'carpentry', subtype: 'Chair', title: 'Broken chair in lecture room', description: 'Two chairs near the third row have broken backs. Students are squeezing into fewer seats.', impact: 'class_interrupted', priority: 'P2', status: 'InProgress', flag: 'I', assessments: ['simple'], location: { building: 'A', floor: '2', room: '203' }, createdAt: '2026-10-16T09:12:00+05:30', nextUpdateDue: '2026-10-17T15:00:00+05:30',
-      assignments: [{ id: uid(), workerId: 'w1', workerName: 'Ramesh Kulkarni', lead: true, assignedAt: '2026-10-16T10:05:00+05:30', acceptedAt: '2026-10-16T10:21:00+05:30', startedAt: '2026-10-17T09:40:00+05:30', channel: 'whatsapp', delivery: 'read', accepted: true }],
-      events: [
-        { id: uid(), at: '2026-10-16T09:12:00+05:30', actor: 'S. Deshmukh', action: 'Submitted' },
-        { id: uid(), at: '2026-10-16T09:58:00+05:30', actor: 'Facilities manager', action: 'Triaged', detail: 'Priority P2 · flag I' },
-        { id: uid(), at: '2026-10-16T10:05:00+05:30', actor: 'Facilities manager', action: 'Assigned', detail: 'Ramesh Kulkarni via WhatsApp' },
-        { id: uid(), at: '2026-10-16T10:21:00+05:30', actor: 'Ramesh Kulkarni', action: 'Accepted', detail: 'WhatsApp reply button' },
-      ] }),
-    t({ token: 'DB26E0087', categoryCode: 'electrical', originalCategoryCode: 'electrical', subtype: 'Fan', title: 'Ceiling fan making noise', description: 'Fan near the last row wobbles and makes a grinding sound. It still runs.', impact: 'routine', priority: 'P4', status: 'Triaged', location: { building: 'C', floor: '1', room: '112' }, createdAt: '2026-10-17T08:30:00+05:30', nextUpdateDue: '2026-10-19T08:30:00+05:30' }),
-    t({ token: 'DB26R0011', categoryCode: 'projector', originalCategoryCode: 'projector', subtype: 'HDMI', title: 'Lab projector has no signal', description: 'HDMI port loose; laptop is detected but the image flickers off within a minute. Practical session is blocked.', impact: 'class_interrupted', priority: 'P2', status: 'AwaitingApproval', flag: 'C', assessments: ['parts', 'expenditure'], location: { building: 'Lab', floor: '1', room: 'L-102' }, createdAt: '2026-10-15T11:00:00+05:30', nextUpdateDue: '2026-10-17T11:00:00+05:30',
-      assignments: [{ id: uid(), workerId: 'w4', workerName: 'Amit Jadhav', lead: true, assignedAt: '2026-10-15T13:20:00+05:30', acceptedAt: '2026-10-15T13:44:00+05:30', channel: 'call', delivery: 'read', accepted: true }],
-      proposal: { id: uid(), version: 1, lines: [{ label: 'HDMI port assembly', paise: 185000 }, { label: 'Labour', paise: 50000 }], totalPaise: 235000, requestedDate: '2026-10-20', state: 'pending' },
-      events: [
-        { id: uid(), at: '2026-10-15T11:00:00+05:30', actor: 'P. Joshi', action: 'Submitted' },
-        { id: uid(), at: '2026-10-15T12:40:00+05:30', actor: 'Facilities manager', action: 'Triaged', detail: 'Priority P2 · flag C' },
-        { id: uid(), at: '2026-10-15T13:44:00+05:30', actor: 'Amit Jadhav', action: 'Assessment recorded', detail: 'Parts and expenditure needed' },
-        { id: uid(), at: '2026-10-16T10:15:00+05:30', actor: 'Facilities manager', action: 'Cost proposal sent for approval', detail: '₹2,350.00' },
-      ] }),
-    t({ token: 'DB26W0034', categoryCode: 'toilets', originalCategoryCode: 'toilets', subtype: 'Blockage', title: 'Washroom drain overflowing', description: 'Water pooling outside the ground-floor washroom. Slip hazard near the stairway.', impact: 'safety', priority: 'P1', status: 'Resolved', flag: 'I', assessments: ['workforce'], location: { building: 'A', floor: 'Ground', room: 'W-01' }, createdAt: '2026-10-14T07:55:00+05:30', verifiedByReporter: false,
-      events: [
-        { id: uid(), at: '2026-10-14T07:55:00+05:30', actor: 'K. Bhosale', action: 'Submitted' },
-        { id: uid(), at: '2026-10-14T08:04:00+05:30', actor: 'Facilities manager', action: 'Triaged', detail: 'Priority P1 · flag I' },
-        { id: uid(), at: '2026-10-14T10:30:00+05:30', actor: 'Suresh Pawar', action: 'Repair completed', detail: 'Drain cleared, area dried' },
-        { id: uid(), at: '2026-10-14T10:32:00+05:30', actor: 'Facilities manager', action: 'Resolved', detail: 'Awaiting reporter verification' },
-      ] }),
-    t({ token: 'DB26I0052', categoryCode: 'internet', originalCategoryCode: 'internet', subtype: 'Wi-Fi', title: 'No Wi-Fi on second floor Block C', description: 'Access point near staff room shows connected but no internet since Monday morning.', impact: 'multiple_areas', priority: 'P3', status: 'Closed', verifiedByReporter: true, createdAt: '2026-10-08T09:00:00+05:30',
-      events: [
-        { id: uid(), at: '2026-10-08T09:00:00+05:30', actor: 'A. Shinde', action: 'Submitted' },
-        { id: uid(), at: '2026-10-08T16:20:00+05:30', actor: 'Nilesh (V: SparkNet)', action: 'Repair completed', detail: 'Access point rebooted and re-tuned' },
-        { id: uid(), at: '2026-10-09T09:10:00+05:30', actor: 'A. Shinde', action: 'Verified and closed' },
-      ] }),
+    { id: 'w1', name: 'Carpenter — worker 1', phoneMasked: '+91 ••••• 2214', trades: ['carpentry'], area: 'Blocks A, B', language: 'hi', mode: 'whatsapp', kind: 'employee', active: true, workload: 0, lastVerified: '2026-10-01' },
+    { id: 'w2', name: 'Plumber — worker 2', phoneMasked: '+91 ••••• 7781', trades: ['plumbing', 'toilets'], area: 'All campus', language: 'hi', mode: 'sms', kind: 'employee', active: true, workload: 0, lastVerified: '2026-10-05' },
+    { id: 'w3', name: 'Network vendor', phoneMasked: '+91 ••••• 4092', trades: ['internet', 'phone'], area: 'Blocks A, C, Lab', language: 'en', mode: 'whatsapp', kind: 'vendor', active: true, workload: 0, lastVerified: '2026-09-20' },
+    { id: 'w4', name: 'Electrician — worker 4', phoneMasked: '+91 ••••• 3157', trades: ['electrical', 'projector'], area: 'All campus', language: 'kn', mode: 'call', kind: 'employee', active: true, workload: 0, lastVerified: '2026-10-12' },
   ]
 }
 
@@ -107,12 +74,20 @@ interface DB { tickets: Ticket[]; workers: Worker[] }
 
 function load(): DB {
   const raw = localStorage.getItem(KEY)
-  if (raw) { try { return JSON.parse(raw) as DB } catch { /* reseed */ } }
-  const db: DB = { tickets: seedTickets(), workers: seedWorkers() }
+  if (raw) { try { return JSON.parse(raw) as DB } catch { /* reinit */ } }
+  const db: DB = { tickets: [], workers: [] }
   localStorage.setItem(KEY, JSON.stringify(db))
   return db
 }
 function save(db: DB) { localStorage.setItem(KEY, JSON.stringify(db)) }
+
+export function demoSeed() {
+  const db = load()
+  db.workers = demoWorkers()
+  save(db)
+}
+export function demoReset() { localStorage.removeItem(KEY) }
+export function hasDemoData(): boolean { const db = load(); return db.workers.length > 0 || db.tickets.length > 0 }
 
 function nextToken(db: DB, categoryCode: string): string {
   const cat = CATEGORIES.find((c) => c.code === categoryCode) ?? CATEGORIES[8]

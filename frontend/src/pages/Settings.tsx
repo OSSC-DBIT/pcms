@@ -1,10 +1,10 @@
-import { Moon, Sun, Monitor, LogOut } from 'lucide-react'
-import { PageTitle, Segmented, Fade } from '../components/ui'
-import { useTheme } from '../lib/hooks'
+import { LogOut, Moon, Sun, Monitor, Shield } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Button, Card, Fade, LargeHeader, Row, SectionLabel, Segmented } from '../components/ui'
+import { useTheme, type Theme } from '../lib/hooks'
 import { LANGS, useT } from '../lib/i18n'
 import { api } from '../lib/api'
 import { useAuth } from '../App'
-import { useNavigate } from 'react-router-dom'
 
 export default function Settings() {
   const { t, lang, setLang } = useT()
@@ -15,42 +15,39 @@ export default function Settings() {
   const isAdmin = user && user.role !== 'faculty'
 
   return (
-    <Fade>
-      <PageTitle title={t('nav.settings')} />
-      <section className="px-5">
-        <p className="mb-2 text-[13px] font-medium text-muted">{t('settings.theme')}</p>
-        <Segmented label="theme" value={theme} onChange={setTheme} options={[
+    <Fade className="mx-auto min-h-dvh max-w-lg pb-32">
+      <LargeHeader title={t('nav.settings')} />
+
+      <SectionLabel>{t('settings.theme')}</SectionLabel>
+      <div className="px-4">
+        <Segmented label="theme" value={theme} onChange={(v: Theme) => setTheme(v)} options={[
           { value: 'light', label: <span className="flex items-center justify-center gap-1.5"><Sun size={14} />{t('settings.theme.light')}</span> },
           { value: 'dark', label: <span className="flex items-center justify-center gap-1.5"><Moon size={14} />{t('settings.theme.dark')}</span> },
           { value: 'system', label: <span className="flex items-center justify-center gap-1.5"><Monitor size={14} />{t('settings.theme.system')}</span> },
         ]} />
-      </section>
-      <section className="mt-7 px-5">
-        <p className="mb-2 text-[13px] font-medium text-muted">{t('settings.language')}</p>
+      </div>
+
+      <SectionLabel>{t('settings.language')}</SectionLabel>
+      <div className="px-4">
         <Segmented label="lang" value={lang} onChange={setLang} options={LANGS.map((l) => ({ value: l.code, label: l.label }))} />
-      </section>
-      <section className="mt-9 px-5">
+      </div>
+
+      <SectionLabel>{t('settings.account')}</SectionLabel>
+      <Card className="inset-hr mx-4">
         {user && (
-          <div className="hairline-b flex items-center justify-between py-3">
-            <div>
-              <p className="text-[14.5px] font-medium">{user.name}</p>
-              <p className="token text-[12.5px] text-muted">{user.employeeId} · {user.role.replace('_', ' ')}</p>
-            </div>
-            {isAdmin && (
-              <button onClick={() => nav('/toal')} className="token rounded-full border border-line px-3.5 py-1.5 text-[12.5px] font-medium">
-                TOAL
-              </button>
-            )}
-          </div>
+          <Row title={user.name} detail={<span className="token">{user.employeeId} · {user.role.replace('_', ' ')}</span>} chevron={false} />
         )}
-        <button
-          onClick={async () => { await api.signOut(); setUser(null); nav('/login', { replace: true }) }}
-          className="mt-5 flex w-full items-center justify-center gap-2 rounded-md border border-line py-3.5 text-[14.5px] font-medium active:bg-subtle"
-        >
-          <LogOut size={15} /> Sign out
-        </button>
-        <p className="mt-6 text-center text-[12px] text-muted/70">Private drafts are cleared on sign out.</p>
-      </section>
+        {isAdmin && (
+          <Row title={t('settings.admin')} right={<Shield size={17} className="text-muted" />} onClick={() => nav('/admin')} />
+        )}
+      </Card>
+
+      <div className="px-4 pt-8">
+        <Button variant="secondary" onClick={async () => { await api.signOut(); setUser(null); nav('/login', { replace: true }) }}>
+          <LogOut size={15} /> {t('settings.signout')}
+        </Button>
+        <p className="mt-4 text-center text-[11.5px] text-muted/70">{t('settings.draftNote')}</p>
+      </div>
     </Fade>
   )
 }

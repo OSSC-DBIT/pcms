@@ -135,8 +135,8 @@ export interface Proposal {
   reviewDate?: string
 }
 
-export interface Category { code: string; letter: string; nameEn: string; nameHi: string; subtypesEn: string[]; subtypesHi: string[]; active: boolean }
-export interface Building { code: string; nameEn: string; nameHi: string; floors: string[] }
+export interface Category { code: string; letter: string; nameEn: string; nameHi: string; nameKn: string; subtypesEn: string[]; subtypesHi: string[]; subtypesKn: string[]; active: boolean }
+export interface Building { code: string; nameEn: string; nameHi: string; nameKn: string; floors: string[] }
 
 export interface Draft {
   key: string
