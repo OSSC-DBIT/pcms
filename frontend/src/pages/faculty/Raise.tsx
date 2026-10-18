@@ -344,7 +344,7 @@ function StepReview() {
 }
 
 async function submitAsFaculty(draft: Draft, requestKey: string) {
-  const user = (await import('../../lib/api')).api.restore()
+  const user = api.restore()
   if (!user) throw new HttpError('unauthorized', 'Sign in again to send this report. Your draft is kept.')
   return api.createTicket(user, { ...draft, title: draft.title, description: draft.description }, requestKey)
 }
