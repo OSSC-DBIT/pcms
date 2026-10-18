@@ -13,11 +13,9 @@
     <script>
       ;(() => {
         const saved = localStorage.getItem('pcms.theme')
-        const dark = saved ? saved === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches
+        const dark = saved === 'dark' || (saved !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)
         document.documentElement.dataset.theme = dark ? 'dark' : 'light'
-        const dir = localStorage.getItem('pcms.lang') === 'hi' ? 'rtl-off' : 'ltr'
         document.documentElement.lang = localStorage.getItem('pcms.lang') || 'en'
-        void dir
       })()
     </script>
   </head>

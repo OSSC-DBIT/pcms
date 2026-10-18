@@ -264,7 +264,7 @@ export const api = {
     if (!t?.proposal) throw new HttpError('not_found', 'No proposal on this ticket.')
     const proposal: Proposal = { ...t.proposal, state: kind, decidedBy: actor, decidedAt: now(), ...opts }
     const status: Status = kind === 'approved' ? 'InProgress' : 'OnHold'
-    return this.patchTicket(id, { proposal, status }, [ev(`Approval ${kind}`, 'me', opts.reason ?? opts.conditions ?? formatPaise(proposal.totalPaise))], actor)
+    return this.patchTicket(id, { proposal, status }, [ev(kind === 'approved' ? 'Cost approved' : `Decision: ${kind}`, 'me', kind === 'approved' ? `Ceiling ${formatPaise(opts.ceilingPaise ?? proposal.totalPaise)}` : (opts.reason ?? formatPaise(proposal.totalPaise)))], actor)
   },
 
   // ——— workers ———

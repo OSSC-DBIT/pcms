@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronRight, Users, Wallet, SlidersHorizontal } from 'lucide-react'
-import { api, category, labelStatus } from '../../lib/api'
+import { api, category } from '../../lib/api'
 import { useAuth } from '../../App'
 import { useT } from '../../lib/i18n'
 import { Button, Fade, FlagMark, Segmented, Skeleton, StatusChip } from '../../components/ui'
@@ -136,7 +136,7 @@ export default function ToalHome() {
       )}
 
       <footer className="px-5 py-8 text-[11.5px] text-muted/70">
-        Targets — P1: 15 min triage · P2: 1 working hr · P3: 1 working day. Gross age always visible; holds do not hide it. {labelStatus('Submitted')}…
+        Targets — P1: 15 min triage · P2: 1 working hr · P3: 1 working day. Gross age always visible; holds do not hide it.
       </footer>
       <div className="h-20" />
       <nav className="safe-bottom fixed inset-x-0 bottom-0 border-t border-line bg-bg/92 backdrop-blur-xl">

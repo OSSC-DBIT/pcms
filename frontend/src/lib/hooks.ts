@@ -10,7 +10,7 @@ function apply(theme: Theme) {
 }
 
 export function useTheme() {
-  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem('pcms.theme.pref') as Theme) || 'system')
+  const [theme, setThemeState] = useState<Theme>(() => (localStorage.getItem('pcms.theme') as Theme) || 'system')
   useEffect(() => {
     apply(theme)
     localStorage.setItem('pcms.theme', theme)
