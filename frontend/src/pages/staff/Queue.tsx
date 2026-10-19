@@ -1,40 +1,77 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Search, X } from 'lucide-react'
 import { useAuth } from '../../App'
+import { Pager } from '../../components/Pager'
 import { TicketList, TicketRow } from '../../components/ticket'
-import { Alert, Badge, Button, Card, EmptyState, PageHeader, Select, Skeleton, Stack, Tabs } from '../../components/ui'
+import { Alert, Badge, Button, Card, EmptyState, Input, PageHeader, Select, Skeleton, Stack, Tabs } from '../../components/ui'
 import { api, type FailedNotification } from '../../lib/api'
-import { buildings } from '../../lib/catalog'
-import { useTickets } from '../../lib/useTickets'
-import type { Priority, TicketSummary } from '../../lib/types'
+import { buildings, categories } from '../../lib/catalog'
+import { useTickets, type UseTicketsOptions } from '../../lib/useTickets'
+import type { Priority, TicketSort, TicketSummary, WorkFlag, Worker } from '../../lib/types'
 
 type View = 'action' | 'working' | 'all'
 
 const unaccepted = (x: TicketSummary) => x.status === 'Assigned' && !x.assignments.some((a) => a.accepted && !a.releasedAt)
 const needsAction = (x: TicketSummary) => ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status) || unaccepted(x)
 
+const SORTS: { value: TicketSort; label: string }[] = [
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'priority', label: 'Priority' },
+  { value: 'updated', label: 'Recently updated' },
+]
+
 export default function Queue() {
   const { can } = useAuth()
-  const { tickets, error, reload } = useTickets('queue', { open: true })
   const [view, setView] = useState<View>('action')
+  const [search, setSearch] = useState('')
+  const [applied, setApplied] = useState('')
   const [priority, setPriority] = useState<Priority | ''>('')
   const [place, setPlace] = useState('')
+  const [kind, setKind] = useState('')
+  const [flag, setFlag] = useState<WorkFlag | ''>('')
+  const [workerId, setWorkerId] = useState('')
+  const [sort, setSort] = useState<TicketSort>('newest')
+  const [workers, setWorkers] = useState<Worker[]>([])
+  const [counts, setCounts] = useState({ new: 0, unaccepted: 0, overdue: 0, approvals: 0 })
 
-  const counts = useMemo(() => {
-    const ts = tickets ?? []
-    const now = Date.now()
-    return {
-      new: ts.filter((x) => x.status === 'Submitted').length,
-      unaccepted: ts.filter(unaccepted).length,
-      overdue: ts.filter((x) => x.nextUpdateDue && new Date(x.nextUpdateDue).getTime() < now && x.status !== 'Resolved').length,
-      approvals: ts.filter((x) => x.status === 'AwaitingApproval').length,
-    }
-  }, [tickets])
+  // Every filter below is applied by the server, not in the browser.
+  const filters: UseTicketsOptions = {
+    open: true,
+    search: applied || undefined,
+    priority: priority || undefined,
+    building: place || undefined,
+    category: kind || undefined,
+    flag: flag || undefined,
+    worker: workerId || undefined,
+    sort,
+  }
+  const { tickets, error, total, page, pageSize, pageCount, setPage, setPageSize, reload } = useTickets('queue', filters)
 
-  const shown = useMemo(() => (tickets ?? []).filter((x) =>
-    (view === 'all' || (view === 'action' ? needsAction(x) : !needsAction(x)))
-    && (!priority || x.priority === priority) && (!place || x.location.building === place)), [tickets, view, priority, place])
+  useEffect(() => {
+    if (can('worker.directory')) api.listWorkers({ active: true }).then(setWorkers).catch(() => setWorkers([]))
+  }, [can])
+
+  // The tiles must describe the whole open set, not the filtered page, so they come
+  // from GET /reports rather than being counted from whatever rows are on screen.
+  useEffect(() => {
+    let live = true
+    api.report({ days: 365, building: place || undefined, category: kind || undefined })
+      .then((r) => { if (live) setCounts({ new: r.untriaged, unaccepted: r.unaccepted, overdue: r.overdueUpdates, approvals: r.pendingApprovals }) })
+      .catch(() => { /* the tiles are a nicety; the list reports its own errors */ })
+    return () => { live = false }
+  }, [place, kind])
+
+  const shown = useMemo(
+    () => (tickets ?? []).filter((x) => view === 'all' || (view === 'action' ? needsAction(x) : !needsAction(x))),
+    [tickets, view],
+  )
+
+  const filtering = !!(applied || priority || place || kind || flag || workerId)
+  const clear = () => {
+    setSearch(''); setApplied(''); setPriority(''); setPlace(''); setKind(''); setFlag(''); setWorkerId('')
+  }
 
   return (
     <Stack>
@@ -46,22 +83,76 @@ export default function Queue() {
         <Stat label="Waiting approval" value={counts.approvals} />
       </div>
       {can('queue.view') && <FailedMessages />}
+
       <div className="flex flex-wrap items-center gap-3">
         <Tabs label="Queue view" value={view} onChange={setView} tabs={[
           { value: 'action', label: 'Needs action' }, { value: 'working', label: 'In progress' }, { value: 'all', label: 'All open' }]} />
-        <div className="w-32"><Select aria-label="Priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority | '')}>
-          <option value="">Any priority</option>{(['P1', 'P2', 'P3', 'P4'] as const).map((p) => <option key={p}>{p}</option>)}
-        </Select></div>
-        <div className="w-56"><Select aria-label="Building" value={place} onChange={(e) => setPlace(e.target.value)}>
-          <option value="">All buildings</option>{buildings().map((b) => <option key={b.code} value={b.code}>{b.nameEn}</option>)}
-        </Select></div>
       </div>
+
+      <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); setApplied(search.trim()) }}>
+        <div className="w-full sm:w-64">
+          <label htmlFor="queue-search" className="mb-1.5 block text-[13px] font-medium">Search</label>
+          <div className="relative">
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
+            <Input id="queue-search" value={search} onChange={(e) => setSearch(e.target.value)}
+              placeholder="Title, token or room" className="pl-9" autoComplete="off" />
+          </div>
+        </div>
+        <div className="w-32">
+          <label htmlFor="queue-priority" className="mb-1.5 block text-[13px] font-medium">Priority</label>
+          <Select id="queue-priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority | '')}>
+            <option value="">Any</option>{(['P1', 'P2', 'P3', 'P4'] as const).map((p) => <option key={p}>{p}</option>)}
+          </Select>
+        </div>
+        <div className="w-44">
+          <label htmlFor="queue-building" className="mb-1.5 block text-[13px] font-medium">Building</label>
+          <Select id="queue-building" value={place} onChange={(e) => setPlace(e.target.value)}>
+            <option value="">All</option>{buildings().map((b) => <option key={b.code} value={b.code}>{b.nameEn}</option>)}
+          </Select>
+        </div>
+        <div className="w-44">
+          <label htmlFor="queue-type" className="mb-1.5 block text-[13px] font-medium">Type</label>
+          <Select id="queue-type" value={kind} onChange={(e) => setKind(e.target.value)}>
+            <option value="">All</option>{categories().map((c) => <option key={c.code} value={c.code}>{c.nameEn}</option>)}
+          </Select>
+        </div>
+        <div className="w-36">
+          <label htmlFor="queue-flag" className="mb-1.5 block text-[13px] font-medium">Flag</label>
+          <Select id="queue-flag" value={flag} onChange={(e) => setFlag(e.target.value as WorkFlag | '')}>
+            <option value="">Any</option>
+            <option value="I">I Immediate</option><option value="C">C Critical</option><option value="P">P Postpone</option>
+          </Select>
+        </div>
+        {workers.length > 0 && (
+          <div className="w-44">
+            <label htmlFor="queue-worker" className="mb-1.5 block text-[13px] font-medium">Worker</label>
+            <Select id="queue-worker" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+              <option value="">Anyone</option>{workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
+            </Select>
+          </div>
+        )}
+        <div className="w-44">
+          <label htmlFor="queue-sort" className="mb-1.5 block text-[13px] font-medium">Sort</label>
+          <Select id="queue-sort" value={sort} onChange={(e) => setSort(e.target.value as TicketSort)}>
+            {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </Select>
+        </div>
+        <Button type="submit">Search</Button>
+        {filtering && <Button type="button" variant="ghost" onClick={clear}><X size={16} /> Clear</Button>}
+      </form>
+
       {error && <Alert tone="bad">{error}</Alert>}
-      {tickets === null ? <Skeleton className="h-60" /> : shown.length === 0 ? <EmptyState title="Nothing here" body="No tickets match this view." /> : (
-        <TicketList>
-          {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
-            extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}{unaccepted(x) && <Badge tone="warn">Not accepted</Badge>}</>} />)}
-        </TicketList>
+      {tickets === null ? <Skeleton className="h-60" /> : shown.length === 0 ? (
+        <EmptyState title="Nothing here" body={filtering ? 'No open tickets match these filters.' : 'No tickets match this view.'}
+          action={filtering ? <Button variant="secondary" onClick={clear}>Clear filters</Button> : undefined} />
+      ) : (
+        <>
+          <TicketList>
+            {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
+              extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}{unaccepted(x) && <Badge tone="warn">Not accepted</Badge>}</>} />)}
+          </TicketList>
+          <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
+        </>
       )}
     </Stack>
   )

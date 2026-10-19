@@ -19,6 +19,7 @@ export default function Workers() {
   const [tab, setTab] = useState<'active' | 'all'>('active')
   const [error, setError] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<Worker | null>(null)
   const [importing, setImporting] = useState<PickedContact[] | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const file = useRef<HTMLInputElement>(null)
@@ -49,6 +50,8 @@ export default function Workers() {
     try { const nw = await api.updateWorker(w, { active: !w.active }); setWorkers((ws) => ws!.map((x) => x.id === nw.id ? nw : x)) }
     catch (e) { setError(errorMessage(e)); load() }
   }
+
+  const replace = (w: Worker) => setWorkers((ws) => ws?.map((x) => x.id === w.id ? w : x) ?? null)
 
   const shown = (workers ?? []).filter((w) => tab === 'all' || w.active)
 
@@ -82,12 +85,18 @@ export default function Workers() {
               </div>
               <p className="mt-2 text-[13.5px]">{w.trades.map((c) => category(c).nameEn).join(', ')}</p>
               <p className="mt-0.5 text-[13px] text-muted">{MODES.find((m) => m.value === w.mode)?.label} · {w.kind} · {w.language.toUpperCase()}{w.area ? ` · ${w.area}` : ''}</p>
-              {manage && <Button size="sm" variant="ghost" className="mt-2 -ml-3" onClick={() => toggle(w)}>{w.active ? 'Deactivate' : 'Activate'}</Button>}
+              {manage && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button size="sm" variant="ghost" className="-ml-3" onClick={() => setEditing(w)}>Edit</Button>
+                  <Button size="sm" variant="ghost" onClick={() => toggle(w)}>{w.active ? 'Deactivate' : 'Activate'}</Button>
+                </div>
+              )}
             </Card>
           ))}
         </div>
       )}
       <AddWorker open={adding} onClose={() => setAdding(false)} onSaved={(w) => { setWorkers((ws) => [...(ws ?? []), w]); setNotice(`${w.name} added.`) }} />
+      {editing && <EditWorker key={editing.id} worker={editing} onClose={() => setEditing(null)} onSaved={(w) => { replace(w); setEditing(null); setNotice(`${w.name} updated.`) }} />}
       {importing && (
         <ImportReview contacts={importing} onClose={() => setImporting(null)}
           onDone={(msg) => { setImporting(null); setNotice(msg); load() }} />
@@ -146,6 +155,56 @@ function AddWorker({ open, onClose, onSaved }: { open: boolean; onClose: () => v
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={() => { reset(); onClose() }}>Cancel</Button>
           <Button type="submit" loading={busy} disabled={!name.trim() || !phone.trim() || !trades.length}>Save</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+/**
+ * Edit a worker. Only fields the manager actually changes are sent, so leaving the
+ * phone blank keeps the stored number (the list only ever shows a masked one).
+ * The caller keys this by worker id, so opening a different worker starts clean.
+ */
+function EditWorker({ worker, onClose, onSaved }: { worker: Worker; onClose: () => void; onSaved: (w: Worker) => void }) {
+  const [name, setName] = useState(worker.name)
+  const [phone, setPhone] = useState('')
+  const [trades, setTrades] = useState<string[]>(worker.trades)
+  const [mode, setMode] = useState<Mode>(worker.mode)
+  const [kind, setKind] = useState<Kind>(worker.kind)
+  const [language, setLanguage] = useState(worker.language)
+  const [area, setArea] = useState(worker.area)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true); setError(null)
+    try {
+      const patch: Parameters<typeof api.updateWorker>[1] = { name: name.trim(), trades, mode, kind, language, area: area.trim() }
+      if (phone.trim()) patch.phone = phone.trim()
+      onSaved(await api.updateWorker(worker, patch))
+    } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+
+  return (
+    <Dialog open onClose={onClose} title={`Edit ${worker.name}`}>
+      <form onSubmit={save} className="space-y-4">
+        <Field label="Name">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} autoComplete="off" required />}</Field>
+        <Field label="New mobile number" optional hint={`Leave blank to keep ${worker.phoneMasked}`}>
+          {(id, d) => <Input id={id} aria-describedby={d} value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" autoComplete="off" placeholder="10-digit Indian mobile" />}
+        </Field>
+        <div><p className="mb-1.5 text-[14px] font-medium">Work (trade)</p><TradePicker value={trades} onChange={setTrades} /></div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Reach by">{(id) => <Select id={id} value={mode} onChange={(e) => setMode(e.target.value as Mode)}>{MODES.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}</Select>}</Field>
+          <Field label="Type">{(id) => <Select id={id} value={kind} onChange={(e) => setKind(e.target.value as Kind)}><option value="employee">College staff</option><option value="vendor">Vendor</option></Select>}</Field>
+          <Field label="Language">{(id) => <Select id={id} value={language} onChange={(e) => setLanguage(e.target.value)}>{LANGS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}</Select>}</Field>
+          <Field label="Area" optional>{(id) => <Input id={id} value={area} onChange={(e) => setArea(e.target.value)} maxLength={120} placeholder="e.g. Whole campus" />}</Field>
+        </div>
+        {error && <Alert tone="bad">{error}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy} disabled={!name.trim() || !trades.length}>Save changes</Button>
         </div>
       </form>
     </Dialog>

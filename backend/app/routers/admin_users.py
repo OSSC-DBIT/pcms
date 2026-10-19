@@ -102,7 +102,8 @@ async def _get(db: AsyncSession, user_id: uuid.UUID, lock: bool = False) -> User
 @router.get("", response_model=UserPage)
 async def list_users(q: str | None = Query(default=None, max_length=80), role: RoleName | None = None,
                      active: bool | None = None, page: int = Query(1, ge=1),
-                     page_size: int = Query(50, ge=1, le=200), _: Principal = Depends(admin_users),
+                     page_size: int = Query(25, ge=1, le=200, alias="pageSize"),
+                     _: Principal = Depends(admin_users),
                      db: AsyncSession = Depends(get_session)) -> UserPage:
     stmt = select(User)
     if q:

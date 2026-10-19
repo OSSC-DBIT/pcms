@@ -3,13 +3,14 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.errors import ApiError, forbidden, validation
+from app.models.catalog import Category
 from app.models.ticket import TERMINAL, Ticket, TicketComment
-from app.models.worker import Worker
+from app.models.worker import Assignment, Worker
 from app.schemas.ticket import (
     AcceptIn, AssessmentIn, AssignIn, CommentIn, DuplicateOut, ProposalIn, ReleaseIn, StatusName, TicketCreatedOut,
     TicketCreateIn, TicketOut, TicketPage, TransitionIn,
@@ -21,9 +22,21 @@ from app.services.tickets import is_staff
 router = APIRouter(prefix="/tickets", tags=["tickets"])
 
 
+def _like(q: str) -> str:
+    """Escape the wildcards so a search for "100%" is not a match-anything pattern."""
+    return "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+
+
+SORTS = ("newest", "oldest", "priority", "updated")
+
+
 @router.get("", response_model=TicketPage)
 async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), status: str | None = Query(None, max_length=200),
                        open: bool | None = None, page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=200, alias="pageSize"),
+                       search: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
+                       flag: str | None = Query(None, pattern="^[ICP]$"), priority: str | None = Query(None, pattern="^P[1-4]$"),
+                       building: str | None = Query(None, max_length=20), worker: uuid.UUID | None = None,
+                       sort: str = Query("newest", pattern="^(" + "|".join(SORTS) + ")$"),
                        p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> TicketPage:
     stmt = select(Ticket)
     if scope == "queue":
@@ -40,8 +53,34 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
         stmt = stmt.where(Ticket.status.not_in(TERMINAL))
     elif open is False:
         stmt = stmt.where(Ticket.status.in_(TERMINAL))
+    if search:
+        like = _like(search)
+        stmt = stmt.where(or_(Ticket.title.ilike(like, escape="\\"), Ticket.token.ilike(like, escape="\\"),
+                              Ticket.room.ilike(like, escape="\\")))
+    if category:
+        cid = await db.scalar(select(Category.id).where(Category.code == category))
+        if cid is None:
+            raise validation("Unknown type filter.", {"category": category})
+        stmt = stmt.where(Ticket.category_id == cid)
+    if flag:
+        stmt = stmt.where(Ticket.flag == flag)
+    if priority:
+        stmt = stmt.where(Ticket.priority == priority)
+    if building:
+        stmt = stmt.where(Ticket.building_code == building)
+    if worker:
+        # Only a worker's current jobs, never released ones.
+        stmt = stmt.where(Ticket.id.in_(
+            select(Assignment.ticket_id).where(Assignment.worker_id == worker, Assignment.released_at.is_(None))))
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    rows = (await db.scalars(stmt.order_by(Ticket.created_at.desc()).offset((page - 1) * page_size).limit(page_size))).all()
+    order = {
+        "newest": (Ticket.created_at.desc(), Ticket.id.desc()),
+        "oldest": (Ticket.created_at.asc(), Ticket.id.asc()),
+        # P1 is the most urgent, so plain ascending text order is right here.
+        "priority": (Ticket.priority.asc(), Ticket.created_at.desc()),
+        "updated": (Ticket.updated_at.desc(), Ticket.id.desc()),
+    }[sort]
+    rows = (await db.scalars(stmt.order_by(*order).offset((page - 1) * page_size).limit(page_size))).all()
     staff = scope == "queue" and is_staff(p)
     lk = await svc.Lookups.load(db, list(rows), staff)
     return TicketPage(items=[svc.summary_out(t, lk, staff) for t in rows], total=total, page=page, page_size=page_size)
@@ -52,12 +91,10 @@ async def duplicates(category: str = Query(..., max_length=40), building: str = 
                      room: str = Query("", max_length=60), outdoors: bool = False,
                      p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> list[DuplicateOut]:
     """Open reports for the same place and type. Only token, title and status: no identities or notes."""
-    from app.models.catalog import Category
-
-    cat = await db.scalar(select(Category).where(Category.code == category))
-    if cat is None or (not outdoors and not (building and room.strip())):
+    cat_id = await db.scalar(select(Category.id).where(Category.code == category))
+    if cat_id is None or (not outdoors and not (building and room.strip())):
         return []
-    stmt = select(Ticket).where(Ticket.category_id == cat.id, Ticket.status.not_in(TERMINAL))
+    stmt = select(Ticket).where(Ticket.category_id == cat_id, Ticket.status.not_in(TERMINAL))
     if outdoors:
         stmt = stmt.where(Ticket.outdoors)
     else:

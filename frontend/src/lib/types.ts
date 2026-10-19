@@ -162,7 +162,7 @@ export interface Worker {
 }
 
 export interface Category { code: string; letter: string; nameEn: string; nameHi: string; subtypesEn: string[]; subtypesHi: string[]; active: boolean }
-export interface Building { code: string; nameEn: string; nameHi: string; floors: string[] }
+export interface Building { code: string; nameEn: string; nameHi: string; floors: string[]; active: boolean }
 
 export interface Draft {
   key: string
@@ -196,3 +196,44 @@ export interface AdminUser {
 export interface Credential { user: AdminUser; temporaryPassword: string; expiresAt: string }
 
 export interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
+
+// ---------- reports ----------
+
+export interface Percentiles { count: number; medianHours: number | null; p90Hours: number | null }
+
+export interface Report {
+  generatedAt: string
+  days: number
+  openByStatus: Record<string, number>
+  openByPriority: Record<string, number>
+  untriaged: number
+  unaccepted: number
+  overdueUpdates: number
+  pendingApprovals: number
+  holdsByReason: { reason: string | null; count: number }[]
+  disputes: number
+  failedNotifications: number
+  repeatFaults: { building: string | null; room: string | null; category: string | null; count: number }[]
+  triageTime: Percentiles
+  resolutionTime: Percentiles
+  approvedPaise: number
+}
+
+// ---------- audit ----------
+
+export interface AuditEvent {
+  id: number
+  at: string
+  actorLabel: string
+  action: string
+  entityType: string
+  entityId: string
+  reason: string | null
+  delegatedWorker: string | null
+  before: Record<string, unknown> | null
+  after: Record<string, unknown> | null
+  requestId: string | null
+}
+
+/** Server-side sort order for the ticket list. */
+export type TicketSort = 'newest' | 'oldest' | 'priority' | 'updated'

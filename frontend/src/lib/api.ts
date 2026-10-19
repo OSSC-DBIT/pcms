@@ -7,8 +7,8 @@ import { HttpError, qs, request, requestBlob, setCsrf } from './http'
 import { resetCatalogs } from './catalog'
 import { unsubscribeThisDevice } from './push'
 import type {
-  AdminUser, Assessment, Channel, Credential, DecisionKind, Draft, Location, Page, Priority, Proposal,
-  Status, StepResult, Ticket, TicketSummary, User, WorkFlag, Worker,
+  AdminUser, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Location, Page,
+  Priority, Proposal, Report, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag, Worker,
 } from './types'
 
 export { HttpError } from './http'
@@ -23,6 +23,22 @@ export interface CreatedTicket {
   version: number
   createdAt: string
   attachmentUploadAllowed: boolean
+}
+
+/** Everything the ticket list can be narrowed by. All of it is applied by the server. */
+export interface TicketFilters {
+  scope: 'mine' | 'queue'
+  status?: Status[]
+  open?: boolean
+  search?: string
+  category?: string
+  flag?: WorkFlag
+  priority?: Priority
+  building?: string
+  worker?: string
+  sort?: TicketSort
+  page?: number
+  pageSize?: number
 }
 
 export type TransitionAction =
@@ -83,10 +99,12 @@ export const api = {
   },
 
   // ---------- tickets ----------
-  listTickets(params: { scope: 'mine' | 'queue'; status?: Status[]; open?: boolean; page?: number; pageSize?: number }): Promise<Page<TicketSummary>> {
+  listTickets(params: TicketFilters): Promise<Page<TicketSummary>> {
     return request('GET', `/tickets${qs({
       scope: params.scope, status: params.status?.join(','), open: params.open,
-      page: params.page, pageSize: params.pageSize ?? 100,
+      search: params.search, category: params.category, flag: params.flag, priority: params.priority,
+      building: params.building, worker: params.worker, sort: params.sort,
+      page: params.page, pageSize: params.pageSize ?? 25,
     })}`)
   },
   async getTicket(id: string): Promise<Ticket | null> {
@@ -185,8 +203,8 @@ export const api = {
   },
 
   // ---------- admin: users ----------
-  listUsers(params: { q?: string; role?: string; active?: boolean; page?: number } = {}): Promise<Page<AdminUser>> {
-    return request('GET', `/admin/users${qs({ ...params, page_size: 50 })}`)
+  listUsers(params: { q?: string; role?: string; active?: boolean; page?: number; pageSize?: number } = {}): Promise<Page<AdminUser>> {
+    return request('GET', `/admin/users${qs({ ...params, pageSize: params.pageSize ?? 25 })}`)
   },
   createUser(body: { employeeId: string; name: string; role: AdminUser['role']; email?: string }): Promise<Credential> {
     return request('POST', '/admin/users', { body })
@@ -218,6 +236,29 @@ export const api = {
   },
   actOnNotification(id: number, op: 'retry' | 'dismiss'): Promise<void> {
     return request('POST', `/admin/notifications/${id}/${op}`)
+  },
+
+  // ---------- reports and export ----------
+  report(params: { days?: number; building?: string; category?: string } = {}): Promise<Report> {
+    return request('GET', `/reports${qs({ days: params.days, building: params.building, category: params.category })}`)
+  },
+  /** Audited on the server, so the download itself is recorded. */
+  exportTicketsCsv(days = 90): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/tickets.csv${qs({ days })}`, { accept: 'text/csv' })
+  },
+
+  // ---------- audit ----------
+  /** Newest first. Pass beforeId from the last row to page backwards through history. */
+  auditLog(params: { action?: string; entityId?: string; beforeId?: number; limit?: number } = {}): Promise<AuditEvent[]> {
+    return request('GET', `/admin/audit${qs({ action: params.action, entityId: params.entityId, beforeId: params.beforeId, limit: params.limit ?? 100 })}`)
+  },
+
+  // ---------- catalogs ----------
+  editCategory(code: string, patch: { nameEn?: string; nameHi?: string; subtypesEn?: string[]; subtypesHi?: string[]; active?: boolean }): Promise<void> {
+    return request('PATCH', `/admin/categories/${encodeURIComponent(code)}`, { body: patch })
+  },
+  editBuilding(code: string, patch: { nameEn?: string; nameHi?: string; floors?: string[]; active?: boolean }): Promise<void> {
+    return request('PATCH', `/admin/buildings/${encodeURIComponent(code)}`, { body: patch })
   },
 }
 

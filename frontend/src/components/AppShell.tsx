@@ -1,6 +1,6 @@
 import { clsx } from 'clsx'
 import type { ReactNode } from 'react'
-import { ClipboardList, Home, LayoutDashboard, PlusCircle, Settings, ShieldCheck, Users, Wallet, type LucideIcon } from 'lucide-react'
+import { BarChart3, ClipboardList, Home, LayoutDashboard, PlusCircle, ScrollText, Settings, ShieldCheck, Users, Wallet, type LucideIcon } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../App'
 import NotificationPrompt from './NotificationPrompt'
@@ -9,7 +9,7 @@ import { useT, type TKey } from '../lib/i18n'
 import { useOnline } from '../lib/hooks'
 import type { Capability } from '../lib/types'
 
-interface Item { to: string; label: TKey; icon: LucideIcon; cap?: Capability; anyCap?: Capability[]; end?: boolean }
+interface Item { to: string; label: TKey; icon: LucideIcon; cap?: Capability; anyCap?: Capability[]; end?: boolean; mobile?: boolean }
 
 const FACULTY: Item[] = [
   { to: '/home', label: 'nav.home', icon: Home, end: true },
@@ -23,7 +23,10 @@ const STAFF: Item[] = [
   { to: '/staff/approvals', label: 'nav.approvals', icon: Wallet, cap: 'cost.approve' },
   { to: '/staff/workers', label: 'nav.workers', icon: Users, cap: 'worker.directory' },
   { to: '/report', label: 'nav.report', icon: PlusCircle, cap: 'ticket.create' },
-  { to: '/staff/admin', label: 'nav.admin', icon: ShieldCheck, anyCap: ['admin.users', 'admin.catalogs'] },
+  // Secondary screens: reachable from the sidebar, but the phone tab bar has no room.
+  { to: '/staff/reports', label: 'nav.reports', icon: BarChart3, cap: 'queue.view', mobile: false },
+  { to: '/staff/audit', label: 'nav.audit', icon: ScrollText, cap: 'admin.audit', mobile: false },
+  { to: '/staff/admin', label: 'nav.admin', icon: ShieldCheck, anyCap: ['admin.users', 'admin.catalogs', 'admin.locations', 'admin.audit'] },
   { to: '/settings', label: 'nav.settings', icon: Settings },
 ]
 
@@ -69,7 +72,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
       {/* Phone bottom tabs */}
       <nav aria-label="Main" className="safe-bottom fixed inset-x-0 bottom-0 z-20 border-t border-line bg-surface/95 backdrop-blur md:hidden">
         <div className="mx-auto flex max-w-lg justify-around">
-          {items.map((i) => (
+          {items.filter((i) => i.mobile !== false).map((i) => (
             <NavLink key={i.to} to={i.to} end={i.end}
               className={({ isActive }) => clsx('flex min-h-14 flex-1 flex-col items-center justify-center gap-0.5 text-[11px]', isActive ? 'text-accent' : 'text-muted')}>
               <i.icon size={21} aria-hidden />

@@ -144,6 +144,30 @@ not use apps.
 
 Every action carries the ticket version the person saw; a stale version gets `409` and the screen reloads.
 
+An **assessment** can be recorded while work is assigned or in progress. It says what the job
+needs (one person, more people, parts, money up front), who reported it and how, and lands in
+the timeline as an internal entry, so it never reaches the reporter.
+
+## Listing, search and paging
+
+`GET /tickets` is the one list endpoint. It takes `scope` (`mine` or `queue`), `status`, `open`,
+`search`, `category`, `flag`, `priority`, `building`, `worker`, `sort`, `page` and `pageSize`,
+and returns `{items, total, page, pageSize}`.
+
+Every filter is applied in SQL, never in the browser. The client used to fetch a fixed 100 rows
+and filter them locally, which silently hid older tickets; it now sends the filters and renders
+the server's `total`. `sort` is one of `newest`, `oldest`, `priority` or `updated`, and each
+order has an `id` tiebreaker so paging stays stable when timestamps collide.
+
+Search matches title, token and room with `ILIKE`. Wildcards `%` and `_` in the query are
+escaped, so a search for `100%` looks for that text instead of matching everything.
+Out-of-range values for `priority`, `flag` and `sort` are rejected rather than ignored.
+
+`GET /catalogs` returns active types and places only, so a retired one cannot be picked on a new
+report. `GET /catalogs?includeInactive=true` is for the administration screens, which need to
+show a retired row so it can be restored. Old tickets render either way, because the frontend
+falls back to a placeholder for an unknown code.
+
 ## Sign-in
 
 ```mermaid

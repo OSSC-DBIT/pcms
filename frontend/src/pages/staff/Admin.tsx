@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, KeyRound, Upload, UserPlus } from 'lucide-react'
+import { Download, KeyRound, Pencil, Power, Upload, UserPlus } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog } from '../../components/ActionDialog'
-import { Alert, Badge, Button, Card, Dialog, Field, Input, PageHeader, Select, Skeleton, Stack, Tabs, errorMessage } from '../../components/ui'
+import { Pager } from '../../components/Pager'
+import { Alert, Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Skeleton, Stack, Tabs, errorMessage } from '../../components/ui'
 import { api } from '../../lib/api'
-import { buildings, categories, loadCatalogs } from '../../lib/catalog'
+import { allBuildings, allCategories, loadAllCatalogs, loadCatalogs } from '../../lib/catalog'
 import { request, saveBlob } from '../../lib/http'
 import type { AdminUser, Credential, Role } from '../../lib/types'
 
@@ -19,13 +20,16 @@ export default function Admin() {
     { value: 'places' as const, label: 'Places' },
   ]
   const [tab, setTab] = useState(tabs[0].value)
+  const [ready, setReady] = useState(false)
+  // The admin screens need retired rows too, so they hold their own copy of the list.
+  useEffect(() => { void loadAllCatalogs().then(() => setReady(true)).catch(() => setReady(true)) }, [])
   return (
     <Stack>
       <PageHeader title="Administration" />
       <Tabs label="Admin section" value={tab} onChange={setTab} tabs={tabs} />
       {tab === 'users' && <People />}
-      {tab === 'types' && <Types />}
-      {tab === 'places' && <Places />}
+      {tab === 'types' && <Types ready={ready} />}
+      {tab === 'places' && <Places ready={ready} />}
     </Stack>
   )
 }
@@ -50,6 +54,9 @@ function CredentialDialog({ cred, onClose }: { cred: Credential | null; onClose:
 function People() {
   const { user: me } = useAuth()
   const [q, setQ] = useState('')
+  const [role, setRole] = useState<Role | ''>('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
   const [users, setUsers] = useState<AdminUser[] | null>(null)
   const [total, setTotal] = useState(0)
   const [error, setError] = useState<string | null>(null)
@@ -58,10 +65,13 @@ function People() {
   const [importing, setImporting] = useState(false)
   const [action, setAction] = useState<{ user: AdminUser; kind: 'suspend' | 'reactivate' | 'role' | 'reset' } | null>(null)
 
-  const load = useCallback(async (query: string) => {
-    try { const p = await api.listUsers({ q: query || undefined }); setUsers(p.items); setTotal(p.total) } catch (e) { setError(errorMessage(e)); setUsers([]) }
+  const load = useCallback(async (query: string, roleFilter: Role | '', atPage: number, size: number) => {
+    try {
+      const p = await api.listUsers({ q: query || undefined, role: roleFilter || undefined, page: atPage, pageSize: size })
+      setUsers(p.items); setTotal(p.total); setPage(p.page)
+    } catch (e) { setError(errorMessage(e)); setUsers([]) }
   }, [])
-  useEffect(() => { const id = setTimeout(() => void load(q), 250); return () => clearTimeout(id) }, [q, load])
+  useEffect(() => { const id = setTimeout(() => void load(q, role, page, pageSize), 250); return () => clearTimeout(id) }, [q, role, page, pageSize, load])
   const replace = (u: AdminUser) => setUsers((us) => us?.map((x) => x.id === u.id ? u : x) ?? null)
 
   return (
@@ -70,31 +80,46 @@ function People() {
         <Button onClick={() => setImporting(true)}><Upload size={17} /> Import CSV</Button>
         <Button variant="secondary" onClick={() => setAdding(true)}><UserPlus size={17} /> Add person</Button>
       </div>
-      <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by employee ID or name" aria-label="Search people" />
-      <p className="text-[13px] text-muted">{total} account(s)</p>
+      <div className="flex flex-wrap gap-3">
+        <div className="w-full sm:w-64">
+          <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Search by employee ID or name" aria-label="Search people" />
+        </div>
+        <div className="w-48">
+          <Select aria-label="Filter by role" value={role} onChange={(e) => { setRole(e.target.value as Role | ''); setPage(1) }}>
+            <option value="">All roles</option>{(Object.keys(ROLE) as Role[]).map((r) => <option key={r} value={r}>{ROLE[r]}</option>)}
+          </Select>
+        </div>
+      </div>
       {error && <Alert tone="bad">{error}</Alert>}
       {users === null ? <Skeleton className="h-40" /> : (
-        <div className="overflow-hidden rounded-lg border border-line bg-surface">
-          {users.map((u) => (
-            <div key={u.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[15px] font-medium">{u.name}</p>
-                <p className="token text-[13px] text-muted">{u.employeeId} · {ROLE[u.role]}</p>
-              </div>
-              <Badge tone={!u.active ? 'bad' : u.mustChangePassword ? 'warn' : 'ok'}>{!u.active ? 'Suspended' : u.mustChangePassword ? 'Not activated' : 'Active'}</Badge>
-              {u.id !== me?.id && (
-                <div className="flex flex-wrap gap-1">
-                  <Button size="sm" variant="ghost" onClick={() => setAction({ user: u, kind: 'reset' })}><KeyRound size={15} /> Reset</Button>
-                  <Button size="sm" variant="ghost" onClick={() => setAction({ user: u, kind: 'role' })}>Role</Button>
-                  <Button size="sm" variant={u.active ? 'danger' : 'secondary'} onClick={() => setAction({ user: u, kind: u.active ? 'suspend' : 'reactivate' })}>{u.active ? 'Suspend' : 'Reactivate'}</Button>
+        <>
+          {users.length === 0 && !q && !role && <EmptyState title="No accounts yet" body="Add a person or import a CSV to get started." />}
+          {users.length > 0 && (
+            <div className="overflow-hidden rounded-lg border border-line bg-surface">
+              {users.map((u) => (
+                <div key={u.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-medium">{u.name}</p>
+                    <p className="token text-[13px] text-muted">{u.employeeId} · {ROLE[u.role]}</p>
+                  </div>
+                  <Badge tone={!u.active ? 'bad' : u.mustChangePassword ? 'warn' : 'ok'}>{!u.active ? 'Suspended' : u.mustChangePassword ? 'Not activated' : 'Active'}</Badge>
+                  {u.id !== me?.id && (
+                    <div className="flex flex-wrap gap-1">
+                      <Button size="sm" variant="ghost" onClick={() => setAction({ user: u, kind: 'reset' })}><KeyRound size={15} /> Reset</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setAction({ user: u, kind: 'role' })}>Role</Button>
+                      <Button size="sm" variant={u.active ? 'danger' : 'secondary'} onClick={() => setAction({ user: u, kind: u.active ? 'suspend' : 'reactivate' })}>{u.active ? 'Suspend' : 'Reactivate'}</Button>
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          <Pager page={page} pageCount={Math.max(1, Math.ceil(total / pageSize))} total={total} pageSize={pageSize}
+            onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1) }} />
+        </>
       )}
-      <AddPerson open={adding} onClose={() => setAdding(false)} onCreated={(c) => { setCred(c); void load(q) }} />
-      <ImportCsv open={importing} onClose={() => { setImporting(false); void load(q) }} />
+      <AddPerson open={adding} onClose={() => setAdding(false)} onCreated={(c) => { setCred(c); void load(q, role, 1, pageSize) }} />
+      <ImportCsv open={importing} onClose={() => { setImporting(false); void load(q, role, page, pageSize) }} />
       <CredentialDialog cred={cred} onClose={() => setCred(null)} />
       {action?.kind === 'reset' && (
         <ActionDialog open title={`Reset password for ${action.user.employeeId}`} confirmLabel="Issue new password"
@@ -200,25 +225,52 @@ function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
   )
 }
 
-function Types() {
+function Types({ ready }: { ready: boolean }) {
   const { can } = useAuth()
   const [adding, setAdding] = useState(false)
-  const [, refresh] = useState(0)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [toggling, setToggling] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const manage = can('admin.catalogs')
+  const list = allCategories()
+
+  async function refresh() {
+    await loadCatalogs(true)
+    await loadAllCatalogs(true)
+  }
+
   return (
     <Stack>
-      <p className="text-[14px] text-muted">The letter starts every token of that type (C26-0001 for Carpentry). Letters are never reused.</p>
-      {can('admin.catalogs') && <Button className="self-start" onClick={() => setAdding(true)}>Add type</Button>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {categories().map((c) => (
-          <Card key={c.code}>
-            <div className="flex items-center gap-3">
-              <span className="token flex h-10 w-10 items-center justify-center rounded-md bg-accent-soft text-[18px] font-bold text-accent">{c.letter}</span>
-              <div><p className="text-[15px] font-semibold">{c.nameEn}</p><p className="text-[13px] text-muted">{c.nameHi}</p></div>
-            </div>
-            <p className="mt-2 text-[13px] text-muted">{c.subtypesEn.join(', ')}</p>
-          </Card>
-        ))}
-      </div>
+      <p className="text-[14px] text-muted">The letter starts every token of that type (C26-0001 for Carpentry). Letters are never reused, even if a type is retired.</p>
+      {notice && <Alert tone="ok">{notice}</Alert>}
+      {error && <Alert tone="bad">{error}</Alert>}
+      {manage && <Button className="self-start" onClick={() => setAdding(true)}>Add type</Button>}
+      {!ready ? <Skeleton className="h-40" /> : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {list.map((c) => (
+            <Card key={c.code}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <span className={`token flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[18px] font-bold ${c.active ? 'bg-accent-soft text-accent' : 'bg-subtle text-muted'}`}>{c.letter}</span>
+                  <div className="min-w-0">
+                    <p className="truncate text-[15px] font-semibold">{c.nameEn}</p>
+                    <p className="truncate text-[13px] text-muted">{c.nameHi}</p>
+                  </div>
+                </div>
+                {!c.active && <Badge>Retired</Badge>}
+              </div>
+              <p className="mt-2 text-[13px] text-muted">{c.subtypesEn.join(', ')}</p>
+              {manage && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button size="sm" variant="ghost" className="-ml-3" onClick={() => setEditing(c.code)}><Pencil size={15} /> Edit</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setToggling(c.code)}><Power size={15} /> {c.active ? 'Retire' : 'Restore'}</Button>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
       {adding && (
         <ActionDialog open title="Add type" confirmLabel="Add"
           fields={[{ name: 'nameEn', label: 'Name (English)', required: true }, { name: 'nameHi', label: 'Name (Hindi)', required: true },
@@ -230,30 +282,131 @@ function Types() {
             await request('POST', '/admin/categories', { body: {
               code: v.nameEn.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'type',
               letter: v.letter.toUpperCase(), nameEn: v.nameEn, nameHi: v.nameHi, subtypesEn: subtypes, subtypesHi: subtypes } })
-            await loadCatalogs(true); refresh((n) => n + 1)
+            await refresh()
           }} />
       )}
+      {editing && <EditCategoryDialog code={editing} onClose={() => setEditing(null)}
+        onSaved={async (msg) => { setEditing(null); setNotice(msg); await refresh() }}
+        onError={(msg) => { setEditing(null); setError(msg) }} />}
+      {toggling && <ToggleCatalogDialog code={toggling} kind="type" onClose={() => setToggling(null)}
+        onSaved={async (msg) => { setToggling(null); setNotice(msg); await refresh() }}
+        onError={(msg) => { setToggling(null); setError(msg) }} />}
     </Stack>
   )
 }
 
-function Places() {
+/** Rename a type, edit its subtypes, or retire it. The token letter is fixed for good. */
+function EditCategoryDialog({ code, onClose, onSaved, onError }: { code: string; onClose: () => void; onSaved: (m: string) => void; onError: (m: string) => void }) {
+  const c = allCategories().find((x) => x.code === code)
+  const [nameEn, setNameEn] = useState(c?.nameEn ?? '')
+  const [nameHi, setNameHi] = useState(c?.nameHi ?? '')
+  const [parts, setParts] = useState((c?.subtypesEn ?? []).join(', '))
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const subtypes = parts.split(',').map((s) => s.trim()).filter(Boolean)
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true); setError(null)
+    try {
+      await api.editCategory(code, { nameEn: nameEn.trim(), nameHi: nameHi.trim(), subtypesEn: subtypes, subtypesHi: subtypes })
+      onSaved(`${nameEn.trim()} updated.`)
+    } catch (err) { onError(errorMessage(err)) } finally { setBusy(false) }
+  }
+
+  if (!c) return null
+  return (
+    <Dialog open onClose={onClose} title={`Edit type: ${c.nameEn}`}>
+      <form onSubmit={save} className="space-y-4">
+        <p className="text-[13px] text-muted">Token letter {c.letter} stays the same for every ticket of this type.</p>
+        <Field label="Name (English)">{(id) => <Input id={id} value={nameEn} onChange={(e) => setNameEn(e.target.value)} maxLength={80} required />}</Field>
+        <Field label="Name (Hindi)">{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
+        <Field label="Parts" hint="Comma separated. The reporter picks one of these.">
+          {(id, d) => <Input id={id} aria-describedby={d} value={parts} onChange={(e) => setParts(e.target.value)} maxLength={400} />}
+        </Field>
+        {error && <Alert tone="bad">{error}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy} disabled={!nameEn.trim() || !nameHi.trim()}>Save</Button>
+        </div>
+      </form>
+    </Dialog>
+  )
+}
+
+function ToggleCatalogDialog({ code, kind, onClose, onSaved, onError }: {
+  code: string; kind: 'type' | 'place'; onClose: () => void; onSaved: (m: string) => void; onError: (m: string) => void
+}) {
+  const isType = kind === 'type'
+  const current = isType ? allCategories().find((x) => x.code === code) : allBuildings().find((x) => x.code === code)
+  const active = current?.active ?? true
+  const [busy, setBusy] = useState(false)
+
+  async function go() {
+    setBusy(true)
+    try {
+      if (isType) await api.editCategory(code, { active: !active })
+      else await api.editBuilding(code, { active: !active })
+      onSaved(`${current?.nameEn ?? code} ${active ? 'retired' : 'restored'}.`)
+    } catch (err) { onError(errorMessage(err)) } finally { setBusy(false) }
+  }
+
+  if (!current) return null
+  return (
+    <Dialog open onClose={onClose} title={active ? `Retire this ${kind}` : `Restore this ${kind}`}
+      footer={<><Button variant="secondary" onClick={onClose}>Cancel</Button><Button loading={busy} variant={active ? 'danger' : 'primary'} onClick={() => void go()}>{active ? 'Retire' : 'Restore'}</Button></>}>
+      <p className="text-[14px]">
+        {active
+          ? `People will no longer be able to choose ${current.nameEn} on the report form. Existing tickets keep it and are unchanged.`
+          : `People will be able to choose ${current.nameEn} on the report form again.`}
+      </p>
+    </Dialog>
+  )
+}
+
+function Places({ ready }: { ready: boolean }) {
   const { can } = useAuth()
   const [adding, setAdding] = useState(false)
-  const [, refresh] = useState(0)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [toggling, setToggling] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const manage = can('admin.locations')
+  const list = allBuildings()
+
+  async function refresh() {
+    await loadCatalogs(true)
+    await loadAllCatalogs(true)
+  }
+
   return (
     <Stack>
       <p className="text-[14px] text-muted">Buildings and floors people choose from on the report form.</p>
-      {can('admin.locations') && <Button className="self-start" onClick={() => setAdding(true)}>Add place</Button>}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {buildings().map((b) => (
-          <Card key={b.code}>
-            <p className="text-[15px] font-semibold">{b.nameEn}</p>
-            <p className="text-[13px] text-muted">{b.nameHi}</p>
-            <p className="mt-2 text-[13px]">Floors: {b.floors.join(', ')}</p>
-          </Card>
-        ))}
-      </div>
+      {notice && <Alert tone="ok">{notice}</Alert>}
+      {error && <Alert tone="bad">{error}</Alert>}
+      {manage && <Button className="self-start" onClick={() => setAdding(true)}>Add place</Button>}
+      {!ready ? <Skeleton className="h-40" /> : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {list.map((b) => (
+            <Card key={b.code}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="truncate text-[15px] font-semibold">{b.nameEn}</p>
+                  <p className="truncate text-[13px] text-muted">{b.nameHi}</p>
+                </div>
+                {!b.active && <Badge>Retired</Badge>}
+              </div>
+              <p className="mt-2 text-[13px]">Floors: {b.floors.join(', ')}</p>
+              {manage && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  <Button size="sm" variant="ghost" className="-ml-3" onClick={() => setEditing(b.code)}><Pencil size={15} /> Edit</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setToggling(b.code)}><Power size={15} /> {b.active ? 'Retire' : 'Restore'}</Button>
+                </div>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
       {adding && (
         <ActionDialog open title="Add place" confirmLabel="Add"
           fields={[{ name: 'nameEn', label: 'Name (English)', required: true }, { name: 'nameHi', label: 'Name (Hindi)', required: true },
@@ -262,9 +415,53 @@ function Places() {
           onSubmit={async (v) => {
             await request('POST', '/admin/buildings', { body: { code: v.code.toUpperCase(), nameEn: v.nameEn, nameHi: v.nameHi,
               floors: v.floors.split(',').map((s) => s.trim()).filter(Boolean) } })
-            await loadCatalogs(true); refresh((n) => n + 1)
+            await refresh()
           }} />
       )}
+      {editing && <EditBuildingDialog code={editing} onClose={() => setEditing(null)}
+        onSaved={async (msg) => { setEditing(null); setNotice(msg); await refresh() }}
+        onError={(msg) => { setEditing(null); setError(msg) }} />}
+      {toggling && <ToggleCatalogDialog code={toggling} kind="place" onClose={() => setToggling(null)}
+        onSaved={async (msg) => { setToggling(null); setNotice(msg); await refresh() }}
+        onError={(msg) => { setToggling(null); setError(msg) }} />}
     </Stack>
+  )
+}
+
+function EditBuildingDialog({ code, onClose, onSaved, onError }: { code: string; onClose: () => void; onSaved: (m: string) => void; onError: (m: string) => void }) {
+  const b = allBuildings().find((x) => x.code === code)
+  const [nameEn, setNameEn] = useState(b?.nameEn ?? '')
+  const [nameHi, setNameHi] = useState(b?.nameHi ?? '')
+  const [floors, setFloors] = useState((b?.floors ?? []).join(', '))
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const floorList = floors.split(',').map((s) => s.trim()).filter(Boolean)
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault()
+    setBusy(true); setError(null)
+    try {
+      await api.editBuilding(code, { nameEn: nameEn.trim(), nameHi: nameHi.trim(), floors: floorList })
+      onSaved(`${nameEn.trim()} updated.`)
+    } catch (err) { onError(errorMessage(err)) } finally { setBusy(false) }
+  }
+
+  if (!b) return null
+  return (
+    <Dialog open onClose={onClose} title={`Edit place: ${b.nameEn}`}>
+      <form onSubmit={save} className="space-y-4">
+        <p className="token text-[13px] text-muted">Code {b.code} stays the same, so existing tickets keep their place.</p>
+        <Field label="Name (English)">{(id) => <Input id={id} value={nameEn} onChange={(e) => setNameEn(e.target.value)} maxLength={80} required />}</Field>
+        <Field label="Name (Hindi)">{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
+        <Field label="Floors" hint="Comma separated, e.g. Ground, 1, 2">
+          {(id, d) => <Input id={id} aria-describedby={d} value={floors} onChange={(e) => setFloors(e.target.value)} maxLength={400} required />}
+        </Field>
+        {error && <Alert tone="bad">{error}</Alert>}
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit" loading={busy} disabled={!nameEn.trim() || !nameHi.trim() || !floorList.length}>Save</Button>
+        </div>
+      </form>
+    </Dialog>
   )
 }

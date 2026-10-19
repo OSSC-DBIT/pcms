@@ -14,10 +14,10 @@ import { AlertTriangle, ArrowLeft, Clock, MessageSquare, Phone, Wrench } from 'l
 import { useAuth } from '../../App'
 import { ActionDialog, type FormField } from '../../components/ActionDialog'
 import { Gallery, Messages, TicketSummaryCard, Timeline, ago } from '../../components/ticket'
-import { Alert, Badge, Button, Card, Chips, Field, Input, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
+import { Alert, Badge, Button, Card, Chips, Field, Input, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, formatPaise, HttpError, parseRupees, type TransitionAction } from '../../lib/api'
 import { categories, category } from '../../lib/catalog'
-import { TERMINAL, type Channel, type DecisionKind, type Priority, type Ticket, type Worker } from '../../lib/types'
+import { TERMINAL, type Assessment, type Channel, type DecisionKind, type Priority, type Ticket, type Worker } from '../../lib/types'
 
 type Run = (fn: () => Promise<Ticket>) => Promise<boolean>
 interface Action { key: string; label: string; danger?: boolean; fields: FormField[]; description?: string; build: (v: Record<string, string>) => TransitionAction }
@@ -78,6 +78,8 @@ export default function StaffTicket() {
           {can('ticket.triage') && s === 'Submitted' && <ReviewStep ticket={ticket} busy={busy} run={run} />}
           {can('ticket.assign') && (s === 'Triaged' || (s === 'OnHold' && active.length === 0)) && <AssignStep ticket={ticket} workers={workers} busy={busy} run={run} />}
           {active.length > 0 && <AssignmentsCard ticket={ticket} busy={busy} run={run} canAssign={can('ticket.assign')} />}
+          {can('ticket.assess') && active.length > 0 && (s === 'Assigned' || s === 'InProgress') &&
+            <AssessStep ticket={ticket} busy={busy} run={run} />}
           {can('ticket.triage') && (s === 'Assigned' || s === 'InProgress') && <FlagStep ticket={ticket} busy={busy} run={run} managerName={user?.name ?? 'Facilities'} />}
           {can('ticket.assign') && s === 'OnHold' && active.length > 0 && (
             <Next title="Ready to continue?"><Button loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'resume' }))}>Resume work</Button></Next>
@@ -217,7 +219,94 @@ function AssignmentsCard({ ticket, busy, run, canAssign }: { ticket: Ticket; bus
   )
 }
 
-// ---------- 3. flag ----------
+// ---------- 3. assess ----------
+
+const ASSESSMENT_LABEL: Record<Assessment, string> = {
+  simple: 'One person can do it',
+  workforce: 'Needs more people',
+  parts: 'Needs parts',
+  expenditure: 'Needs money up front',
+}
+
+const ASSESS_VIA = [
+  { value: 'in_person' as const, label: 'In person' },
+  { value: 'call' as const, label: 'Phone call' },
+  { value: 'sms' as const, label: 'SMS' },
+  { value: 'whatsapp' as const, label: 'WhatsApp' },
+  { value: 'card' as const, label: 'Job card' },
+]
+
+/**
+ * What the worker found, recorded before the I/C/P flag. Optional in the flow,
+ * but it is what tells management whether a ticket needs money or people.
+ */
+function AssessStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run: Run }) {
+  const active = ticket.assignments.filter((a) => !a.releasedAt)
+  const [picked, setPicked] = useState<Assessment[]>(ticket.assessments)
+  const [workerId, setWorkerId] = useState(active[0]?.workerId ?? '')
+  const [via, setVia] = useState<Channel | 'in_person'>('in_person')
+  const [note, setNote] = useState('')
+  const [open, setOpen] = useState(false)
+  const recorded = ticket.assessments.length > 0
+
+  if (!recorded && !open) {
+    return (
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[14px] text-muted">Recorded what the work needs? It helps management decide.</p>
+          <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>Record assessment</Button>
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <Card title="Assessment" subtitle={recorded ? 'What the work needs' : undefined}>
+      <Stack>
+        {recorded && !open && (
+          <p className="text-[14px]">
+            {ticket.assessments.map((a) => ASSESSMENT_LABEL[a]).join(', ')}
+            <Button size="sm" variant="ghost" className="ml-2" onClick={() => setOpen(true)}>Change</Button>
+          </p>
+        )}
+        {open && (
+          <form onSubmit={(e) => { e.preventDefault(); void run(() => api.recordAssessment(ticket, picked, workerId, via, note.trim())).then((ok) => { if (ok) { setOpen(false); setNote('') } }) }} className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(Object.keys(ASSESSMENT_LABEL) as Assessment[]).map((a) => (
+                <label key={a} className={`flex cursor-pointer items-center gap-3 rounded-md border px-3.5 py-2.5 ${picked.includes(a) ? 'border-accent bg-accent-soft' : 'border-line'}`}>
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--c-accent)]" checked={picked.includes(a)}
+                    onChange={() => setPicked((x) => x.includes(a) ? x.filter((y) => y !== a) : [...x, a])} />
+                  <span className="text-[14.5px]">{ASSESSMENT_LABEL[a]}</span>
+                </label>
+              ))}
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Worker who looked at it">
+                {(id) => <Select id={id} value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
+                  {active.map((a) => <option key={a.id} value={a.workerId}>{a.workerName}</option>)}
+                </Select>}
+              </Field>
+              <Field label="How it was reported">
+                {(id) => <Select id={id} value={via} onChange={(e) => setVia(e.target.value as Channel | 'in_person')}>
+                  {ASSESS_VIA.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+                </Select>}
+              </Field>
+            </div>
+            <Field label="What was found" hint="Internal note. The reporter does not see this.">
+              {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} required />}
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" loading={busy} disabled={!picked.length || !workerId || note.trim().length < 2}>Save assessment</Button>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            </div>
+          </form>
+        )}
+      </Stack>
+    </Card>
+  )
+}
+
+// ---------- 4. flag ----------
 
 function FlagStep({ ticket, busy, run, managerName }: { ticket: Ticket; busy: boolean; run: Run; managerName: string }) {
   const [flag, setFlag] = useState<'I' | 'C' | 'P' | null>(ticket.flag === 'I' ? 'I' : null)

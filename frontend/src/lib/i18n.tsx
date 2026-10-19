@@ -17,6 +17,8 @@ const en = {
   'nav.approvals': 'Approvals',
   'nav.workers': 'Workers',
   'nav.admin': 'Admin',
+  'nav.reports': 'Reports',
+  'nav.audit': 'Audit log',
   'action.back': 'Back',
   'action.cancel': 'Cancel',
   'action.confirm': 'Confirm',
