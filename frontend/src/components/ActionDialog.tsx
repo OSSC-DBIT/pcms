@@ -15,10 +15,10 @@ export interface FormField {
  * A small form in a dialog: used for every staff action that needs a reason,
  * a date or a note. Shows server errors inline and stays open on failure.
  */
-export function ActionDialog({ open, onClose, title, description, fields = [], confirmLabel, danger, onSubmit }:
-  { open: boolean; onClose: () => void; title: string; description?: ReactNode; fields?: FormField[]; confirmLabel: string; danger?: boolean
+export function ActionDialog({ open, onClose, title, description, fields = [], initial = {}, confirmLabel, danger, onSubmit }:
+  { open: boolean; onClose: () => void; title: string; description?: ReactNode; fields?: FormField[]; initial?: Record<string, string>; confirmLabel: string; danger?: boolean
     onSubmit: (values: Record<string, string>) => Promise<unknown> }) {
-  const [values, setValues] = useState<Record<string, string>>({})
+  const [values, setValues] = useState<Record<string, string>>(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const missing = fields.some((f) => f.required && !values[f.name]?.trim())

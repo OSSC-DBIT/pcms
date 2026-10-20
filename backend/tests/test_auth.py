@@ -194,10 +194,11 @@ async def test_role_capabilities_follow_dbit_decisions():
     from app.security.roles import CAPABILITIES, capabilities_for, requires_second_factor
 
     assert "cost.approve" not in capabilities_for("facility_manager")
-    assert "worker.manage" in capabilities_for("facility_manager")
+    assert "ticket.assign" in capabilities_for("facility_manager")
     assert "ticket.assign" not in capabilities_for("management")
+    assert "ticket.assign" not in capabilities_for("faculty")
     assert set(capabilities_for("ossc")) == CAPABILITIES  # super admin: full access
-    assert "worker.directory" not in capabilities_for("faculty")
+    assert not {c for c in CAPABILITIES if c.startswith("worker.")}
     assert [r for r in ("faculty", "facility_manager", "management", "ossc") if requires_second_factor(r)] == ["ossc"]
 
 
@@ -210,4 +211,5 @@ async def test_management_has_no_second_factor(client):
 async def test_role_capabilities_follow_plan():
     from app.security.roles import capabilities_for
 
-    assert "worker.directory" not in capabilities_for("faculty")
+    assert "ticket.create" in capabilities_for("faculty")
+    assert "worker.directory" not in capabilities_for("ossc")

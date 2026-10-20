@@ -77,23 +77,6 @@ def ticket_body(**over) -> dict:
     return body
 
 
-async def make_worker(name="Ramesh K", phone="+919876500001", trades=("carpentry",), mode="whatsapp", active=True):
-    from app.db import sessionmaker as sm
-    from app.models import Category, Worker, WorkerSkill
-    from sqlalchemy import select as sel
-
-    async with sm()() as s:
-        w = Worker(name=name, phone_e164=phone, area="Campus", language="kn", mode=mode, kind="employee", active=active, version=1)
-        s.add(w)
-        await s.flush()
-        for code in trades:
-            cid = await s.scalar(sel(Category.id).where(Category.code == code))
-            s.add(WorkerSkill(worker_id=w.id, category_id=cid))
-        await s.commit()
-        await s.refresh(w)
-        return w
-
-
 async def sign_in(client, employee_id: str, password: str = PASSWORD, totp_secret: str | None = None,
                   new_password: str | None = None) -> Session:
     """Walk every sign-in step until full access."""

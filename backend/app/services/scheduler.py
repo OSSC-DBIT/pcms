@@ -1,6 +1,5 @@
 """Periodic work run by the scheduler process (and callable from tests).
 
-  - no Accept within the deadline: SMS fallback, then ask managers to call (plan 12, 13)
   - remind reporters to verify resolved work (plan 9.1)
   - flag holds whose review date has arrived (plan 8, weekly review)
   - scan quarantined uploads with ClamAV and release or reject them (plan 18.1)
@@ -15,41 +14,12 @@ from sqlalchemy import delete, select
 from app.config import get_settings
 from app.db import sessionmaker
 from app.models.attachment import Attachment
-from app.models.catalog import Building, Category
 from app.models.session import ThrottleEvent, UserSession
 from app.models.ticket import Ticket
-from app.models.worker import Assignment, Worker
 from app.security.sessions import now
 from app.services import media, notify
-from app.services.tickets import add_event, location_text
 
 log = logging.getLogger("pcms.scheduler")
-
-
-async def acceptance_fallbacks() -> int:
-    n = 0
-    async with sessionmaker()() as db:
-        rows = (await db.execute(
-            select(Assignment, Ticket, Worker).join(Ticket, Ticket.id == Assignment.ticket_id).join(Worker, Worker.id == Assignment.worker_id)
-            .where(Assignment.released_at.is_(None), Assignment.accepted_at.is_(None), Assignment.fallback_sent_at.is_(None),
-                   Assignment.ack_due_at < now(), Ticket.status == "Assigned")
-            .with_for_update(of=Assignment, skip_locked=True))).all()
-        for a, t, w in rows:
-            a.fallback_sent_at = now()
-            if a.channel == "whatsapp" and w.mode in ("whatsapp", "sms"):
-                cat = await db.get(Category, t.category_id)
-                b = await db.scalar(select(Building).where(Building.code == t.building_code)) if t.building_code else None
-                await notify.dispatch_worker(db, t, a, w, cat.name_en if cat else "", location_text(t, {b.code: b} if b else None),
-                                             channel="sms", template="job_fallback")
-                detail = f"No Accept from {w.name} in {get_settings().accept_timeout_minutes} min: SMS sent; call to confirm"
-            else:
-                detail = f"No acceptance recorded from {w.name}: call to confirm"
-            add_event(db, t, None, "Acceptance overdue", detail=detail, public=False)
-            await notify.notify_role(db, "facility_manager", t, template="ack_overdue", key_suffix=f":{a.id}",
-                                     title=f"{t.token}: worker has not accepted", body=detail)
-            n += 1
-        await db.commit()
-    return n
 
 
 async def verification_reminders() -> int:

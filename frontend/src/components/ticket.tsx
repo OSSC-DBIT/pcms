@@ -1,6 +1,6 @@
 /** Ticket building blocks shared by the faculty and staff screens. */
 import { clsx } from 'clsx'
-import { ChevronRight, ImageOff, Loader2, MapPin, Play, Plus } from 'lucide-react'
+import { ChevronRight, ImageOff, Loader2, MapPin, Play, Plus, Star } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
@@ -81,6 +81,22 @@ export function TicketSummaryCard({ ticket, children }: { ticket: Ticket; childr
       <p className="mt-3 text-[13px] text-muted">{t('ticket.reportedBy')} {ticket.reporterName} · {fmtTime(ticket.createdAt)}</p>
       {children}
     </section>
+  )
+}
+
+/** Five stars with the optional comment, shared by the faculty and staff views. */
+export function RatingSummary({ stars, comment, createdAt }: { stars: number; comment?: string | null; createdAt?: string }) {
+  return (
+    <div>
+      <div className="flex items-center gap-1" aria-label={`${stars} out of 5 stars`}>
+        {[1, 2, 3, 4, 5].map((n) => (
+          <Star key={n} size={18} className={n <= stars ? 'fill-current text-warn' : 'text-line'} aria-hidden />
+        ))}
+        <span className="ml-2 text-[14px] text-muted">{stars} of 5</span>
+      </div>
+      {comment && <p className="mt-2 whitespace-pre-line text-[14.5px]">{comment}</p>}
+      {createdAt && <p className="mt-1 text-[12.5px] text-muted">{fmtDate(createdAt)}</p>}
+    </div>
   )
 }
 

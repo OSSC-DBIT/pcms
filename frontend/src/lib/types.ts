@@ -11,7 +11,6 @@ export interface User {
 export type Capability =
   | 'ticket.create' | 'ticket.track' | 'ticket.verify'
   | 'queue.view' | 'ticket.triage' | 'ticket.assign' | 'ticket.assess' | 'ticket.escalate' | 'ticket.close'
-  | 'worker.directory' | 'worker.manage'
   | 'cost.approve'
   | 'admin.users' | 'admin.catalogs' | 'admin.locations' | 'admin.settings' | 'admin.audit'
 
@@ -74,20 +73,6 @@ export interface Comment {
   internal: boolean
 }
 
-export interface Assignment {
-  id: string
-  workerId: string
-  workerName: string
-  lead: boolean
-  assignedAt: string
-  acceptedAt?: string | null
-  startedAt?: string | null
-  releasedAt?: string | null
-  channel: Channel
-  delivery: 'queued' | 'sent' | 'delivered' | 'read' | 'failed' | 'unknown' | 'not_applicable'
-  accepted: boolean
-}
-
 export type DecisionKind = 'approved' | 'rejected' | 'clarify' | 'defer'
 
 export interface Proposal {
@@ -130,9 +115,16 @@ export interface TicketSummary {
   nextUpdateDue?: string | null
   duplicateOf?: string | null
   verifiedByReporter?: boolean | null
-  assignments: Assignment[]
+  /** Internal worker or vendor name. Always null for faculty. */
+  workerName?: string | null
   /** Never present for faculty. */
   proposal?: Proposal | null
+}
+
+export interface Rating {
+  stars: number
+  comment?: string | null
+  createdAt: string
 }
 
 export interface Ticket extends TicketSummary {
@@ -144,21 +136,19 @@ export interface Ticket extends TicketSummary {
   comments: Comment[]
   holdReason?: string | null
   holdReviewDate?: string | null
+  rating?: Rating | null
 }
 
-export interface Worker {
-  id: string
-  name: string
-  phoneMasked: string
-  trades: string[]
-  area: string
-  language: string
-  mode: 'whatsapp' | 'sms' | 'call'
-  kind: 'employee' | 'vendor'
-  active: boolean
-  workload: number
-  lastVerified?: string | null
-  version: number
+export interface LowRating {
+  ticketId: string
+  token: string
+  title: string
+  stars: number
+  comment?: string | null
+  createdAt: string
+  category?: string | null
+  building?: string | null
+  room?: string | null
 }
 
 export interface Category { code: string; letter: string; nameEn: string; nameHi: string; subtypesEn: string[]; subtypesHi: string[]; active: boolean }
@@ -207,7 +197,6 @@ export interface Report {
   openByStatus: Record<string, number>
   openByPriority: Record<string, number>
   untriaged: number
-  unaccepted: number
   overdueUpdates: number
   pendingApprovals: number
   holdsByReason: { reason: string | null; count: number }[]
@@ -217,6 +206,12 @@ export interface Report {
   triageTime: Percentiles
   resolutionTime: Percentiles
   approvedPaise: number
+  ratings: {
+    count: number
+    average: number | null
+    distribution: Record<string, number>
+    low: LowRating[]
+  }
 }
 
 // ---------- audit ----------

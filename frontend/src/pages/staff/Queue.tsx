@@ -8,12 +8,11 @@ import { Alert, Badge, Button, Card, EmptyState, Input, PageHeader, Select, Skel
 import { api, type FailedNotification } from '../../lib/api'
 import { buildings, categories } from '../../lib/catalog'
 import { useTickets, type UseTicketsOptions } from '../../lib/useTickets'
-import type { Priority, TicketSort, TicketSummary, WorkFlag, Worker } from '../../lib/types'
+import type { Priority, TicketSort, TicketSummary, WorkFlag } from '../../lib/types'
 
 type View = 'action' | 'working' | 'all'
 
-const unaccepted = (x: TicketSummary) => x.status === 'Assigned' && !x.assignments.some((a) => a.accepted && !a.releasedAt)
-const needsAction = (x: TicketSummary) => ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status) || unaccepted(x)
+const needsAction = (x: TicketSummary) => ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status)
 
 const SORTS: { value: TicketSort; label: string }[] = [
   { value: 'newest', label: 'Newest first' },
@@ -31,10 +30,9 @@ export default function Queue() {
   const [place, setPlace] = useState('')
   const [kind, setKind] = useState('')
   const [flag, setFlag] = useState<WorkFlag | ''>('')
-  const [workerId, setWorkerId] = useState('')
+  const [workerName, setWorkerName] = useState('')
   const [sort, setSort] = useState<TicketSort>('newest')
-  const [workers, setWorkers] = useState<Worker[]>([])
-  const [counts, setCounts] = useState({ new: 0, unaccepted: 0, overdue: 0, approvals: 0 })
+  const [counts, setCounts] = useState({ new: 0, assigned: 0, overdue: 0, approvals: 0 })
 
   // Every filter below is applied by the server, not in the browser.
   const filters: UseTicketsOptions = {
@@ -44,21 +42,17 @@ export default function Queue() {
     building: place || undefined,
     category: kind || undefined,
     flag: flag || undefined,
-    worker: workerId || undefined,
+    worker: workerName.trim() || undefined,
     sort,
   }
   const { tickets, error, total, page, pageSize, pageCount, setPage, setPageSize, reload } = useTickets('queue', filters)
-
-  useEffect(() => {
-    if (can('worker.directory')) api.listWorkers({ active: true }).then(setWorkers).catch(() => setWorkers([]))
-  }, [can])
 
   // The tiles must describe the whole open set, not the filtered page, so they come
   // from GET /reports rather than being counted from whatever rows are on screen.
   useEffect(() => {
     let live = true
     api.report({ days: 365, building: place || undefined, category: kind || undefined })
-      .then((r) => { if (live) setCounts({ new: r.untriaged, unaccepted: r.unaccepted, overdue: r.overdueUpdates, approvals: r.pendingApprovals }) })
+      .then((r) => { if (live) setCounts({ new: r.untriaged, assigned: r.openByStatus.Assigned ?? 0, overdue: r.overdueUpdates, approvals: r.pendingApprovals }) })
       .catch(() => { /* the tiles are a nicety; the list reports its own errors */ })
     return () => { live = false }
   }, [place, kind])
@@ -68,9 +62,9 @@ export default function Queue() {
     [tickets, view],
   )
 
-  const filtering = !!(applied || priority || place || kind || flag || workerId)
+  const filtering = !!(applied || priority || place || kind || flag || workerName.trim())
   const clear = () => {
-    setSearch(''); setApplied(''); setPriority(''); setPlace(''); setKind(''); setFlag(''); setWorkerId('')
+    setSearch(''); setApplied(''); setPriority(''); setPlace(''); setKind(''); setFlag(''); setWorkerName('')
   }
 
   return (
@@ -78,7 +72,7 @@ export default function Queue() {
       <PageHeader title="Queue" subtitle="Open tickets across campus" actions={<Button variant="secondary" size="sm" onClick={() => void reload()}>Refresh</Button>} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="New" value={counts.new} />
-        <Stat label="Not accepted" value={counts.unaccepted} />
+        <Stat label="Assigned" value={counts.assigned} />
         <Stat label="Update overdue" value={counts.overdue} tone={counts.overdue ? 'bad' : undefined} />
         <Stat label="Waiting approval" value={counts.approvals} />
       </div>
@@ -123,14 +117,11 @@ export default function Queue() {
             <option value="I">I Immediate</option><option value="C">C Critical</option><option value="P">P Postpone</option>
           </Select>
         </div>
-        {workers.length > 0 && (
-          <div className="w-44">
-            <label htmlFor="queue-worker" className="mb-1.5 block text-[13px] font-medium">Worker</label>
-            <Select id="queue-worker" value={workerId} onChange={(e) => setWorkerId(e.target.value)}>
-              <option value="">Anyone</option>{workers.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}
-            </Select>
-          </div>
-        )}
+        <div className="w-44">
+          <label htmlFor="queue-worker" className="mb-1.5 block text-[13px] font-medium">Worker name</label>
+          <Input id="queue-worker" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+            placeholder="Anyone" autoComplete="off" />
+        </div>
         <div className="w-44">
           <label htmlFor="queue-sort" className="mb-1.5 block text-[13px] font-medium">Sort</label>
           <Select id="queue-sort" value={sort} onChange={(e) => setSort(e.target.value as TicketSort)}>
@@ -149,7 +140,7 @@ export default function Queue() {
         <>
           <TicketList>
             {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
-              extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}{unaccepted(x) && <Badge tone="warn">Not accepted</Badge>}</>} />)}
+              extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}</>} />)}
           </TicketList>
           <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
         </>

@@ -5,11 +5,13 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Download } from 'lucide-react'
+import { Link } from 'react-router-dom'
 import { Alert, Button, Card, PageHeader, Select, Skeleton, Stack, errorMessage } from '../../components/ui'
+import { fmtDate } from '../../components/ticket'
 import { api, formatPaise } from '../../lib/api'
 import { building, buildings, categories } from '../../lib/catalog'
 import { useT } from '../../lib/i18n'
-import type { Report } from '../../lib/types'
+import type { LowRating, Report } from '../../lib/types'
 
 const WINDOWS = [7, 30, 90, 180, 365]
 
@@ -93,12 +95,14 @@ export default function Reports() {
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <Stat label="Untriaged" value={data.untriaged} tone={data.untriaged ? 'bad' : undefined} />
-            <Stat label="Not accepted by worker" value={data.unaccepted} tone={data.unaccepted ? 'warn' : undefined} />
+            <Stat label="Average rating" value={data.ratings.average === null ? '-' : data.ratings.average.toFixed(1)} />
             <Stat label="Update overdue" value={data.overdueUpdates} tone={data.overdueUpdates ? 'bad' : undefined} />
             <Stat label="Waiting approval" value={data.pendingApprovals} />
             <Stat label="Disputed" value={data.disputes} />
             <Stat label="Failed messages" value={data.failedNotifications} tone={data.failedNotifications ? 'warn' : undefined} />
           </div>
+
+          <RatingsCard ratings={data.ratings} />
 
           <div className="grid gap-4 lg:grid-cols-2">
             <Card title="Open tickets by status">
@@ -153,12 +157,78 @@ export default function Reports() {
   )
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: 'bad' | 'warn' }) {
+function Stat({ label, value, tone }: { label: string; value: string | number; tone?: 'bad' | 'warn' }) {
   return (
     <div className="rounded-lg border border-line bg-surface px-4 py-3">
       <p className={`text-[24px] font-semibold ${tone === 'bad' ? 'text-bad' : tone === 'warn' ? 'text-warn' : ''}`}>{value}</p>
       <p className="text-[13px] text-muted">{label}</p>
     </div>
+  )
+}
+
+function RatingsCard({ ratings }: { ratings: Report['ratings'] }) {
+  return (
+    <Card title="Ratings" subtitle="Given by reporters after a repair is closed">
+      {ratings.count === 0 ? <p className="text-[14px] text-muted">No ratings in this window.</p> : (
+        <Stack>
+          <p className="text-[14.5px]">
+            <b>{ratings.count}</b> rating(s) · average <b>{ratings.average === null ? '-' : ratings.average.toFixed(1)}</b> of 5
+          </p>
+          <RatingBars distribution={ratings.distribution} />
+          <div>
+            <p className="mb-2 text-[14px] font-medium">Recent low ratings</p>
+            {ratings.low.length === 0
+              ? <p className="text-[14px] text-muted">No low ratings in this window.</p>
+              : <LowRatingsTable rows={ratings.low} />}
+          </div>
+        </Stack>
+      )}
+    </Card>
+  )
+}
+
+/** 1 and 2 star ratings only; the server sends the newest ten. */
+function LowRatingsTable({ rows }: { rows: LowRating[] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-left text-[14px]">
+        <thead><tr className="border-b border-line text-[13px] text-muted">
+          <th scope="col" className="py-2 pr-3 font-medium">Ticket</th>
+          <th scope="col" className="py-2 pr-3 font-medium">Stars</th>
+          <th scope="col" className="py-2 pr-3 font-medium">Comment</th>
+          <th scope="col" className="py-2 text-right font-medium">Date</th>
+        </tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.ticketId} className="border-b border-line last:border-b-0">
+              <td className="py-2 pr-3"><Link to={`/staff/t/${r.ticketId}`} className="token font-semibold text-accent">{r.token}</Link></td>
+              <td className="py-2 pr-3">{r.stars} / 5</td>
+              <td className="py-2 pr-3">{r.comment || '-'}</td>
+              <td className="py-2 text-right text-muted">{fmtDate(r.createdAt)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** Keeps the conventional 5, 4, 3, 2, 1 order; Bars sorts by count instead. */
+function RatingBars({ distribution }: { distribution: Record<string, number> }) {
+  const entries = [5, 4, 3, 2, 1].map((n) => [String(n), distribution[String(n)] ?? 0] as const)
+  const max = Math.max(1, ...entries.map(([, n]) => n))
+  return (
+    <ul className="space-y-2.5" aria-label="Rating distribution">
+      {entries.map(([stars, n]) => (
+        <li key={stars} className="flex items-center gap-3 text-[13.5px]">
+          <span className="w-14 shrink-0 text-muted">{stars} star{stars === '1' ? '' : 's'}</span>
+          <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-subtle">
+            <span className="block h-full rounded-full bg-warn" style={{ width: `${(n / max) * 100}%` }} />
+          </span>
+          <span className="w-8 shrink-0 text-right font-medium">{n}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 

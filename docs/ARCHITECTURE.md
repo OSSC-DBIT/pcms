@@ -11,7 +11,7 @@ flowchart TB
         N["nginx<br/>:443 app + API<br/>:8081 tunnel-only"]
         A["api<br/>FastAPI, 4 workers"]
         W["worker<br/>sends outbox"]
-        S["scheduler<br/>fallbacks, reminders, scans"]
+        S["scheduler<br/>reminders, scans"]
         DB[("PostgreSQL 17")]
         MV[("media volume<br/>private")]
         C["ClamAV"]
@@ -57,9 +57,10 @@ erDiagram
     TICKET ||--o{ TICKET_EVENT : "history (append-only)"
     TICKET ||--o{ TICKET_COMMENT : "messages (append-only)"
     TICKET ||--o{ ATTACHMENT : evidence
-    TICKET ||--o{ ASSIGNMENT : dispatch
-    WORKER ||--o{ ASSIGNMENT : receives
-    WORKER ||--o{ WORKER_SKILL : has
+    TICKET ||--o| TICKET_RATING : "reporter rating"
+    TICKET ||--o{ ASSIGNMENT : "legacy dispatch"
+    WORKER ||--o{ ASSIGNMENT : "legacy dispatch"
+    WORKER ||--o{ WORKER_SKILL : "legacy skills"
     TICKET ||--o{ PROPOSAL : "cost versions"
     PROPOSAL ||--o| DECISION : "one decision"
     TICKET ||--o{ OUTBOX : notifications
@@ -70,9 +71,10 @@ erDiagram
 ```
 
 Rules the database enforces: valid statuses and roles, one active lead per ticket, one pending
-proposal per ticket, one decision per proposal version, non-negative money in integer paise,
-unique tokens and phone numbers. Timeline, comments, decisions, delivery attempts and the
-audit log cannot be updated or deleted (trigger).
+proposal per ticket, one decision per proposal version, one rating per ticket, non-negative money
+in integer paise, unique tokens and phone numbers. Timeline, comments, decisions, delivery
+attempts and the audit log cannot be updated or deleted (trigger). The `worker`, `worker_skill`
+and `assignment` tables remain for history; the normal flow writes no new rows to them.
 
 ## Tokens
 
@@ -97,8 +99,8 @@ This is the flow DBIT confirmed on 18 October 2026.
 flowchart TD
     A[Faculty submits problem<br/>type, part, place, photos] --> B{Facility manager<br/>reviews}
     B -->|Reject with reason| R[Rejected<br/>reporter told why]
-    B -->|Accept + priority| C[Assign worker]
-    C -->|automatic SMS / WhatsApp| D[Worker looks at it]
+    B -->|Accept + priority| C[Contact worker directly<br/>record optional name, mark Assigned]
+    C --> D[Worker looks at it]
     D --> E{Flag}
     E -->|I Immediate| F[Fix, then mark as fixed]
     E -->|C Critical| G[Sent to institute management<br/>reason + optional cost]
@@ -107,7 +109,7 @@ flowchart TD
     G -->|Question / defer / reject| H
     H -->|Resume| C
     F --> I{Reporter checks}
-    I -->|Yes, fixed| J[Closed]
+    I -->|Yes, fixed| J[Closed<br/>reporter may rate once]
     I -->|Still broken, within 7 days| B
 ```
 
@@ -119,8 +121,8 @@ stateDiagram-v2
     Submitted --> Triaged : accept (priority)
     Submitted --> Rejected : reject (reason)
     Submitted --> Duplicate
-    Triaged --> Assigned : worker assigned, SMS sent
-    Assigned --> InProgress : worker confirmed (button or call)
+    Triaged --> Assigned : manager records the worker (optional name)
+    Assigned --> InProgress : manager marks work started
     Assigned --> Resolved : I, fixed
     InProgress --> Resolved : I, fixed
     Assigned --> AwaitingApproval : C, sent to management
@@ -136,23 +138,33 @@ stateDiagram-v2
     Closed --> Triaged : manager reopens
     Triaged --> Cancelled
     Closed --> [*]
+    note right of Closed : one immutable rating (1-5 stars)
 ```
 
-**Future scope.** The worker giving the reason for Critical or Postpone directly (SMS reply,
-voice or a very simple form). For now the facility manager records it, because many workers do
-not use apps.
+**Future scope.** Letting workers record progress themselves, for example by SMS reply or a very
+simple form. For now the facility manager records it, because many workers do not use apps.
 
 Every action carries the ticket version the person saw; a stale version gets `409` and the screen reloads.
 
 An **assessment** can be recorded while work is assigned or in progress. It says what the job
-needs (one person, more people, parts, money up front), who reported it and how, and lands in
+needs (one person, more people, parts, money up front) and how it was reported, and lands in
 the timeline as an internal entry, so it never reaches the reporter.
+
+## Ratings
+
+After the reporter confirms the fix, the ticket is `Closed` and the reporter may submit one
+rating: 1-5 stars and an optional comment of up to 1000 characters. There is no edit or delete
+endpoint. The unique ticket id is the concurrency guard, so a second rating returns `409
+already_rated`. Staff see the rating on the ticket; the public timeline records only the star
+count. A 1 or 2 star rating queues a facility-manager notification through the outbox. Reports
+show the count, average, 5-to-1 distribution and the ten newest low ratings.
 
 ## Listing, search and paging
 
 `GET /tickets` is the one list endpoint. It takes `scope` (`mine` or `queue`), `status`, `open`,
 `search`, `category`, `flag`, `priority`, `building`, `worker`, `sort`, `page` and `pageSize`,
-and returns `{items, total, page, pageSize}`.
+and returns `{items, total, page, pageSize}`. The `worker` filter matches the optional free-text
+worker or vendor name and is available only on the staff queue.
 
 Every filter is applied in SQL, never in the browser. The client used to fetch a fixed 100 rows
 and filter them locally, which silently hid older tickets; it now sends the filters and renders
@@ -186,26 +198,17 @@ sequenceDiagram
     B->>A: every change sends X-CSRF-Token
 ```
 
-## Dispatch and fallback
+## Worker contact and legacy dispatch
 
-```mermaid
-sequenceDiagram
-    participant M as Manager
-    participant A as API + DB
-    participant W as Worker process
-    participant T as Twilio
-    participant K as Worker phone
-    M->>A: assign (WhatsApp)
-    A->>A: assignment + outbox row (one transaction)
-    W->>A: claim job (SKIP LOCKED)
-    W->>T: template with photo link (signed, 10 min)
-    T->>K: WhatsApp job [Accept] [Done] [Need help]
-    T-->>A: status: delivered / read (never counts as acceptance)
-    K->>T: taps Accept
-    T->>A: signed webhook, matched to the message and the worker's number
-    A->>A: ticket InProgress
-    Note over A: No Accept in 30 min: SMS fallback, and managers are alerted to call
-```
+Facility managers contact workers directly and then record the state on the ticket. The name of
+the worker, vendor or team is optional free text, is stored on the ticket, and is shown only to
+staff. PCMS has no worker directory, worker login, phone number field or automatic job message.
+The manager marks the ticket `Assigned`, may mark work started, and records the I/C/P flag.
+
+Twilio webhooks and the worker-delivery branches in the outbox remain for messages that were
+already sent before this change. Their status updates and Accept taps still work, and their
+templates still exist. No new worker message is queued. A later cleanup release can remove the
+provider settings and the legacy tables once those messages are drained.
 
 Retries happen at 1, 5, 15 and 60 minutes, then the message goes to "messages need you" in the queue.
 Notifications for reassigned or finished jobs expire instead of being sent.

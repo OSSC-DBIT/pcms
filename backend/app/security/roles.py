@@ -3,7 +3,7 @@
 DBIT decisions (2026-10-18), which differ from plan v1.2 section 3 and are
 recorded in docs/SECURITY.md:
   - Team OSSC (super admin) has full access to every function.
-  - Facility managers maintain the worker directory (add, import, edit contacts).
+  - Facility managers contact workers directly and record the state on the ticket.
   - Only Team OSSC uses a second factor (TOTP).
 Separation of duty for spending still holds for everyone, OSSC included:
 nobody can approve a proposal they requested or a ticket they reported.
@@ -18,7 +18,6 @@ SECOND_FACTOR_ROLES: Final = frozenset({"ossc"})
 CAPABILITIES: Final = frozenset({
     "ticket.create", "ticket.track", "ticket.verify",
     "queue.view", "ticket.triage", "ticket.assign", "ticket.assess", "ticket.escalate", "ticket.close",
-    "worker.directory", "worker.manage",
     "cost.approve",
     "admin.users", "admin.catalogs", "admin.locations", "admin.settings", "admin.audit",
 })
@@ -27,7 +26,6 @@ ROLE_CAPABILITIES: Final[dict[str, tuple[str, ...]]] = {
     "faculty": ("ticket.create", "ticket.track", "ticket.verify"),
     "facility_manager": (
         "queue.view", "ticket.triage", "ticket.assign", "ticket.assess", "ticket.escalate", "ticket.close",
-        "worker.directory", "worker.manage",
     ),
     "management": ("queue.view", "cost.approve"),
     "ossc": tuple(sorted(CAPABILITIES)),

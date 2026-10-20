@@ -3,14 +3,13 @@
 These endpoints already existed but had no test and, in the assessment case, no UI.
 """
 
-from tests.factories import API, make_user, make_worker, new_client, sign_in, ticket_body
+from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
 async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(client):
     await make_user("DB2101", "faculty", "Reporter")
     fac = await sign_in(client, "DB2101")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
-    worker = await make_worker()
 
     mc = new_client()
     try:
@@ -18,12 +17,11 @@ async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(cli
         mgr = await sign_in(mc, "DB0001")
         v = (await mgr.post(f"{API}/tickets/{t['id']}/transitions",
                             json={"action": "triage", "priority": "P2", "expectedVersion": 1})).json()["version"]
-        assigned = (await mgr.post(f"{API}/tickets/{t['id']}/assignments", json={
-            "workerIds": [str(worker.id)], "leadWorkerId": str(worker.id),
-            "channel": "sms", "expectedVersion": v})).json()
+        assigned = (await mgr.post(f"{API}/tickets/{t['id']}/transitions", json={
+            "action": "assign", "workerName": "Ramesh K", "expectedVersion": v})).json()
 
         r = await mgr.post(f"{API}/tickets/{t['id']}/assessments", json={
-            "assessments": ["parts", "expenditure"], "workerId": str(worker.id),
+            "assessments": ["parts", "expenditure"],
             "via": "in_person", "note": "Needs a new seat frame and a vendor visit", "expectedVersion": assigned["version"]})
         assert r.status_code == 200, r.text
         body = r.json()
@@ -38,44 +36,18 @@ async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(cli
         await mc.aclose()
 
 
-async def test_assessment_rejects_a_worker_who_is_not_assigned(client):
-    await make_user("DB2101", "faculty", "Reporter")
-    fac = await sign_in(client, "DB2101")
-    t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
-    mine = await make_worker(name="Assigned One")
-    other = await make_worker(name="Someone Else", phone="+919876500009")
-
-    mc = new_client()
-    try:
-        await make_user("DB0001", "facility_manager", "Manager")
-        mgr = await sign_in(mc, "DB0001")
-        v = (await mgr.post(f"{API}/tickets/{t['id']}/transitions",
-                            json={"action": "triage", "priority": "P2", "expectedVersion": 1})).json()["version"]
-        assigned = (await mgr.post(f"{API}/tickets/{t['id']}/assignments", json={
-            "workerIds": [str(mine.id)], "leadWorkerId": str(mine.id),
-            "channel": "sms", "expectedVersion": v})).json()
-
-        r = await mgr.post(f"{API}/tickets/{t['id']}/assessments", json={
-            "assessments": ["simple"], "workerId": str(other.id), "via": "call",
-            "note": "Guessing at it", "expectedVersion": assigned["version"]})
-        assert r.status_code == 400 and r.json()["code"] == "validation"
-    finally:
-        await mc.aclose()
-
-
 async def test_assessment_needs_an_assigned_ticket(client):
     """Assessing before a worker is on the job is a 409, not a silent write."""
     await make_user("DB2101", "faculty", "Reporter")
     fac = await sign_in(client, "DB2101")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
-    worker = await make_worker()
 
     mc = new_client()
     try:
         await make_user("DB0001", "facility_manager", "Manager")
         mgr = await sign_in(mc, "DB0001")
         r = await mgr.post(f"{API}/tickets/{t['id']}/assessments", json={
-            "assessments": ["simple"], "workerId": str(worker.id), "via": "call",
+            "assessments": ["simple"], "via": "call",
             "note": "Not assigned yet", "expectedVersion": 1})
         assert r.status_code == 409 and r.json()["code"] == "invalid_transition"
     finally:
@@ -152,7 +124,8 @@ async def test_report_shows_the_fields_the_dashboard_renders(client):
         r = (await mgr.get(f"{API}/reports")).json()
         assert r["openByStatus"] == {"Triaged": 1}
         assert r["openByPriority"] == {"P3": 1}
-        assert r["unaccepted"] == 0
+        assert r["ratings"] == {"count": 0, "average": None,
+                                "distribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}, "low": []}
         assert r["overdueUpdates"] == 0
         assert r["disputes"] == 0
         assert r["failedNotifications"] == 0

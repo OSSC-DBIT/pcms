@@ -8,7 +8,7 @@ import { resetCatalogs } from './catalog'
 import { unsubscribeThisDevice } from './push'
 import type {
   AdminUser, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Location, Page,
-  Priority, Proposal, Report, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag, Worker,
+  Priority, Proposal, Report, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag,
 } from './types'
 
 export { HttpError } from './http'
@@ -48,6 +48,9 @@ export type TransitionAction =
   | { action: 'recategorise'; categoryCode: string; reason?: string }
   | { action: 'hold'; reason: string; owner: string; nextAction: string; reviewDate: string }
   | { action: 'resume'; reason?: string }
+  | { action: 'assign'; workerName?: string }
+  | { action: 'start' }
+  | { action: 'set_worker'; workerName?: string }
   | { action: 'resolve'; note: string; evidenceNote?: string }
   | { action: 'verify' }
   | { action: 'dispute'; reason: string }
@@ -166,18 +169,12 @@ export const api = {
     })
   },
 
-  // ---------- assignments and assessment ----------
-  assign(ticket: Pick<Ticket, 'id' | 'version'>, workerIds: string[], leadWorkerId: string, channel: Channel): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assignments`, { body: { workerIds, leadWorkerId, channel, expectedVersion: ticket.version } })
+  // ---------- assessment and rating ----------
+  recordAssessment(ticket: Pick<Ticket, 'id' | 'version'>, assessments: Assessment[], via: Channel | 'in_person', note: string): Promise<Ticket> {
+    return request('POST', `/tickets/${ticket.id}/assessments`, { body: { assessments, via, note, expectedVersion: ticket.version } })
   },
-  recordAcceptance(ticket: Pick<Ticket, 'id' | 'version'>, assignmentId: string, via: 'call' | 'in_person' | 'sms'): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assignments/${assignmentId}/accept`, { body: { via, expectedVersion: ticket.version } })
-  },
-  releaseAssignment(ticket: Pick<Ticket, 'id' | 'version'>, assignmentId: string, reason: string): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assignments/${assignmentId}/release`, { body: { reason, expectedVersion: ticket.version } })
-  },
-  recordAssessment(ticket: Pick<Ticket, 'id' | 'version'>, assessments: Assessment[], workerId: string, via: Channel | 'in_person', note: string): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assessments`, { body: { assessments, workerId, via, note, expectedVersion: ticket.version } })
+  rate(ticket: Pick<Ticket, 'id'>, stars: number, comment?: string): Promise<Ticket> {
+    return request('POST', `/tickets/${ticket.id}/rating`, { body: { stars, comment: comment?.trim() || null } })
   },
 
   // ---------- costs ----------
@@ -186,20 +183,6 @@ export const api = {
   },
   decide(proposal: Pick<Proposal, 'id' | 'version'>, kind: DecisionKind, opts: { ceilingPaise?: number; conditions?: string; reason?: string; reviewDate?: string }): Promise<Ticket> {
     return request('POST', `/proposals/${proposal.id}/decisions`, { body: { kind, proposalVersion: proposal.version, ...opts } })
-  },
-
-  // ---------- workers ----------
-  listWorkers(params: { trade?: string; active?: boolean } = {}): Promise<Worker[]> {
-    return request('GET', `/workers${qs(params)}`)
-  },
-  createWorker(w: { name: string; phone: string; trades: string[]; area: string; language: string; mode: Worker['mode']; kind: Worker['kind'] }): Promise<Worker> {
-    return request('POST', '/workers', { body: w })
-  },
-  updateWorker(w: Pick<Worker, 'id' | 'version'>, patch: Partial<{ name: string; phone: string; trades: string[]; area: string; language: string; mode: Worker['mode']; kind: Worker['kind']; active: boolean }>): Promise<Worker> {
-    return request('PATCH', `/workers/${w.id}`, { body: { ...patch, expectedVersion: w.version } })
-  },
-  importWorkers(rows: { name: string; phone: string; trades: string[]; area: string; language: string; mode: Worker['mode']; kind: Worker['kind'] }[]): Promise<{ name: string; phone: string; status: 'created' | 'exists' | 'invalid'; message: string | null }[]> {
-    return request('POST', '/workers/import', { body: rows })
   },
 
   // ---------- admin: users ----------

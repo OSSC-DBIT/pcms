@@ -1,533 +1,977 @@
-# PCMS enhancement plan
+# PCMS plan: repair ratings and manual worker handling
 
-Written 19 October 2026 against `main`. This file answers three questions:
+Written 20 October 2026 against branch `feat/part1-reports-audit-pagination`.
 
-1. What is **half built** and needs finishing.
-2. What is **broken** and needs fixing.
-3. What **new features** are worth adding, and in what order.
+This plan answers two requests:
 
-Priority keys: **P0** ship before the pilot, **P1** first month after, **P2** next quarter,
-**P3** nice to have. Sizes are rough engineering days for one developer who already knows
-the codebase.
+1. Add a rating system to PCMS.
+2. Remove the worker list, because facility managers will contact workers directly and update the
+   ticket state by hand. Everything else should stay the same.
 
-Every item cites the file and line it came from, so it can be checked before it is trusted.
+The plan below is the recommended implementation. It is written so it can be reviewed and then
+executed without re-discovering the codebase.
 
 ---
 
-## Part 1: Half-built features (backend ready, UI missing)
+## 1. At a glance
 
-These are the cheapest wins in the whole plan. The server already does the work; only the
-PWA side is missing.
+### What we add
 
-### 1.1 Reports and dashboard - P0, size L (3-4 days)
+- A reporter rates a completed repair with **1-5 stars** and an optional comment.
+- One rating per ticket, only by the person who reported it, only after the ticket is **Closed**.
+- Ratings are immutable. No edit or delete endpoint.
+- Staff see the rating on the ticket. Reports show the average, the distribution and recent low
+  ratings (1-2 stars).
+- A low rating queues a notification to facility managers through the existing outbox.
 
-`GET /api/v1/reports` (`backend/app/routers/admin_ops.py:72`) returns a complete analytics
-payload:
+### What we remove
 
-- open tickets by status and by priority
-- untriaged count, unaccepted count, updates overdue
-- pending approvals, holds by reason, open disputes
-- failed notifications
-- **repeat faults** (top 10 location + category pairs)
-- triage and resolution **p50 and p90** times
-- approved spend in paise
+- The **Workers** page, route and navigation item.
+- The `/workers` API and the `worker.directory` and `worker.manage` capabilities.
+- Worker selection, automatic SMS/WhatsApp dispatch, acceptance tracking and release.
+- The "Not accepted by worker" report tile and queue tile.
+- The worker filter that uses worker ids. It becomes a free-text name filter.
 
-The API filters accept `building=` and `category=` (`admin_ops.py:79-87`). No page in
-`frontend/src/pages/` calls it. The facility manager is flying blind with no numbers at all.
+### What we keep
 
-To do:
+- The status names and the rest of the lifecycle.
+- Faculty isolation, reporter notifications, management approvals, audit and history rules.
+- The existing `worker`, `worker_skill` and `assignment` tables and rows. They become legacy
+  history and are **not dropped**. No new rows are written to them by the normal flow.
+- Twilio webhook handling for messages that were already sent before this change. It is legacy
+  only after this change.
 
-- new `frontend/src/pages/staff/Reports.tsx`, gated on `queue.view`
-- add `api.report()` to `frontend/src/lib/api.ts`
-- building and category selectors reusing `GET /catalogs`
-- tiles for the scalar counts, a simple CSS bar chart (no chart library needed) for the
-  status and priority splits, a table for repeat faults
-- link it from the sidebar in `components/AppShell.tsx:14-28`
-- extend `backend/tests/test_reports.py` - it currently exercises only `untriaged`,
-  `openByPriority` and `repeatFaults`
+### Assumption to confirm
 
-### 1.2 CSV export - P0, size S (half a day)
+The rating is a rating of the **repair or service**, not of an individual worker. This is the only
+design that makes sense after the worker list is removed. If the intent is to rate individual
+workers, the worker identity has to stay, and the data model changes.
 
-`GET /api/v1/reports/tickets.csv` (`admin_ops.py:119`) exists, is CSV-injection safe via
-`services/csvsafe.py`, is audited, and sends `Cache-Control: no-store`. There is no export
-button anywhere in the UI. Add one to `Reports.tsx` and a test that the response is
-formula-neutralised.
+---
 
-### 1.3 Audit log viewer - P1, size M (2 days)
+## 2. Current state
 
-`GET /api/v1/admin/audit` (`admin_ops.py:156`) supports filtering by action prefix, entity
-id and a `beforeId` cursor, up to 500 rows. The `admin.audit` capability exists in
-`backend/app/security/roles.py:23` and `frontend/src/lib/types.ts:16` and is **never
-checked in the frontend**.
-
-This matters because `AGENTS.md:57` says history is append-only and every change writes an
-audit record, but today nobody can read the audit trail without `psql`.
-
-To do: new `frontend/src/pages/staff/Audit.tsx`, infinite-scroll cursor pagination using the
-existing `beforeId`, a text filter on action and entity id, and a capability guard of
-`admin.audit` instead of the current `anyCap={['admin.users','admin.catalogs']}` on
-`App.tsx:110`.
-
-### 1.4 Assessment recording - P1, size M (2 days)
-
-`POST /tickets/{id}/assessments` (`routers/tickets.py:153`) and the client wrapper
-`api.recordAssessment()` (`lib/api.ts:161`) both exist. **The client function has zero call
-sites.** The `Assessment` type (`lib/types.ts:37`, values `simple`, `workforce`, `parts`,
-`expenditure`) is read into `TicketSummary.assessments` but nothing ever writes it.
-
-So a manager cannot tell whether a job needs one person, three people, or parts money. Add
-an assessment panel to `pages/staff/StaffTicket.tsx` between the assignment step and the
-flag step, and a test in `tests/test_workflow.py`.
-
-### 1.5 Edit and retire catalogs - P1, size S (1 day)
-
-Only the create paths are wired:
-
-| Endpoint | Backend | Wired in UI |
+| Area | Where it lives now | What changes |
 |---|---|---|
-| `PATCH /admin/categories/{code}` | `admin_ops.py:266` | no |
-| `PATCH /admin/buildings/{code}` | `admin_ops.py:304` | no |
+| Worker directory | `frontend/src/pages/staff/Workers.tsx`, `backend/app/routers/directory.py` (`/workers`) | Delete the page, routes and API |
+| Worker roles | `backend/app/security/roles.py`, `frontend/src/lib/types.ts` | Remove `worker.directory` and `worker.manage` |
+| Assignment UI | `frontend/src/pages/staff/StaffTicket.tsx` (`AssignStep`, `AssignmentsCard`) | Replace with an optional free-text worker name and manual status buttons |
+| Assignment API | `backend/app/routers/tickets.py` (`/assignments`, `/accept`, `/release`) | Remove; state changes go through the existing transitions endpoint |
+| Assignment service | `backend/app/services/workflow.py` (`assign`, `accept`, `release`) | Remove the new-flow parts; keep a small legacy `accept` for Twilio webhooks |
+| Assessment | `backend/app/services/workflow.py` (`record_assessment`) | Drop the required `worker_id`; keep the assessment itself |
+| Dispatch | `backend/app/services/notify.py` (`dispatch_worker`), `backend/app/services/scheduler.py` (`acceptance_fallbacks`) | Remove new worker dispatch and the fallback task |
+| Ticket serialization | `backend/app/services/tickets.py` (`assignments`) | Remove `assignments` from API responses; add staff-only `workerName` |
+| Queue | `frontend/src/pages/staff/Queue.tsx` | Remove the worker select and the "Not accepted" logic |
+| Reports | `backend/app/routers/admin_ops.py`, `frontend/src/pages/staff/Reports.tsx` | Remove `unaccepted`; add rating aggregates |
+| Verification | `frontend/src/pages/faculty/TicketView.tsx`, `backend/app/services/lifecycle.py` (`verify`) | Keep; add the rating card after the ticket is Closed |
 
-`Admin.tsx:230` and `Admin.tsx:263` only call `POST`. Renaming a building or retiring a type
-is impossible today. Retirement needs care: old tickets keep their token letter, so a
-category must be **deactivated, never deleted** (`docs/ARCHITECTURE.md:82`).
-
-### 1.6 Edit a worker - P1, size S (half a day)
-
-`api.updateWorker()` (`lib/api.ts:180`) accepts name, phone, trades, area, language, mode,
-kind and active. `pages/staff/Workers.tsx:85` only ever sends `{ active }`. Add an edit
-dialog reusing the `AddWorker` form at `Workers.tsx:113`.
-
-### 1.7 Pagination - P0, size M (2 days)
-
-This is a correctness bug dressed as a missing feature.
-
-`GET /tickets` accepts `page` and `pageSize` and returns `{items, total, page, pageSize}`.
-`lib/api.ts:89` hardcodes `pageSize: params.pageSize ?? 100`. `lib/useTickets.ts:14` never
-passes either parameter, and `useTickets.ts:30` **throws `page.total` away**. The backend
-caps at 200 (`routers/tickets.py:26`).
-
-Result: a faculty member with 150 tickets sees only the newest 100 and gets no indication
-that anything is missing. There is no "showing 100 of 150" text anywhere.
-
-Same problem on the people list: `api.listUsers()` hardcodes `page_size: 50`
-(`lib/api.ts:189`) and `Admin.tsx:62` never sends `page`.
-
-To do: keep `total` in the hook return, add a pager component to
-`pages/faculty/Tickets.tsx`, `pages/staff/Queue.tsx`, `pages/staff/Approvals.tsx` and
-`pages/staff/Admin.tsx`.
-
-### 1.8 Search and filter on the queue - P1, size L (3 days)
-
-`Queue.tsx:49-58` has priority and building filters, but both run **client-side** on an
-already-fetched 100-row array. Missing entirely:
-
-- free text search on title and token
-- category filter
-- I / C / P flag filter
-- assigned worker filter
-- date range
-- sort (the backend hardcodes `created_at desc`, `routers/tickets.py:44`; there is no `sort`
-  or `order` parameter on any endpoint)
-
-Move filtering server-side, add query parameters, add indexes. See Part 6 for the migration.
+Important existing issue: `backend/app/services/tickets.py` includes active assignments (with
+`workerName`) even when the caller is faculty. That conflicts with the rule that faculty never see
+worker names. Removing assignments from the ticket response fixes this leak. Add a regression test.
 
 ---
 
-## Part 2: Bugs and dead code
+## 3. Target flow
 
-### 2.1 P0 - `throttle.clear()` never clears the IP counter - real bug
-
-`backend/app/services/throttle.py:39-40`:
-
-```python
-async def clear(db: AsyncSession, employee_id: str) -> None:
-    await db.execute(delete(ThrottleEvent).where(ThrottleEvent.key == f"emp:{employee_id}"))
+```
+Faculty submits a report
+  -> Facility manager triages it (priority) or rejects it (reason)
+  -> Facility manager contacts a worker directly, outside PCMS
+  -> Facility manager records an optional worker or vendor name and marks the ticket Assigned
+  -> Facility manager may mark the work started (InProgress)
+  -> Facility manager records an assessment and the I / C / P flag
+       I Immediate -> fix and mark Resolved
+       C Critical  -> send to management for a decision
+       P Postpone  -> OnHold with a reason and review date
+  -> Reporter checks the work
+       Yes, fixed -> Closed -> rate 1-5 stars with an optional comment
+       Still broken -> dispute within 7 days
 ```
 
-`_keys()` at line 20 returns **two** keys: `emp:<id>` and `ip:<address>`. A successful
-sign-in clears only the first.
-
-On a campus the whole building is behind one NAT address, so the `ip:` key is shared by
-everyone. It is capped at `signin_max_attempts * 4` (default 20) per 300 second window.
-Twenty wrong password attempts anywhere on campus lock out **every user** at that address
-for five minutes, and no successful sign-in clears it. Students mistyping a temp password
-can take the whole building offline from the sign-in screen.
-
-Fix: change the signature to `clear(db, employee_id, ip)` and delete both keys. Add a
-regression test in a new `backend/tests/test_throttle.py`.
-
-### 2.2 P0 - `check_production()` does not check the webhook signature flag - real gap
-
-`config.py:81-98` blocks weak secrets, insecure cookies, a dev DB password, ClamAV off and
-the fake provider. It does **not** check `twilio_validate_signature`. That flag exists
-(`config.py:72`) and when false it disables `X-Twilio-Signature` checking entirely in
-`routers/webhooks.py:43-44`.
-
-A production deployment with one typo in a compose file would accept forged Twilio webhooks,
-meaning anyone on the internet could mark a worker's job accepted. Add the check, and add
-tests for `check_production()` itself - it currently has **zero** tests.
-
-Also worth blocking in prod: `public_base_url` / `public_app_url` still on `http://`, a
-half-set VAPID key pair, and `smtp_starttls` off against a non-local host.
-
-### 2.3 P1 - No rule for reopening a duplicate
-
-The transition table in `services/lifecycle.py:36-51` has 14 actions but no path out of
-`Duplicate`. If a duplicate is marked in error the ticket is stuck. Add a `reopen` rule from
-`Duplicate` and a test.
-
-### 2.4 P1 - `close_unverified` has no scheduler job
-
-`lifecycle.py:50` defines the action and `auto_close_days` exists (`config.py:79`), but
-nothing in `app/jobs/scheduler.py` runs it. `verification_reminders()`
-(`services/scheduler.py:55`) nudges once per resolution. Nothing ever closes the ticket.
-Add a scheduler task, following the pattern at `services/scheduler.py:70`.
-
-### 2.5 P1 - `hold_reviews()` notifies but never escalates
-
-`services/scheduler.py:70` sends a notification when a hold passes its review date and then
-leaves the ticket `OnHold` forever. Either resume it, or notify the manager that it is now
-blocked and needs a decision. Right now it is silent drift.
-
-### 2.6 P1 - Twilio webhook returns an empty TwiML body
-
-`routers/webhooks.py:30`:
-
-```python
-EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
-```
-
-Every unmatched inbound SMS is a silent no-op that only writes a log line
-(`webhooks.py:128-132`). The `help` intent (`webhooks.py:145-149`) writes a timeline event
-and a manager notification, then tells the worker **nothing at all**. A worker who replies
-"help" gets silence and probably calls the desk anyway.
-
-At minimum reply with the desk phone number (`config.py:73` already exists for this).
-Better: implement the documented future scope (Part 3.1).
-
-### 2.7 P1 - WhatsApp dispatch is non-functional out of the box
-
-Two compounding defaults: `messaging_provider` is `none` (`config.py:64`) and
-`PCMS_TWILIO_JOB_CONTENT_SID` is `None`, in which case `providers.py:93-94` raises
-`ValueError("No WhatsApp content template configured for job dispatch")` at send time.
-That is a late, ugly failure. Fail fast at startup instead, with a message naming the
-missing variable. `docs/DEPLOYMENT.md:119` does say to keep `none` until Twilio is approved,
-so this is a diagnostics problem, not a config problem.
-
-### 2.8 P2 - Dead code to remove or wire up
-
-| Item | Location | State |
-|---|---|---|
-| `require_any()` | `security/deps.py:97` | defined, **never called** anywhere |
-| `notify_user(email=...)` | `services/notify.py:36` | parameter never passed by any caller |
-| `Worker.alt_phone_e164` | `models/worker.py:31` | column never written, never read, not in any schema |
-| `Assignment.started_at` | `models/worker.py:76` | serialised in `services/tickets.py:253` and `schemas/ticket.py:75` but **never written**, so the API field is permanently `null` |
-| `Outbox.state = "cancelled"` | `models/outbox.py:18` | allowed by the constraint, only ever set by `ops/backup/restore.sh`, never by the app |
-| `Assignment.delivery = "unknown"` | `models/worker.py:16` | never assigned |
-| `PCMS_COLLEGE_CODE` | `config.py:18` | never read; the token letter comes from `Category.letter` |
-| `framer-motion` | `frontend/package.json:16` | declared dependency, zero imports |
-| `labelStatus()` | `lib/api.ts:258` | superseded by `t('status.' + s)` at `components/ui.tsx:229` |
-| disabled test | `tests/test_workflow.py:97` | `await _tr(mgr, tid, action="resume") if False else None` - the `resume` transition is untested by accident |
-
-The `Assignment.started_at` one is worth deciding carefully. Either write it when the worker
-accepts (`workflow.accept()`, `workflow.py:196`, which currently sets only `accepted_at`) or
-drop the column. Shipping a permanently null field in the API is worse than not having it.
-
-### 2.9 P2 - Hardcoded values that should be settings
-
-| Value | Location |
-|---|---|
-| `MAX_PHOTOS=3`, `MAX_VIDEOS=1`, `MAX_TOTAL=35MB`, pixel ceiling | `services/media.py:33-39` |
-| `BACKOFF_MINUTES = (1, 5, 15, 60)` | `services/outbox.py:32` |
-| worker poll 2s, scheduler tick 10s, all six task intervals | `jobs/worker.py:31`, `jobs/scheduler.py:12-19` |
-| `MAX_SUBSCRIPTIONS_PER_USER = 10` | `routers/push.py:27` |
-| `IP_MULTIPLIER = 4` | `services/throttle.py:17` |
-| outbox claim batch `limit=20` | `services/outbox.py:49,171` |
-| worker CSV import cap 200 | `routers/directory.py:58` |
-| gallery upload cap 4, which disagrees with the form's 3+1 | `components/ticket.tsx:154` |
-
-All of these should be `PCMS_*` settings in `app/config.py`. Two of them (the media limits and
-the gallery cap) are inconsistent with each other today.
+The status names do not change. The only semantic change is that `Assigned` and `InProgress` are
+recorded by the facility manager, not by a worker tapping a message button.
 
 ---
 
-## Part 3: New features
+## 4. Data model
 
-### 3.1 Worker captures their own reason - P1, size XL (5-8 days)
+### 4.1 Ticket gets a manual worker name
 
-The one item `AGENTS.md:30` and `docs/ARCHITECTURE.md:141` both name as future scope:
-workers recording why something is Critical or Postpone, by SMS reply or voice.
-
-The parser at `routers/webhooks.py:99-107` currently understands exactly three intents:
-`accept`, `done`, `help`. Extending it to `critical <reason>` and `postpone <reason>` is
-maybe 40 lines and closes the documented gap. It has to stay safe: the number must be the
-assigned worker's own number (`docs/SECURITY.md:46-65` says button taps are only accepted
-from the assigned worker), the state change must go through `services/lifecycle.py` with
-`expected_version`, and it must be written to the outbox in the same transaction.
-
-A printed job card with a QR code to a token-locked web form is a good fallback for workers
-without data. This is the single highest-value feature in the plan, because it is the one
-DBIT explicitly asked about and because it removes the phone-call bottleneck.
-
-### 3.2 Offline submission - P1, size L (3-4 days)
-
-`frontend/src/sw.ts` has no `sync` or `periodicsync` listener. `pages/faculty/Report.tsx`
-catches the offline error at line 137 and preserves only a **text** draft in
-`localStorage`. Photos are not kept at all, which the UI admits: *"The text is saved on this
-device; photos are not."* (`Report.tsx:288`).
-
-Faculty in a basement lab or a block with bad WiFi cannot report anything. Add:
-
-- IndexedDB queue for the draft **including** blobs
-- a `sync` listener in `sw.ts` for ticket create plus attachment upload
-- clear the queue and show "sent" once the network returns
-- respect `AGENTS.md:56`: never cache API responses or media, only the user's own unsent work
-
-Also fix the single-draft slot while you are there: `Report.tsx:25-27` reads `d[0]`, so a
-second draft overwrites the first.
-
-### 3.3 SLA clock that understands service hours - P2, size M (2 days)
-
-`services/tickets.py:40-41` is honest about the limitation:
+Add one nullable column to `ticket`:
 
 ```python
-# Gross next-update targets (plan 9.1). Service hours and holidays are a later refinement.
-NEXT_UPDATE = {"P1": timedelta(minutes=30), ...}
+worker_name: Mapped[str | None] = mapped_column(String(120))
 ```
 
-A P1 reported at 8pm Friday starts a 30 minute clock at 8pm. Add a business calendar table
-(service hours per day, holiday list) and make "update overdue" mean working time, not wall
-time. This changes what the Queue tile at `Queue.tsx:45` is telling managers, so do it
-carefully and keep the old number available behind a query flag.
+- It is free text: a person, a vendor, or a team ("Carpentry vendor", "Ramesh K").
+- It is internal. It is serialized only to staff, never to faculty.
+- There is no phone number, no login, no skill table and no worker foreign key.
+- It is optional. A manager may mark a ticket Assigned without recording a name.
 
-### 3.4 Suggested worker by trade and workload - P2, size M (2 days)
+Why a column instead of reusing `assignment`: an assignment requires a `worker` row and a
+directory. The manager does not need a directory, and old assignments must stay untouched.
 
-`workers_out()` already computes `workload` (`services/workflow.py:63-66`) and the
-assignment dialog already filters by trade (`StaffTicket.tsx:152-158`). Nothing ranks.
-Suggest the least-loaded active worker who has the trade, as a one-tap default. Cheap, and
-it removes a judgement call from a busy manager.
+### 4.2 New table: `ticket_rating`
 
-### 3.5 Print job card - P2, size S (1 day)
+New file `backend/app/models/rating.py`:
 
-Small standalone page at `/staff/card/:ticketId` printing token, place, title, reporter
-contact preference, a large QR code to the public media link, and the I/C/P options as tick
-boxes. `ops/backup` already generates nothing of the sort, but `docs/USER-GUIDE.md` tells
-managers to dispatch by job card, so the software should be able to produce one.
+```python
+"""Reporter ratings for completed repairs. One immutable row per ticket."""
 
-### 3.6 Full staff localisation - P2, size L (3 days)
+import uuid
+from datetime import datetime
 
-`Worker.language` already models `kn|hi|ta|te|en` (`Workers.tsx:14`). The app ships only
-English and Hindi, and Hindi covers roughly 90 of about 150 keys. **All five staff screens are
-hardcoded English** - Queue, StaffTicket, Workers, Admin, Approvals. Complete the Hindi set,
-then add Kannada, Tamil and Telugu for the SMS templates and the job card.
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, Text, UniqueConstraint, func
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
-### 3.7 Notification preferences and quiet hours - P2, size M (2 days)
+from app.db import Base
+from app.models.base import uuid_pk
 
-Every user gets every notification. There is no per-event preference, no quiet hours, and no
-digest. `pages/Settings.tsx` has only a single on/off push toggle. Add a preference model,
-respect it in `services/notify.py` (the intents are already separate rows in the outbox, so
-this is mostly a filter), and add an optional daily digest job.
 
-### 3.8 Preventive maintenance - P3, size XL
+class TicketRating(Base):
+    __tablename__ = "ticket_rating"
+    __table_args__ = (
+        UniqueConstraint("ticket_id", name="uq_ticket_rating_ticket"),
+        CheckConstraint("stars BETWEEN 1 AND 5", name="ticket_rating_stars"),
+        CheckConstraint("char_length(comment) <= 1000", name="ticket_rating_comment_length"),
+    )
 
-The system is purely reactive: report, fix, close. Add a `maintenance_plan` table (asset or
-building + category, interval, last done, next due), auto-generate tickets on a schedule, and
-a preventive/complaint flag on the ticket type so reports and planned work can be separated in
-reporting. This is a real shift in the product and needs DBIT sign-off, which is why it is
-P3.
+    id: Mapped[uuid.UUID] = uuid_pk()
+    ticket_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("ticket.id"), nullable=False
+    )
+    reporter_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=False
+    )
+    stars: Mapped[int] = mapped_column(Integer, nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+```
 
-### 3.9 Asset and vendor register - P3, size XL
+Register it in `backend/app/models/__init__.py`.
 
-Same shape as above. An `asset` table (what it is, where, warranty, vendor, AMC contract) and
-a `vendor` table, so repeat faults on one asset become visible and AMC renewal dates can be
-warned about. Depends on 3.8.
+Rules:
 
-### 3.10 Analytics deepening - P3, size L
+- `ticket_id` is unique. A second rating is rejected with `409 already_rated`.
+- `stars` is 1-5. The database and Pydantic both enforce it.
+- `comment` is optional, trimmed, maximum 1000 characters.
+- No update or delete endpoint. If a correction is ever needed, add a versioned rating later; do
+  not silently overwrite history.
+- `reporter_id` is stored for audit and query clarity, even though the ticket already has one.
 
-The existing report already gives repeat faults by location + category and p50/p90 times. Add
-spend per category and per vendor, a month-on-month trend, and a building heatmap. Mostly
-query work once 3.8 exists.
+### 4.3 Migration `0005`
+
+Create
+`backend/alembic/versions/20261020_0005_ticket_rating_and_manual_worker.py`:
+
+```python
+revision = "0005"
+down_revision = "0004"
+```
+
+Upgrade:
+
+1. `op.add_column("ticket", sa.Column("worker_name", sa.String(120), nullable=True))`
+2. `op.create_table("ticket_rating", ...)` with the columns and constraints above.
+3. `op.create_index("ix_ticket_rating_created", "ticket_rating", ["created_at"])`
+4. Backfill tickets from the lead active assignment, so in-flight work keeps its name. This also
+   covers tickets that are On hold, Awaiting approval or Resolved, where an active assignment can
+   still exist.
+
+```sql
+UPDATE ticket t
+SET worker_name = x.name
+FROM (
+    SELECT DISTINCT ON (a.ticket_id) a.ticket_id, w.name
+    FROM assignment a
+    JOIN worker w ON w.id = a.worker_id
+    WHERE a.released_at IS NULL
+    ORDER BY a.ticket_id, a.lead DESC, a.assigned_at
+) x
+WHERE t.id = x.ticket_id
+  AND t.worker_name IS NULL;
+```
+
+5. Optional but recommended: expire pending worker messages so no automatic message goes out
+   after the change. The manager will call instead.
+
+```sql
+UPDATE outbox
+SET state = 'expired',
+    last_error = 'Worker dispatch retired; the manager contacts workers directly'
+WHERE channel IN ('whatsapp', 'sms')
+  AND state = 'pending'
+  AND template IN ('job_dispatch', 'job_fallback');
+```
+
+Downgrade:
+
+1. Drop `ticket_rating`.
+2. Drop `ticket.worker_name`.
+
+Do **not** drop `worker`, `worker_skill` or `assignment` in either direction. They contain history
+and are referenced by the legacy outbox and webhook code.
+
+### 4.4 Legacy tables
+
+`worker`, `worker_skill` and `assignment` stay in the schema:
+
+- `assignment` is still read by the Twilio webhook, the legacy outbox and `lifecycle._release_all`
+  (when an old ticket is rejected or cancelled).
+- No new assignment rows are created by the normal flow.
+- No worker rows are created by the normal flow.
+- The old rows remain available for audit and for any future export.
+- A later cleanup release may drop them after a backup and after all legacy messages are drained.
+  That is not part of this change.
 
 ---
 
-## Part 4: Security hardening
+## 5. Backend changes
 
-`docs/SECURITY.md:67-72` has an honest "Not verified yet" list. These are its four items plus
-what the code review turned up.
+### 5.1 Lifecycle actions
 
-| # | Item | Priority | Size |
+Extend `backend/app/security/roles.py`? No new capability is needed. Use the existing
+`ticket.assign` for assignment actions and `ticket.triage` for resolve.
+
+Add these rules in `backend/app/services/lifecycle.py`:
+
+```python
+"assign":     Rule("ticket.assign", ("Triaged", "OnHold")),
+"start":      Rule("ticket.assign", ("Assigned",)),
+"set_worker": Rule("ticket.assign", ("Assigned", "InProgress", "OnHold")),
+```
+
+| Action | Capability | From | Effect |
 |---|---|---|---|
-| 4.1 | Fix the throttle IP bug (2.1) and add tests | P0 | S |
-| 4.2 | Add `twilio_validate_signature` and URL scheme checks to `check_production()` (2.2), and test `check_production()` itself | P0 | S |
-| 4.3 | **Negative e2e tests.** `AGENTS.md:49` makes faculty isolation the central privacy rule. No browser test asserts that faculty A cannot open faculty B's ticket, or that staff names, costs and worker phone numbers never leak into a faculty response. This is the highest risk item in the document and it is completely unverified outside unit tests. | P0 | M |
-| 4.4 | Management-role e2e test. Approve / Ask a question / Defer / Reject and the ceiling check are untested in a browser. | P1 | M |
-| 4.5 | Extend TOTP beyond super admin. `roles.py:16` is `frozenset({"ossc"})`. `SECURITY.md:9` admits *"A stolen facility manager or management password is enough to sign in."* It is a one-line change and management accounts are the ones with spending authority. | P1 | S + recovery code UX |
-| 4.6 | Second factor for `admin.users` role changes specifically, even if MFA stays narrow. | P2 | M |
-| 4.7 | Dependabot or Renovate, plus `pip-audit` / `npm audit` in CI. Neither exists today. | P1 | S |
-| 4.8 | Secret scanning in CI (gitleaks). | P1 | S |
-| 4.9 | SAST and container image scanning in CI. | P2 | M |
-| 4.10 | `alembic check` in CI, to catch model/migration drift. | P1 | S |
-| 4.11 | Rate-limit the file download path separately from the general API zone. | P2 | S |
-| 4.12 | Actually build and boot `compose.prod.yml` in CI, not just `config --quiet`. | P2 | M |
+| `assign` | `ticket.assign` | Triaged, OnHold | Set optional `worker_name`, clear hold fields, set status Assigned |
+| `start` | `ticket.assign` | Assigned | Set status InProgress |
+| `set_worker` | `ticket.assign` | Assigned, InProgress, OnHold | Change or clear `worker_name`; status does not change |
+| `resume` | `ticket.assign` | OnHold | Set status Assigned; no longer requires an active assignment |
+| `resolve` | `ticket.triage` | Assigned, InProgress | Unchanged |
+| `verify` | reporter only | Resolved | Unchanged |
 
-### Untested backend surface
+`assign` updates `worker_name` only when the field is present, so resuming an On hold ticket does
+not erase the name. `set_worker` always replaces the value, and a blank value clears it.
 
-There is no coverage tooling at all: `backend/pyproject.toml` has only `pytest` and
-`pytest-asyncio`, no `pytest-cov`, no `fail_under`. Add both, then close these gaps:
+Implementation notes:
 
-- transitions with **no** test: `set_priority`, `recategorise`, `resume` (explicitly disabled,
-  `test_workflow.py:97`), `reopen`, `duplicate`, `cancel`, `close_unverified`
-- scheduler functions with no test: `hold_reviews`, `housekeeping`, both job main loops
-- endpoints with no test: `POST /push/test`, `GET /admin/notifications` and its retry and
-  dismiss actions, `GET /admin/users/import/template`, `GET /health/live`
-- untested branches: the webhook signature-disabled path, the `help` intent, the `.MOV`
-  rejection at `services/media.py:157`, the webpush 404/410 `gone` classification, CSV import
-  error truncation past 50 rows (`services/users.py:215`)
-- untested report fields: `openByStatus`, `unaccepted`, `overdueUpdates`, `pendingApprovals`,
-  `holdsByReason`, `disputes`, `failedNotifications`, `triageTime`, `resolutionTime`,
-  `approvedPaise`, and both query filters
-- every CLI command except the `create-test-accounts` prod refusal: `seed`, `create-admin`,
-  `reset-password`, `vapid-keys`, `check-config`, `export-openapi`, `push-test-all`,
-  `create-smoke-accounts`
+- Add `worker_name: str | None = Field(default=None, max_length=120)` to `TransitionIn`.
+- Add `assign`, `start` and `set_worker` to the `TransitionIn.action` literal.
+- Clean `worker_name` with the existing `_clean` helper.
+- For `assign`:
+  - Write a public event "A worker was assigned" with `public=True` and no name.
+  - If a name is present, write a second internal event with the name and `public=False`.
+  - Clear `hold_reason`, `hold_owner`, `hold_next_action` and `hold_review_date`.
+  - Audit with `after={"status": "Assigned", "worker_name": ...}`.
+  - Notify the reporter with the existing `status_assigned` template.
+- For `start`:
+  - Set status InProgress.
+  - The normal public event "Work started" is enough.
+  - Notify the reporter with the existing `status_inprogress` template.
+- For `set_worker`:
+  - Set `t.worker_name` and write an internal event "Worker updated" with the new name.
+  - Do not change the status.
+  - Audit the old and new name.
+- For `resume`:
+  - Remove the `Assignment` existence check at `backend/app/services/lifecycle.py:128-130`.
+  - Set status Assigned and clear hold fields.
+- Keep `_release_all` as-is. It releases legacy assignments when an old ticket is rejected or
+  cancelled. It does nothing for new tickets because they have no assignment rows.
 
-### Frontend tests
+`backend/app/services/workflow.py`:
 
-There are **no** frontend unit tests - no vitest, no jest, no test step in CI
-(`.github/workflows/ci.yml:46-61` runs only `lint` and `build`). Add vitest plus
-`@testing-library/react` and cover `lib/http.ts` error mapping, `lib/i18n.tsx` missing-key
-fallback, `formatPaise` / `parseRupees` round-tripping (`lib/api.ts:246-256`), and the
-stale-version 409 reload path.
+- Delete `workers_out`, `create_worker`, `update_worker`, `_trade_ids`, `normalise_phone`,
+  `mask_phone`, `_place`, `assign` and `release`.
+- Keep `get_assignment` and `accept`. They are legacy and are used only by the Twilio webhook.
+  Add a comment saying so.
+- `record_assessment`:
+  - Remove the `worker_id` requirement and the "worker is not assigned" check.
+  - Remove the `Worker` lookup and the `delegated_worker` field on the new event.
+  - Keep the status check: only Assigned or InProgress.
+  - Audit the assessment and note as before, without a worker name.
+- `create_proposal`:
+  - Remove the "Assign a worker before..." wording. Use something like "A ticket can be sent to
+    management while it is Assigned, In progress or On hold."
+  - Keep the status check exactly as it is.
 
-### Browser tests
+### 5.2 Rating API
 
-`e2e/smoke.spec.ts` has three tests. One full flow (report to critical), one landing page,
-one manifest. Missing: reporter confirm and dispute, Immediate and Postpone branches, reject,
-duplicate, reopen, TOTP enrolment, CSV import, workers import, the offline banner, the update
-prompt, CSV export, and the audit viewer. Also `retries: 0` and `workers: 1`
-(`e2e/playwright.config.ts:6-7`), so any flake fails CI with no retry.
+Add to `backend/app/routers/tickets.py`:
+
+```python
+@router.post("/{ticket_id}/rating", response_model=TicketOut)
+async def rate(ticket_id: uuid.UUID, body: RatingIn, p: Principal = Depends(current_principal),
+               db: AsyncSession = Depends(get_session)) -> TicketOut:
+    t = await svc.get_visible(db, p, ticket_id, lock=True)
+    if t.reporter_id != p.user.id:
+        raise forbidden("Only the person who reported this can rate the repair.")
+    if t.status != "Closed":
+        raise ApiError(409, "invalid_transition", "A repair can be rated after the ticket is closed.")
+    if await db.scalar(select(TicketRating.id).where(TicketRating.ticket_id == t.id)):
+        raise conflict("already_rated", "You already rated this repair.")
+    db.add(TicketRating(ticket_id=t.id, reporter_id=p.user.id, stars=body.stars, comment=body.comment))
+    add_event(db, t, p.user, "Rating submitted", detail=f"{body.stars}/5", public=True)
+    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.rated",
+                 entity_type="ticket", entity_id=t.id,
+                 after={"stars": body.stars, "has_comment": bool(body.comment)})
+    if body.stars <= 2:
+        await notify.notify_role(db, "facility_manager", t, template="low_rating",
+                                 title=f"{t.token}: low rating ({body.stars}/5)",
+                                 body="Open the ticket to read the comment.",
+                                 key_suffix=":rating")
+    await db.commit()
+    return await svc.ticket_out(db, p, t)
+```
+
+Schemas in `backend/app/schemas/ticket.py`:
+
+```python
+class RatingIn(CamelModel):
+    stars: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=1000)
+
+    _c = field_validator("comment", mode="after")(lambda v: _clean(v))
+
+
+class RatingOut(CamelModel):
+    stars: int
+    comment: str | None = None
+    created_at: datetime
+```
+
+Add `rating: RatingOut | None = None` to `TicketOut`.
+
+Rules:
+
+- The rating endpoint does not need `expected_version`. It is a one-time insert and does not change
+  the ticket status. The unique constraint is the concurrency guard.
+- If a race slips past the pre-check, catch the database unique violation and return
+  `409 already_rated`. Do not return a 500.
+- `get_visible` returns 404 for a faculty member who is not the reporter, so the ownership check
+  does not leak the existence of another person's ticket.
+- Staff get 403 from the ownership check because they can see the ticket but cannot rate it.
+- The public timeline event records the star count. The comment is not copied into the timeline.
+- The audit record stores the stars and whether a comment exists. The comment stays only in
+  `ticket_rating`.
+- Low-rating notification: stars only in the push/email body. Do not put the comment in a push
+  payload. Pass `exclude_user=p.user.id` so a staff member who reported a ticket does not notify
+  themselves.
+
+### 5.3 Serialization and privacy
+
+`backend/app/schemas/ticket.py`:
+
+- Remove `AssignmentOut` and the `assignments` field from `TicketSummaryOut`.
+- Remove `AssignIn`, `AcceptIn` and `ReleaseIn`.
+- Remove `WorkerOut`, `WorkerIn` and `WorkerPatch`.
+- Add `worker_name: str | None = None` to `TicketSummaryOut`.
+- Add `rating: RatingOut | None = None` to `TicketOut`.
+- `AssessmentIn`: remove `worker_id`; keep `assessments`, `via`, `note`, `expected_version`.
+
+`backend/app/services/tickets.py`:
+
+- Remove the `Assignment` and `Worker` imports and the `Lookups.assignments` field.
+- Remove the assignment loading query in `Lookups.load`.
+- Remove the assignments list from `_summary_fields`.
+- Set `worker_name=t.worker_name if staff else None`.
+- In `ticket_out`, load the rating and pass it to `TicketOut`. The rating belongs only to the
+  reporter and staff, and `get_visible` already limits who can load the ticket.
+- Keep `EventOut.delegated_worker` staff-only. Legacy events keep their names; new events have
+  `None`.
+
+Expected API shape after the change:
+
+```json
+{
+  "token": "C26-0001",
+  "status": "Assigned",
+  "workerName": "Ramesh K",
+  "rating": null
+}
+```
+
+For a faculty caller, `workerName` is `null` and there is no `assignments` key at all. Add a test
+for this.
+
+### 5.4 Remove worker endpoints and capabilities
+
+- `backend/app/routers/directory.py`: keep the proposals router; delete the `workers` router and
+  all worker imports.
+- `backend/app/main.py`: remove `app.include_router(directory.workers, prefix=API_PREFIX)`.
+- `backend/app/security/roles.py`:
+  - Remove `worker.directory` and `worker.manage` from `CAPABILITIES`.
+  - Remove them from `facility_manager`.
+  - Update the module docstring that says facility managers maintain the worker directory.
+- `backend/app/routers/tickets.py`:
+  - Remove `assign`, `accept` and `release` routes.
+  - Remove the `Assignment` and `Worker` imports.
+  - Change the `worker` query parameter from `uuid.UUID | None` to `str | None` with
+    `max_length=120`, and filter `Ticket.worker_name.ilike(_like(worker), escape="\\")`.
+  - Remove `AssignIn`, `AcceptIn` and `ReleaseIn` imports.
+- `backend/app/routers/admin_ops.py`:
+  - Remove the `unaccepted` field from `ReportOut`.
+  - Remove the `Assignment` import and the unaccepted query.
+  - Add the rating aggregate fields described in section 5.5.
+
+The `/workers` API is removed, not hidden. Old clients get 404. The frontend is the only client in
+this repository, and it is updated in the same change.
+
+### 5.5 Reports
+
+Add a nested rating payload to `ReportOut`:
+
+```python
+class LowRating(CamelModel):
+    ticket_id: uuid.UUID
+    token: str
+    title: str
+    stars: int
+    comment: str | None
+    created_at: datetime
+    category: str | None
+    building: str | None
+    room: str | None
+
+
+class RatingReport(CamelModel):
+    count: int
+    average: float | None
+    distribution: dict[str, int]
+    low: list[LowRating]
+```
+
+Add `ratings: RatingReport` to `ReportOut` and remove `unaccepted`.
+
+Query rules:
+
+- Use ratings created within the same `days` window, but do not apply the open-ticket status
+  filter. Ratings are on Closed tickets and would otherwise always be zero.
+- Apply the same `building` and `category` filters when they are present.
+- `average` is rounded to 2 decimals, or `null` when there are no ratings.
+- `distribution` always has keys `"1"` to `"5"`, with zero for missing stars.
+- `low` returns up to 10 ratings with 1 or 2 stars, newest first. Include the ticket id so the UI
+  can link to the ticket. Do not include the reporter name.
+- A low rating also queues a facility-manager notification at submit time, as described above.
+
+### 5.6 Background jobs and notifications
+
+- `backend/app/services/notify.py`: remove `dispatch_worker` and the `Assignment`/`Worker` imports.
+  Keep `notify_user`, `notify_reporter` and `notify_role`. Keep `_enqueue` working for user
+  channels.
+- `backend/app/services/scheduler.py`: remove `acceptance_fallbacks` and the now-unused imports.
+  Keep `verification_reminders`, `hold_reviews`, `scan_quarantine` and `housekeeping`.
+- `backend/app/jobs/scheduler.py`: remove the `(60, "acceptance", scheduler.acceptance_fallbacks)`
+  entry from `TASKS`.
+- `backend/app/services/outbox.py`: leave the legacy worker-delivery branches in place so any
+  already-queued row can drain. Add a comment that new worker jobs are no longer created.
+- `backend/app/routers/webhooks.py`: leave the Twilio handlers in place for messages sent before
+  the cutover. Add a comment that this is legacy. `workflow.accept` remains the only new-flow-free
+  writer to `assignment`.
+- `backend/app/providers.py` and the Twilio settings stay for legacy delivery. They can be removed
+  in a later cleanup release.
+
+### 5.7 CLI and fixtures
+
+- `backend/app/cli.py`: remove worker creation from `create-test-accounts` and
+  `create-smoke-accounts`. Update the printed instructions, which currently mention the test
+  worker phone number.
+- `backend/app/seed.py`: no worker data is expected; confirm nothing is seeded.
+- `backend/tests/factories.py`: remove `make_worker` if no test needs it. If a legacy webhook test
+  remains, keep a clearly named `make_legacy_worker_and_assignment` helper and use it only there.
 
 ---
 
-## Part 5: Observability
+## 6. Frontend changes
 
-This is the largest systemic gap. Everything else in the project is production grade; this is
-not. Grep for `sentry|prometheus|opentelemetry|metrics|grafana` across `backend/` returns
-zero hits, and there is no `ErrorBoundary` anywhere in `frontend/src`.
+### 6.1 Remove the worker screens
 
-| # | Item | Priority | Size |
-|---|---|---|---|
-| 5.1 | Backup failure alerting. `ops/backup/backup.sh:52` writes a `LAST_SUCCESS` file and `docs/DEPLOYMENT.md:129` says alert if it is older than 26 hours. **Nothing reads that file.** Send an email or SMS from the backup container on failure, and a health endpoint that exposes backup age. | P0 | S |
-| 5.2 | A `/metrics` endpoint on the API: request rate, latency, error rate, DB pool saturation, outbox queue depth and oldest pending item age. A plain Prometheus text format is enough. | P1 | M |
-| 5.3 | Client-side error boundary and `window.onerror` / `unhandledrejection` reporting. Today a render throw blanks the app silently. | P1 | S |
-| 5.4 | Structured JSON logging instead of the fixed `logging.basicConfig` format (`main.py:11`), so logs can be shipped without a regex. Include the `request_id` from `RequestIdMiddleware` (`errors.py:83`) in every line. | P1 | M |
-| 5.5 | Up-to-date external uptime check against `/api/v1/health/ready`. Docker healthchecks only detect a dead container, not a broken dependency. | P2 | S |
-| 5.6 | Log shipping (Loki, or just journald with a retention policy). `json-file` with `20m x 5` rotates, which means history is short. | P2 | M |
-| 5.7 | An email or SMS digest of outbox items stuck in `action_required` for more than 24 hours. Right on time, the only signal is a manager opening the Queue screen. | P2 | S |
-| 5.8 | Track the p50/p90 numbers `SECURITY.md:71` admits were never measured, for 50 active sessions. Add a load test to CI at least once. | P2 | M |
+- Delete `frontend/src/pages/staff/Workers.tsx`.
+- Delete `frontend/src/lib/contacts.ts` (only used by the worker import).
+- `frontend/src/App.tsx`: remove the lazy `Workers` import and the `/staff/workers` route.
+- `frontend/src/components/AppShell.tsx`: remove the `Users` icon import and the `nav.workers`
+  item.
+- `frontend/src/lib/i18n.tsx`: remove `'nav.workers'`.
+- `frontend/src/lib/api.ts`: remove `listWorkers`, `createWorker`, `updateWorker` and
+  `importWorkers`.
+- `frontend/src/lib/types.ts`: remove `Worker` and the worker capabilities.
+- `frontend/src/pages/Landing.tsx`: change the `Fix` copy from "A worker is assigned and gets an
+  SMS" to a manual-flow sentence, for example "Facilities arranges the work and updates the
+  ticket. You can rate the repair when it is done."
+- `frontend/src/lib/i18n.tsx`: change `receipt.body` so it no longer says the worker sees the same
+  number.
+
+### 6.2 Staff ticket page
+
+`frontend/src/pages/staff/StaffTicket.tsx`:
+
+- Remove the `workers` state, the `api.listWorkers` effect and the `Worker` type import.
+- Remove `AssignmentsCard`, the acceptance button, the release dialog and the active-assignment
+  calculations.
+- Replace `AssignStep` with a manual form:
+
+```
+Step 2: Who is doing the work?
+  Worker or vendor (optional) [________________]
+  PCMS does not send messages to workers. Contact them by phone, WhatsApp or in person,
+  then record the state here.
+  [Mark as assigned]  or  [Resume work] when the ticket is On hold
+```
+
+- The button calls:
+
+```ts
+api.transition(ticket, { action: 'assign', workerName: name.trim() || undefined })
+```
+
+- Show this step when the status is `Triaged` or `OnHold`.
+- For `Assigned` and `InProgress`, show a compact line:
+
+```
+Worker: Ramesh K   [Change]
+```
+
+If no name is recorded, show "No worker recorded" and a "Add worker name" button. Both open a
+small dialog that calls `{ action: 'set_worker', workerName }`. Clearing the field clears the name.
+- Add a small optional card for `Assigned`:
+
+```
+Work started? [Mark work started]
+```
+
+It calls `{ action: 'start' }`. It is not required; `resolve` already works from `Assigned`.
+- `AssessStep`:
+  - Remove the active assignment lookup and the `workerId` state.
+  - Remove the "Worker who looked at it" select.
+  - Keep the assessment checkboxes, the "How it was reported" select, and the internal note.
+  - Call `api.recordAssessment(ticket, picked, via, note.trim())`.
+- Update the module comment at the top: the manager contacts workers directly; no SMS is sent.
+- Add a "Reporter rating" card when `ticket.rating` exists. Show stars, comment and date. When the
+  ticket is Closed and has no rating, show "Not rated yet." This is read-only for staff.
+
+### 6.3 Faculty rating card
+
+`frontend/src/pages/faculty/TicketView.tsx`:
+
+- Keep the existing verify/dispute flow.
+- After the ticket becomes `Closed`, show a rating card when the caller is the reporter and
+  `ticket.rating` is null:
+
+```
+How was the repair?
+  [1] [2] [3] [4] [5]
+  Anything else? (optional) [________________]
+  [Send rating]
+```
+
+- Star controls:
+  - Use five buttons in a `role="radiogroup"` with `aria-label="Rating"`.
+  - Each button has `role="radio"`, `aria-checked`, and an accessible label such as "4 stars".
+  - Minimum touch target 44px.
+  - Show the selected value as text, for example "4 of 5".
+- The submit button is disabled until at least one star is selected.
+- On success, the API returns the updated ticket, so the card changes to a read-only summary.
+- If the ticket is `Closed` and already rated, show "Your rating" with the stars and comment.
+- If the ticket is reopened after a rating, keep showing the historical rating. Do not delete it.
+- Use `api.rate(ticket, stars, comment)`.
+- Add a reusable `RatingSummary` to `frontend/src/components/ticket.tsx` so the faculty view and the
+  staff view render stars the same way.
+
+### 6.4 Queue
+
+`frontend/src/pages/staff/Queue.tsx`:
+
+- Remove the `Worker` type, the `workers` state and the `api.listWorkers` effect.
+- Remove the `unaccepted` helper and the `!x.assignments` access.
+- Replace the "Not accepted" tile with an "Assigned" tile using
+  `data.openByStatus.Assigned ?? 0`.
+- Replace the worker select with a free-text input:
+
+```
+Worker name [________________]
+```
+
+- Pass it as `worker` in `UseTicketsOptions`; the server matches `ticket.worker_name` with ILIKE.
+- Add it to `filtering` and `clear`.
+
+### 6.5 Reports
+
+`frontend/src/pages/staff/Reports.tsx`:
+
+- Remove the "Not accepted by worker" stat.
+- Add an "Average rating" stat. `Stat` must accept `string | number` because the average is a float.
+- Add a "Ratings" card:
+  - Show the count and average.
+  - Show a 5-to-1 star distribution bar list. Do not reuse the existing `Bars` sort order because
+    it sorts by count; write a small `RatingBars` that keeps 5, 4, 3, 2, 1 order.
+  - Show a "Recent low ratings" table with token, stars, comment and date. Link the token to
+    `/staff/t/{ticketId}`.
+- Empty states: "No ratings in this window." and "No low ratings in this window."
+
+### 6.6 Types and API client
+
+`frontend/src/lib/types.ts`:
+
+- Remove the worker capabilities.
+- Remove `Assignment` and the `assignments` field from `TicketSummary`.
+- Add `workerName?: string | null` to `TicketSummary`.
+- Remove the `Worker` interface.
+- Add:
+
+```ts
+export interface Rating {
+  stars: number
+  comment?: string | null
+  createdAt: string
+}
+
+export interface LowRating {
+  ticketId: string
+  token: string
+  title: string
+  stars: number
+  comment?: string | null
+  createdAt: string
+  category?: string | null
+  building?: string | null
+  room?: string | null
+}
+```
+
+- Add `rating?: Rating | null` to `Ticket`.
+- Add to `Report`:
+
+```ts
+ratings: {
+  count: number
+  average: number | null
+  distribution: Record<string, number>
+  low: LowRating[]
+}
+```
+
+- Remove `Report.unaccepted`.
+
+`frontend/src/lib/api.ts`:
+
+- Keep `TicketFilters.worker` as a string; it now carries a name substring, not a worker id.
+- Remove `Channel` from the worker assignment methods; keep it for assessment "via".
+- Add rating actions to `TransitionAction`:
+
+```ts
+| { action: 'assign'; workerName?: string }
+| { action: 'start' }
+| { action: 'set_worker'; workerName?: string }
+```
+
+- Remove `assign`, `recordAcceptance`, `releaseAssignment` and all worker methods.
+- Change `recordAssessment` to:
+
+```ts
+recordAssessment(ticket, assessments, via, note)
+```
+
+- Add:
+
+```ts
+rate(ticket: Pick<Ticket, 'id'>, stars: number, comment?: string): Promise<Ticket> {
+  return request('POST', `/tickets/${ticket.id}/rating`, {
+    body: { stars, comment: comment?.trim() || null },
+  })
+}
+```
+
+### 6.7 i18n
+
+Add these keys in both English and Hindi in `frontend/src/lib/i18n.tsx`:
+
+- `ticket.rateTitle`: "How was the repair?"
+- `ticket.rateBody`: "Your rating helps facilities improve. It is optional."
+- `ticket.rateStars`: "Rating"
+- `ticket.rateComment`: "Anything else? (optional)"
+- `ticket.rateSubmit`: "Send rating"
+- `ticket.rateThanks`: "Thanks for rating this repair."
+- `ticket.yourRating`: "Your rating"
+- `ticket.notRated`: "Not rated yet."
+
+Remove `nav.workers`. Update `receipt.body`.
 
 ---
 
-## Part 6: Performance and scale
+## 7. Security and privacy checklist
 
-Realistically fine for one campus, and cheap to keep that way.
-
-- **Indexes** on whatever `sort` and filter columns get added in 1.8: `ticket(status)`,
-  `ticket(building_id)`, `ticket(category_id)`, `ticket(created_at desc)`, and a
-  `pg_trgm` GIN index on `title` for the text search. Alembic autogenerate, then review, as
-  `AGENTS.md:64` requires.
-- **Pagination everywhere** - see 1.7. This is the single most likely cause of a slow screen
-  once the ticket table grows past a few thousand rows.
-- **`Queue.tsx` client-side filtering** moves server-side in 1.8; right now the browser is
-  re-filtering a 100-row array on every keystroke with no benefit.
-- **`Home.tsx:24`** renders `others.slice(0, 6)` with no "see all" affordance. Cosmetic, but
-  easy.
-- Consider `Lookups` batching is already done in `services/tickets.py` for the serialiser, so
-  there is no N+1 there. Leave it alone.
-
----
-
-## Part 7: UX and accessibility
-
-- **Error boundary and a real 404 page.** `App.tsx:114` redirects unknown routes to home
-  silently, so a stale bookmark or a bad link looks like the app just ignored you.
-- **Route-level error handling** on every page.
-- **WCAG pass**: focus trapping in `ActionDialog`, `aria-live` on the update-overdue tile so
-  screen readers hear the count change, keyboard navigation on the queue tabs, and colour
-  contrast on the priority chips in both themes.
-- **Reduced motion toggle** in Settings, alongside the existing theme toggle
-  (`Settings.tsx:26-35`).
-- **Self-service MFA management** in Settings. Today the only option is "ask an admin to reset
-  it" (`Settings.tsx`), which means a locked-out super admin needs a console.
-- **Account data export** and deletion request, at least a documented manual process.
-- **Queue as a board** (New / In progress / Waiting) instead of a list, if managers say the
-  list is hard to scan. Cheap to add, but ask first.
-- **`iOS push needs the app installed** and there is no route to the install instructions
-  from Settings. `InstallCard` is already a component - link it from the notification section.
+- [x] Faculty responses never contain `workerName`, `assignments`, worker phone numbers, staff
+      names, internal notes or costs.
+- [x] Only the reporter can rate a ticket. Other faculty get 404 through `get_visible`. Staff get
+      403 from the ownership check.
+- [x] Only a Closed ticket can be rated. A Resolved ticket returns 409.
+- [x] A second rating returns 409. The database unique constraint backs this up.
+- [x] Rating comments are visible only to the reporter and staff. They are not in list responses,
+      public timeline entries, push payloads or audit snapshots.
+- [x] `worker_name` is internal and staff-only. It is not in public timeline events.
+- [x] The low-rating notification body contains the star count, not the comment.
+- [x] `ticket.rated` is written to the audit log.
+- [x] All new writes go through the existing transaction and `expected_version` rules. The rating
+      is the one exception because it is a one-time insert, not a status change.
+- [x] No secrets or phone numbers are added to the repository.
+- [x] No demo data is added to seeds or migrations. The backfill copies real existing data only.
 
 ---
 
-## Part 8: Suggested order
+## 8. Test plan
 
-**Phase 0 - before the pilot (about 2 weeks)**
+### 8.1 Backend tests to add or update
 
-1. Fix the throttle IP bug (4.1) with a regression test.
-2. Harden and test `check_production()` (4.2).
-3. Negative e2e tests for faculty isolation (4.3).
-4. Pagination (1.7) so nobody silently loses tickets past 100.
-5. Backup failure alerting (5.1).
-6. `.MOV` message: either support it or make the error message less alarming
-   (`services/media.py:157`).
-7. Enable `pytest-cov`, close the untested transition and endpoint list in Part 4.
+New `backend/tests/test_ratings.py`:
 
-**Phase 1 - first month after the pilot**
+1. Reporter rates a Closed ticket. Assert 200, `rating.stars`, `rating.comment`, and the ticket
+   detail contains the rating.
+2. A second rating returns 409 `already_rated`.
+3. Rating a Resolved ticket returns 409.
+4. Rating a ticket that belongs to another faculty member returns 404.
+5. A facility manager cannot rate (403), and a management user cannot rate (403).
+6. Stars 0, 6 and a comment longer than 1000 characters return 422.
+7. The rating writes a `ticket.rated` audit event and a public "Rating submitted" timeline event.
+8. A low rating (1 or 2 stars) queues a `low_rating` outbox row for facility managers. A 5-star
+   rating does not.
+9. `GET /reports` returns the correct count, average, distribution and low-rating list.
+10. A faculty ticket list response never contains another reporter's rating and never contains
+    `workerName` or `assignments`.
 
-8. Reports and dashboard page (1.1) and CSV export (1.2).
-9. Queue search and server-side filters (1.8) with the supporting migration.
-10. Audit log viewer (1.3).
-11. Assessment UI (1.4) and worker edit (1.6) and catalog edit (1.5).
-12. Error boundary (5.3) and a 404 page (Part 7).
-13. Dependabot, secret scanning, `alembic check` in CI (4.7, 4.8, 4.10).
-14. Extend TOTP to management accounts (4.5).
+Update `backend/tests/test_workflow.py`:
 
-**Phase 2 - the rest of the quarter**
+- Full journey without a worker row:
+  - triage -> assign with `workerName` -> start -> resolve -> verify -> rate.
+  - Assert statuses and `workerName` for staff.
+  - Assert no `job_dispatch` or `job_fallback` outbox row was created.
+- `assign` from a wrong state returns 409.
+- `set_worker` changes the name without changing the status; clearing it works.
+- `resume` works without any assignment.
+- Assessment works without a worker id.
+- Faculty ticket detail has no `assignments` key, `workerName` is null, and no worker name appears
+  in events.
+- Keep the existing stale version, internal note, dispute window, critical/approval and permission
+  tests. Update them to use the manual assignment flow.
+- Delete the one-active-lead, inactive-worker, WhatsApp-mode and worker import tests; those
+  behaviors no longer exist.
 
-15. Worker self-service reasons over SMS (3.1) and the printed job card (3.5).
-16. Offline submission with background sync (3.2).
-17. Metrics endpoint (5.2) and structured logging (5.4).
-18. Suggested worker by trade and workload (3.4).
-19. Service-hour-aware SLA clock (3.3).
-20. Full staff localisation (3.6).
-21. Notification preferences and quiet hours (3.7).
-22. Frontend unit tests and the rest of the e2e matrix (Part 4).
+Update `backend/tests/test_ticket_search.py`:
 
-**Phase 3 - needs DBIT sign-off first**
+- Replace the worker-id filter test with a free-text `worker` filter test:
+  - Assign "Ramesh K"; `GET /tickets?scope=queue&worker=ram` returns 1.
+  - `set_worker` to "Suresh"; the same search returns 0.
+  - A faculty caller cannot use `scope=queue`.
+- Remove `make_worker` from the imports.
 
-23. Preventive maintenance (3.8).
-24. Asset and vendor register (3.9).
-25. Deepened analytics (3.10).
-26. An independent penetration test. `SECURITY.md:72` records that nobody outside the authors
-    has done this. For a system holding staff names, phone numbers and campus spending, it is
-    worth doing before the system carries anything that matters.
+Update `backend/tests/test_reports_admin.py`:
+
+- Assessment tests use the manual assignment flow and no worker id.
+- Delete the "worker is not assigned" test.
+- Keep the critical approval test and update its setup.
+
+Update `backend/tests/test_reports.py`:
+
+- The existing counts and CSV tests still pass.
+- Add a rating aggregate test or put it in `test_ratings.py`.
+- Remove any assertion about `unaccepted` if one is added.
+
+Update `backend/tests/test_auth.py`:
+
+- Remove the `worker.manage` and `worker.directory` assertions.
+- Assert that facility managers still have `ticket.assign` and that faculty do not.
+- Assert that the OSSC capability set no longer contains worker capabilities.
+
+Update `backend/tests/test_messaging.py`:
+
+- Keep the webhook signature test, the rollback test and the verification reminder test.
+- Remove the tests for worker dispatch, retry, reassignment, acceptance, fallback and messaging
+  off, because those product paths no longer exist.
+- If the Twilio webhook code stays for legacy messages, add one small test that inserts a legacy
+  `Assignment` and `Outbox` row directly and checks that a valid Accept tap still works. Mark it
+  clearly as legacy.
+
+Update `backend/tests/test_tickets.py`:
+
+- Add the faculty privacy regression test for `workerName` and `assignments`.
+- Add a rating test if it fits better here than in `test_ratings.py`; otherwise keep ratings in the
+  new file.
+
+### 8.2 Frontend checks
+
+- `npm run lint` must pass with no unused imports or types.
+- `npm run build` must pass.
+- Manually check:
+  - No Workers item in the sidebar or phone tab bar.
+  - `/staff/workers` redirects to the staff home.
+  - A manager can move a ticket through Triaged -> Assigned -> InProgress -> Resolved without a
+    worker directory.
+  - The worker name is visible to staff and hidden from faculty.
+  - A reporter can verify and then rate. The rating is shown back to them.
+  - A reporter cannot rate twice.
+  - Reports show the average, distribution and low ratings.
+
+### 8.3 Browser test
+
+Update `e2e/smoke.spec.ts`:
+
+- Remove the `/staff/workers` step and the "Add worker" assertion.
+- In the staff ticket flow:
+  - Fill the worker name field.
+  - Click "Mark as assigned".
+  - Click "Mark work started".
+  - Continue with the flag, resolve and verify flow.
+- In the faculty flow:
+  - After verification, choose 5 stars, add a short comment, and submit.
+  - Assert that "Your rating" is visible.
+- Update the screenshot names.
+
+### 8.4 Commands
+
+Run the full checks before calling the change done:
+
+```sh
+docker compose -f compose.dev.yml --profile jobs --profile nginx up -d --build
+docker compose -f compose.dev.yml exec -T api pytest -q
+cd frontend && npm run lint && npm run build
+```
+
+Then run the Playwright e2e job the same way CI does.
 
 ---
 
-## Part 9: Things to decide before writing code
+## 9. Execution order
 
-These need an answer from DBIT or the club, not a developer guess.
+Work on a branch. Do not push to `main`. Suggested branch name:
+`feat/ratings-and-manual-workers`.
 
-1. **How many real users, really?** `SECURITY.md:71` says 50 active sessions was never
-   measured. Everything in Part 6 sizes off that number.
-2. **Is the campus behind one NAT?** If yes, the per-IP throttle at `services/throttle.py:22`
-   needs rethinking even after the 2.1 fix, because a shared address makes IP-based limiting
-   meaningless and an attacker could lock out a building.
-3. **Should faculty see other faculty's tickets in their building?** Today the answer is a
-   hard no (`AGENTS.md:49`). It is the right default, but if DBIT expects a shared board this
-   is a design conversation, not a bug.
-4. **Will workers really reply by SMS?** Part 3.1 assumes they will. If most workers will
-   never send a message, the printed job card (3.5) is the higher-value half and should come
-   first.
-5. **Who reads the audit log, and how often?** If it is only OSSC, a searchable page is
-   enough. If DBIT needs it, add retention and export policy.
-6. **Preventive maintenance: is it the same system?** If yes, do it. If the college already
-   has an AMC vendor system, integrate or leave it alone.
+### Phase 1 - Data model and migration (about 0.5 day)
+
+- [x] Add `Ticket.worker_name`.
+- [x] Add `TicketRating` and register it in `models/__init__.py`.
+- [x] Create migration `0005` with the table, the column, the index, the backfill and the optional
+      pending-message expiry.
+- [x] Run `alembic upgrade head` on the dev database.
+- [x] Add `RatingIn`, `RatingOut`, `Rating` types and the API field.
+- [x] Add a quick model test or a smoke query.
+
+### Phase 2 - Backend manual flow (about 1 day)
+
+- [x] Add `assign`, `start` and `set_worker` lifecycle rules and handlers.
+- [x] Remove the assignment check from `resume`.
+- [x] Remove the worker id from assessment.
+- [x] Remove the worker routes, schemas and capabilities.
+- [x] Remove `assign`, `accept` and `release` from the ticket router. Keep the legacy `accept`
+      helper for webhooks.
+- [x] Remove `dispatch_worker`, `acceptance_fallbacks` and the scheduler task.
+- [x] Replace the worker id filter with the free-text `worker` filter.
+- [x] Remove `unaccepted` from reports.
+- [x] Update the CLI fixtures.
+- [x] Run the backend tests and fix the expected failures.
+
+### Phase 3 - Rating API and reports (about 1 day)
+
+- [x] Add `POST /tickets/{id}/rating`.
+- [x] Load and serialize the rating in `ticket_out`.
+- [x] Add rating aggregates to `GET /reports`.
+- [x] Add the low-rating notification.
+- [x] Add the rating tests.
+- [x] Run the backend tests.
+
+### Phase 4 - Frontend removal (about 1 day)
+
+- [x] Delete the Workers page and contacts helper.
+- [x] Remove the route, nav item, capabilities, types and API methods.
+- [x] Rework `StaffTicket.tsx` for the manual flow.
+- [x] Rework `Queue.tsx` for the free-text worker filter and the Assigned tile.
+- [x] Update the copy in `Landing.tsx` and `i18n.tsx`.
+- [x] Run lint and build.
+
+### Phase 5 - Frontend rating UI (about 1 day)
+
+- [x] Add the rating card to `TicketView.tsx`.
+- [x] Add `RatingSummary` to `components/ticket.tsx`.
+- [x] Add the rating card to `StaffTicket.tsx`.
+- [x] Add the ratings section to `Reports.tsx`.
+- [x] Add the i18n keys in English and Hindi.
+- [x] Run lint and build.
+
+### Phase 6 - Tests and docs (about 1 day)
+
+- [x] Update the e2e smoke test.
+- [x] Update `AGENTS.md`, `README.md`, `docs/ARCHITECTURE.md`, `docs/SECURITY.md`,
+      `docs/USER-GUIDE.md` and the Twilio section of `docs/DEPLOYMENT.md`.
+- [x] Run the full backend test suite.
+- [x] Run the full frontend lint and build.
+- [x] Run the e2e smoke test.
+- [x] Review the diff for accidental data drops, leaked names and unused worker code.
+
+### Phase 7 - Optional later cleanup (not this change)
+
+- [ ] Remove the Twilio webhooks for worker replies.
+- [ ] Remove worker provider settings and the outbox worker-delivery branches.
+- [ ] Drop `worker`, `worker_skill` and `assignment` after a backup and after all legacy messages
+      are drained.
+- [ ] Remove the legacy `assignment` rows from the API entirely.
+
+---
+
+## 10. Acceptance criteria
+
+The change is done when all of these are true:
+
+1. There is no Workers page, route, navigation item or API.
+2. A facility manager can move a ticket through the normal statuses without a worker directory:
+   Triage -> Assign -> Start -> Resolve -> Verify.
+3. No SMS or WhatsApp is sent to a worker when a ticket is assigned.
+4. The worker or vendor name is optional, staff-only and visible on the staff ticket.
+5. The reporter can rate a Closed ticket once with 1-5 stars and an optional comment.
+6. A second rating, a rating before Closed, a rating by another faculty member and a rating by
+   staff are all rejected correctly.
+7. Staff see the rating on the ticket. Reports show count, average, distribution and low ratings.
+8. Faculty API responses never contain worker names, assignments, worker phone numbers, internal
+   notes, costs or staff names.
+9. The existing reporter, management and audit flows still work.
+10. `pytest -q`, `npm run lint`, `npm run build` and the e2e smoke test pass.
+11. The migration upgrades and downgrades cleanly on a scratch database.
+12. No historical worker or assignment rows are deleted.
+
+---
+
+## 11. Open questions to confirm before coding
+
+The plan uses the recommended answer in each case. If any answer changes, say so before Phase 1.
+
+1. **Rating target:** rate the repair/service (recommended) or rate an individual worker?
+   Rating an individual worker requires keeping worker identity and changes the whole removal
+   design.
+2. **Rating timing:** only after `Closed` (recommended), or also at `Resolved` before verification?
+3. **Rating editing:** one immutable rating (recommended), or allow the reporter to change it for
+   a short time?
+4. **Worker name:** keep an optional free-text name on the ticket (recommended), or record only
+   the status and no name at all?
+5. **Legacy data:** keep the `worker`, `worker_skill` and `assignment` tables for history
+   (recommended), or drop them in this change? Dropping them loses history and breaks the legacy
+   outbox and webhook code.
+6. **Twilio:** stop new worker messages but keep the old webhook handlers for one release
+   (recommended), or remove Twilio worker messaging completely now?
+7. **Low ratings:** notify facility managers on 1-2 stars (recommended), or keep ratings passive
+   in the reports only?
+8. **Rating in lists:** add a "Rate this repair" prompt on the faculty home or list (nice to have),
+   or keep the prompt only on the ticket detail (recommended for the first version)?
+
+If the answers are the recommended ones, the phases above can be executed as written.
+
+---
+
+## 12. Rollback
+
+- Code rollback: revert the branch.
+- Data rollback: run `alembic downgrade 0004`. That drops the rating table and the `worker_name`
+  column.
+- The `worker`, `worker_skill` and `assignment` tables are untouched, so the old flow can be
+  restored with the previous code.
+- If the migration expired pending worker messages, those rows stay expired. The manager can call
+  the worker manually. If the old flow is restored, new messages will be queued again by the old
+  code.

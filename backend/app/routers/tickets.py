@@ -4,15 +4,16 @@ import uuid
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.errors import ApiError, forbidden, validation
+from app.errors import conflict, forbidden, validation
 from app.models.catalog import Category
+from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket, TicketComment
-from app.models.worker import Assignment, Worker
 from app.schemas.ticket import (
-    AcceptIn, AssessmentIn, AssignIn, CommentIn, DuplicateOut, ProposalIn, ReleaseIn, StatusName, TicketCreatedOut,
+    AssessmentIn, CommentIn, DuplicateOut, ProposalIn, RatingIn, StatusName, TicketCreatedOut,
     TicketCreateIn, TicketOut, TicketPage, TransitionIn,
 )
 from app.security.deps import Principal, current_principal, require
@@ -35,7 +36,7 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
                        open: bool | None = None, page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=200, alias="pageSize"),
                        search: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
                        flag: str | None = Query(None, pattern="^[ICP]$"), priority: str | None = Query(None, pattern="^P[1-4]$"),
-                       building: str | None = Query(None, max_length=20), worker: uuid.UUID | None = None,
+                       building: str | None = Query(None, max_length=20), worker: str | None = Query(None, max_length=120),
                        sort: str = Query("newest", pattern="^(" + "|".join(SORTS) + ")$"),
                        p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> TicketPage:
     stmt = select(Ticket)
@@ -69,9 +70,7 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
     if building:
         stmt = stmt.where(Ticket.building_code == building)
     if worker:
-        # Only a worker's current jobs, never released ones.
-        stmt = stmt.where(Ticket.id.in_(
-            select(Assignment.ticket_id).where(Assignment.worker_id == worker, Assignment.released_at.is_(None))))
+        stmt = stmt.where(Ticket.worker_name.ilike(_like(worker), escape="\\"))
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     order = {
         "newest": (Ticket.created_at.desc(), Ticket.id.desc()),
@@ -122,6 +121,36 @@ async def get_ticket(ticket_id: uuid.UUID, p: Principal = Depends(current_princi
     return await svc.ticket_out(db, p, t)
 
 
+@router.post("/{ticket_id}/rating", response_model=TicketOut)
+async def rate(ticket_id: uuid.UUID, body: RatingIn, p: Principal = Depends(current_principal),
+               db: AsyncSession = Depends(get_session)) -> TicketOut:
+    """One immutable rating from the reporter, after the repair is closed."""
+    t = await svc.get_visible(db, p, ticket_id, lock=True)
+    if t.reporter_id != p.user.id:
+        raise forbidden("Only the person who reported this can rate the repair.")
+    if t.status != "Closed":
+        raise conflict("invalid_transition", "A repair can be rated after the ticket is closed.")
+    if await db.scalar(select(TicketRating.id).where(TicketRating.ticket_id == t.id)):
+        raise conflict("already_rated", "You already rated this repair.")
+    db.add(TicketRating(ticket_id=t.id, reporter_id=p.user.id, stars=body.stars, comment=body.comment))
+    try:
+        # The unique constraint is the concurrency guard: never return a 500 for a race.
+        await db.flush()
+    except IntegrityError:
+        await db.rollback()
+        raise conflict("already_rated", "You already rated this repair.")
+    svc.add_event(db, t, p.user, "Rating submitted", detail=f"{body.stars}/5", public=True)
+    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.rated", entity_type="ticket",
+                 entity_id=t.id, after={"stars": body.stars, "has_comment": bool(body.comment)})
+    if body.stars <= 2:
+        await notify.notify_role(db, "facility_manager", t, template="low_rating",
+                                 title=f"{t.token}: low rating ({body.stars}/5)",
+                                 body="Open the ticket to read the comment.", key_suffix=":rating",
+                                 exclude_user=p.user.id)
+    await db.commit()
+    return await svc.ticket_out(db, p, t)
+
+
 @router.post("/{ticket_id}/transitions", response_model=TicketOut)
 async def transition(ticket_id: uuid.UUID, body: TransitionIn, p: Principal = Depends(current_principal),
                      db: AsyncSession = Depends(get_session)) -> TicketOut:
@@ -150,39 +179,6 @@ async def comment(ticket_id: uuid.UUID, body: CommentIn, p: Principal = Depends(
         await notify.notify_reporter(db, t, template="comment", title=f"{t.token}: message from facilities", body=body.body[:180])
     elif not staff:
         await notify.notify_role(db, "facility_manager", t, template="reporter_comment", title=f"{t.token}: reporter comment", body=body.body[:180])
-    await db.commit()
-    return await svc.ticket_out(db, p, t)
-
-
-@router.post("/{ticket_id}/assignments", response_model=TicketOut)
-async def assign(ticket_id: uuid.UUID, body: AssignIn, p: Principal = Depends(require("ticket.assign")),
-                 db: AsyncSession = Depends(get_session)) -> TicketOut:
-    t = await svc.get_visible(db, p, ticket_id, lock=True)
-    await workflow.assign(db, p, t, body)
-    await db.commit()
-    return await svc.ticket_out(db, p, t)
-
-
-@router.post("/{ticket_id}/assignments/{assignment_id}/accept", response_model=TicketOut)
-async def accept(ticket_id: uuid.UUID, assignment_id: uuid.UUID, body: AcceptIn,
-                 p: Principal = Depends(require("ticket.assign")), db: AsyncSession = Depends(get_session)) -> TicketOut:
-    t = await svc.get_visible(db, p, ticket_id, lock=True)
-    svc.check_version(t, body.expected_version)
-    a = await workflow.get_assignment(db, t, assignment_id)
-    worker = await db.get(Worker, a.worker_id)
-    if not await workflow.accept(db, t, a, via=body.via, actor=p.user, worker=worker):
-        raise ApiError(409, "invalid_transition", "This assignment is not waiting for acceptance.")
-    await db.commit()
-    return await svc.ticket_out(db, p, t)
-
-
-@router.post("/{ticket_id}/assignments/{assignment_id}/release", response_model=TicketOut)
-async def release(ticket_id: uuid.UUID, assignment_id: uuid.UUID, body: ReleaseIn,
-                  p: Principal = Depends(require("ticket.assign")), db: AsyncSession = Depends(get_session)) -> TicketOut:
-    t = await svc.get_visible(db, p, ticket_id, lock=True)
-    svc.check_version(t, body.expected_version)
-    a = await workflow.get_assignment(db, t, assignment_id)
-    await workflow.release(db, p, t, a, body.reason)
     await db.commit()
     return await svc.ticket_out(db, p, t)
 

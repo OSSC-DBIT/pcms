@@ -15,33 +15,37 @@ own password (at least 10 characters). Super admins also scan a QR code with Goo
 3. **My tickets** shows progress and messages from facilities. Long lists are split into pages,
    and the counter tells you how many you have.
 4. When facilities say it is fixed, check it and tap **Yes, it is fixed**, or **No, still broken** and say why.
+5. After you confirm the fix, the ticket is closed. Rate the repair once with 1 to 5 stars and an
+   optional comment. The rating is about the repair or service, not an individual person.
 
 For a dangerous electrical fault, fire or flooding, call the campus emergency number first.
 
 ## Facility manager
 
-1. **Queue** lists open tickets. "Needs action" shows new reports, jobs waiting for a worker, and fixes to confirm.
-   Search by title, token or room, and narrow by priority, building, type, flag or worker.
+1. **Queue** lists open tickets. "Needs action" shows new reports and fixes to confirm.
+   Search by title, token or room, and narrow by priority, building, type, flag or worker name.
    Every filter and all paging are done by the server, so the list is never quietly cut short.
 2. Open a ticket and follow the highlighted step:
    - **Step 1, accept or reject.** Choose a priority (P1 to P4) and tap **Accept**, or **Reject** and write the reason. The reporter sees the reason.
-   - **Step 2, assign a worker.** Tick the worker and choose SMS or WhatsApp. The job (token, problem, place) is sent to them automatically.
-     If they confirm by phone, tap **Worker confirmed**.
+   - **Step 2, who is doing the work?** Contact the worker yourself by phone, WhatsApp or in person.
+     PCMS sends no messages to workers. Record an optional worker or vendor name and tap **Mark as assigned**.
+     For a postponed ticket the button is **Resume work**.
+   - After assignment, the worker line has **Change** or **Add worker name** so you can update or
+     clear the name later. Only staff see it.
+   - If the worker starts later, tap **Mark work started**. This is optional.
    - Record an **Assessment** if useful: whether it needs one person, more people, parts or money up front.
      This helps management decide. The note is internal, so the reporter never sees it.
    - **Step 3, what did the worker find?** Choose one:
      - **I Immediate**: fix it now. When done, write what was done and tap **Mark as fixed**.
      - **C Critical**: write why it is critical (and a cost estimate if known) and tap **Send to management**.
      - **P Postpone**: write why and the date to look again.
-   - The reporter is then asked to confirm the fix.
+   - The reporter is then asked to confirm the fix. Once closed, they can rate the repair.
 3. **More actions** has change priority, change type, duplicate, cancel and reopen.
-4. **Workers**: **Add worker** (name, mobile, work). Or **From phone contacts**
-   (Chrome on Android) or **Import file** (a .vcf contacts export, or a CSV with name and phone), then choose each person's work.
-   **Edit** changes a worker's name, work, area, language or number; leave the number blank to keep it.
-   Lists only ever show a masked number, per the privacy rule.
-5. "Messages need you" in the queue lists SMS or WhatsApp jobs that failed. Call the worker, then mark it handled.
-6. **Reports** shows how the last 7 to 365 days looked: new, overdue, waiting for approval, repeat faults by
-   place and type, how long triage and fixing take, and approved spend. **Export CSV** downloads the ticket list
+4. "Messages need you" in the queue lists old worker messages that failed before dispatch was
+   retired. Call the worker if needed, then mark it handled.
+5. **Reports** shows how the last 7 to 365 days looked: new, overdue, waiting for approval, repeat faults by
+   place and type, how long triage and fixing take, approved spend and repair ratings (average,
+   star distribution and recent low ratings). **Export CSV** downloads the ticket list
    for the same window; the download is recorded in the audit log.
 
 ## Institute management

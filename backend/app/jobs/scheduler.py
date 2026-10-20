@@ -11,7 +11,6 @@ log = logging.getLogger("pcms.scheduler")
 
 TASKS = [
     (30, "scan", scheduler.scan_quarantine),
-    (60, "acceptance", scheduler.acceptance_fallbacks),
     (60, "stuck_outbox", outbox.recover_stuck),
     (3600, "verify_reminders", scheduler.verification_reminders),
     (3600, "hold_reviews", scheduler.hold_reviews),

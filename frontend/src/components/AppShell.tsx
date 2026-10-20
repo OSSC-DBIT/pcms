@@ -1,6 +1,6 @@
 import { clsx } from 'clsx'
 import type { ReactNode } from 'react'
-import { BarChart3, ClipboardList, Home, LayoutDashboard, PlusCircle, ScrollText, Settings, ShieldCheck, Users, Wallet, type LucideIcon } from 'lucide-react'
+import { BarChart3, ClipboardList, Home, LayoutDashboard, PlusCircle, ScrollText, Settings, ShieldCheck, Wallet, type LucideIcon } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../App'
 import NotificationPrompt from './NotificationPrompt'
@@ -21,7 +21,6 @@ const FACULTY: Item[] = [
 const STAFF: Item[] = [
   { to: '/staff', label: 'nav.queue', icon: LayoutDashboard, cap: 'queue.view', end: true },
   { to: '/staff/approvals', label: 'nav.approvals', icon: Wallet, cap: 'cost.approve' },
-  { to: '/staff/workers', label: 'nav.workers', icon: Users, cap: 'worker.directory' },
   { to: '/report', label: 'nav.report', icon: PlusCircle, cap: 'ticket.create' },
   // Secondary screens: reachable from the sidebar, but the phone tab bar has no room.
   { to: '/staff/reports', label: 'nav.reports', icon: BarChart3, cap: 'queue.view', mobile: false },

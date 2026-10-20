@@ -5,7 +5,7 @@ a fixed 100-row page in the browser silently hides older tickets, which is why t
 client now sends filters here and shows the real total.
 """
 
-from tests.factories import API, make_user, make_worker, new_client, sign_in, ticket_body
+from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
 async def _triage(s, tid, priority="P2"):
@@ -157,29 +157,30 @@ async def test_sort_orders(client):
         await mc.aclose()
 
 
-async def test_worker_filter_only_matches_current_assignments(client):
+async def test_worker_filter_matches_the_free_text_name(client):
     fac = await _faculty(client)
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
-    worker = await make_worker()
 
     mc = new_client()
     try:
         mgr = await _manager(mc)
         await _triage(mgr, t["id"])
         v = (await mgr.get(f"{API}/tickets/{t['id']}")).json()["version"]
-        r = await mgr.post(f"{API}/tickets/{t['id']}/assignments", json={
-            "workerIds": [str(worker.id)], "leadWorkerId": str(worker.id), "channel": "sms", "expectedVersion": v})
+        r = await mgr.post(f"{API}/tickets/{t['id']}/transitions",
+                           json={"action": "assign", "workerName": "Ramesh K", "expectedVersion": v})
         assert r.status_code == 200, r.text
-        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "worker": str(worker.id)})).json()["total"] == 1
+        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "worker": "ram"})).json()["total"] == 1
 
-        detail = (await mgr.get(f"{API}/tickets/{t['id']}")).json()
-        aid = detail["assignments"][0]["id"]
-        rel = await mgr.post(f"{API}/tickets/{t['id']}/assignments/{aid}/release",
-                             json={"reason": "Sent elsewhere", "expectedVersion": detail["version"]})
-        assert rel.status_code == 200, rel.text
-        assert rel.json()["assignments"][0]["releasedAt"]
-        # A released worker must not keep the ticket in their list.
-        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "worker": str(worker.id)})).json()["total"] == 0
+        v = (await mgr.get(f"{API}/tickets/{t['id']}")).json()["version"]
+        r = await mgr.post(f"{API}/tickets/{t['id']}/transitions",
+                           json={"action": "set_worker", "workerName": "Suresh", "expectedVersion": v})
+        assert r.status_code == 200, r.text
+        # The old name no longer matches.
+        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "worker": "ram"})).json()["total"] == 0
+        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "worker": "suresh"})).json()["total"] == 1
+
+        # Faculty cannot use the queue scope, with or without the worker filter.
+        assert (await fac.get(f"{API}/tickets", params={"scope": "queue", "worker": "ram"})).status_code == 403
     finally:
         await mc.aclose()
 

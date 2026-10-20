@@ -122,7 +122,7 @@ async def _test_accounts(_: argparse.Namespace) -> int:
 
     from app.config import get_settings
     from app.db import sessionmaker
-    from app.models import Category, User, Worker, WorkerSkill
+    from app.models import User
     from app.services import audit
     from app.services.accounts import issue_temporary_password
 
@@ -131,7 +131,7 @@ async def _test_accounts(_: argparse.Namespace) -> int:
         return 2
     people = [
         ("TEST-FAC01", "Test Faculty", "faculty", "Faculty portal: raise and track tickets"),
-        ("TEST-FM01", "Test Facility Manager", "facility_manager", "Admin portal: triage, dispatch, close"),
+        ("TEST-FM01", "Test Facility Manager", "facility_manager", "Admin portal: triage, assign, close"),
         ("TEST-INST01", "Test Institute Management", "management", "Institute portal: approve spending, reports"),
         ("TEST-OSSC01", "Test OSSC Admin", "ossc", "Super admin: users, CSV import, catalogs, audit"),
     ]
@@ -148,19 +148,11 @@ async def _test_accounts(_: argparse.Namespace) -> int:
             await db.flush()
             audit.record(db, actor_id=None, actor_label="cli", action="user.test_account", entity_type="user", entity_id=u.id)
             out.append((emp, role, pw, what))
-        if not await db.scalar(select(Worker.id).where(Worker.phone_e164 == "+919000000001")):
-            w = Worker(name="Test Worker (carpentry, electrical)", phone_e164="+919000000001", area="Whole campus",
-                       language="kn", mode="sms", kind="employee", active=True, version=1)
-            db.add(w)
-            await db.flush()
-            for code in ("carpentry", "electrical"):
-                db.add(WorkerSkill(worker_id=w.id, category_id=await db.scalar(select(Category.id).where(Category.code == code))))
         await db.commit()
     print("Test accounts (temporary passwords, valid 7 days, must be changed at first sign-in):")
     for emp, role, pw, what in out:
         print(f"  {emp:<12} {role:<17} {pw}   {what}")
     print("Admin-portal accounts also need an authenticator app (Google/Microsoft Authenticator) at first sign-in.")
-    print("Test worker +919000000001 is a placeholder number; dispatch it by Call or Card, not WhatsApp.")
     return 0
 
 
@@ -215,7 +207,7 @@ async def _smoke_accounts(a: argparse.Namespace) -> int:
 
     from app.config import get_settings
     from app.db import sessionmaker
-    from app.models import Category, User, Worker, WorkerSkill
+    from app.models import User
     from app.security.passwords import hash_password
 
     if get_settings().env == "prod":
@@ -230,12 +222,6 @@ async def _smoke_accounts(a: argparse.Namespace) -> int:
             u.password_hash = hash_password(a.password)
             u.must_change_password = False
             u.temp_password_expires_at = None
-        if not await db.scalar(select(Worker.id).where(Worker.phone_e164 == "+919000000002")):
-            w = Worker(name="Smoke Carpenter", phone_e164="+919000000002", area="Campus", language="kn", mode="call",
-                       kind="employee", active=True, version=1)
-            db.add(w)
-            await db.flush()
-            db.add(WorkerSkill(worker_id=w.id, category_id=await db.scalar(select(Category.id).where(Category.code == "carpentry"))))
         await db.commit()
     print("smoke accounts ready: SMOKE-FAC, SMOKE-FM")
     return 0
