@@ -23,8 +23,8 @@ For a dangerous electrical fault, fire or flooding, call the campus emergency nu
 
 ## Facility manager
 
-1. **Queue** lists open tickets. "Needs action" shows new reports and fixes to confirm.
-   Search by title, token or room, and narrow by priority, building, type, flag or worker name.
+1. **Queue** lists open tickets. "Needs action" shows new reports, fixes to confirm and approved critical
+   work that is ready to finish. Search by title, token or room, and narrow by priority, building, type, flag or worker name.
    Every filter and all paging are done by the server, so the list is never quietly cut short.
 2. Open a ticket and follow the highlighted step:
    - **Step 1, accept or reject.** Choose a priority (P1 to P4) and tap **Accept**, or **Reject** and write the reason. The reporter sees the reason.
@@ -54,6 +54,8 @@ For a dangerous electrical fault, fire or flooding, call the campus emergency nu
 **Approvals** lists tickets the facility manager marked **Critical**. Open one, read why it is critical (and the
 estimate, if any), then choose **Approve** (optionally with an amount ceiling), **Ask a question**, **Defer** (with a
 review date) or **Reject** (with the next step). You cannot approve something you sent yourself.
+After approval the ticket returns to the facility manager as **In progress**, with **Step 4: Finish the approved
+work** open. They write what was done and tap **Mark as fixed** without choosing the flag again.
 
 ## Super admin (Team OSSC)
 

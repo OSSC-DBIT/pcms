@@ -255,6 +255,15 @@ async def test_dbit_flow_manual_assignment_then_critical_to_management(client):
             m = await sign_in(c, "management@dbit.edu")
             r = await m.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "approved", "proposalVersion": 1})
             assert r.status_code == 200 and r.json()["status"] == "InProgress"
+
+        # Reloading as the facility manager must keep the approved proposal and
+        # allow the final resolve without asking for the flag again.
+        fresh = await _get(mgr, tid)
+        assert fresh["status"] == "InProgress" and fresh["flag"] == "C"
+        assert fresh["proposal"]["state"] == "approved"
+        assert fresh["proposal"]["decidedBy"] == "Principal Office"
+        r = await _tr(mgr, tid, action="resolve", note="Checked and fixed after approval")
+        assert r.status_code == 200 and r.json()["status"] == "Resolved"
     finally:
         await mc.aclose()
 

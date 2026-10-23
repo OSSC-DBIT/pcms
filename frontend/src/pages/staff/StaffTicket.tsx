@@ -48,6 +48,7 @@ export default function StaffTicket() {
 
   const s = ticket.status
   const p = ticket.proposal
+  const approvedCritical = ticket.flag === 'C' && p?.state === 'approved'
   const canDecide = can('cost.approve') && p?.state === 'pending' && p.requestedById !== user?.id && ticket.reporterId !== user?.id
 
   return (
@@ -59,6 +60,7 @@ export default function StaffTicket() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge>Priority {ticket.priority}</Badge>
               {ticket.flag && <Badge tone={ticket.flag === 'C' ? 'bad' : ticket.flag === 'P' ? 'warn' : 'ok'}>{FLAG_LABEL[ticket.flag]}</Badge>}
+              {approvedCritical && <Badge tone="ok">Spending approved</Badge>}
               {ticket.originalCategoryCode !== ticket.categoryCode && <Badge>Reported as {category(ticket.originalCategoryCode).nameEn}</Badge>}
               <Badge>Age {ago(ticket.createdAt).replace(' ago', '')}</Badge>
             </div>
@@ -75,7 +77,7 @@ export default function StaffTicket() {
           {can('ticket.assign') && (s === 'Assigned' || s === 'InProgress') && <WorkerLine ticket={ticket} run={run} />}
           {can('ticket.assign') && s === 'Assigned' && <StartStep ticket={ticket} busy={busy} run={run} />}
           {can('ticket.assess') && (s === 'Assigned' || s === 'InProgress') && <AssessStep ticket={ticket} busy={busy} run={run} />}
-          {can('ticket.triage') && (s === 'Assigned' || s === 'InProgress') && <FlagStep ticket={ticket} busy={busy} run={run} managerName={user?.name ?? 'Facilities'} />}
+          {can('ticket.triage') && (s === 'Assigned' || s === 'InProgress') && <FlagStep key={ticket.id} ticket={ticket} busy={busy} run={run} managerName={user?.name ?? 'Facilities'} approved={approvedCritical} />}
           {s === 'AwaitingApproval' && !canDecide && <Alert tone="info" title="Waiting for institute management">Marked critical and sent for a decision.</Alert>}
           {p && <ManagementCard ticket={ticket} busy={busy} run={run} canDecide={!!canDecide} />}
           {s === 'Resolved' && <Alert tone="info" title="Waiting for the reporter to check the work">They can confirm it is fixed or say it is still broken.</Alert>}
@@ -281,20 +283,26 @@ function AssessStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run:
 
 // ---------- 4. flag ----------
 
-function FlagStep({ ticket, busy, run, managerName }: { ticket: Ticket; busy: boolean; run: Run; managerName: string }) {
-  const [flag, setFlag] = useState<'I' | 'C' | 'P' | null>(ticket.flag === 'I' ? 'I' : null)
+function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket: Ticket; busy: boolean; run: Run; managerName: string; approved?: boolean }) {
+  const [flag, setFlag] = useState<'I' | 'C' | 'P' | null>(approved || ticket.flag === 'I' ? 'I' : null)
   const [note, setNote] = useState('')
   const [cost, setCost] = useState('')
   const [review, setReview] = useState(() => new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10))
   const paise = cost.trim() ? parseRupees(cost) : 0
   const options = [
-    { v: 'I' as const, icon: Wrench, title: 'Immediate', body: 'Can be fixed now' },
-    { v: 'C' as const, icon: AlertTriangle, title: 'Critical', body: 'Send to institute management' },
+    { v: 'I' as const, icon: Wrench, title: 'Immediate', body: approved ? 'Finish the work and mark it fixed' : 'Can be fixed now' },
+    { v: 'C' as const, icon: AlertTriangle, title: 'Critical', body: approved ? 'Need more money? Send a new request' : 'Send to institute management' },
     { v: 'P' as const, icon: Clock, title: 'Postpone', body: 'Cannot be done now' },
   ]
   return (
-    <Next title="Step 3: What did the worker find?">
+    <Next title={approved ? 'Step 4: Finish the approved work' : 'Step 3: What did the worker find?'}>
       <Stack>
+        {approved && (
+          <Alert tone="ok" title="Approved by institute management">
+            Management has approved this work. Finish it, write what was done below and tap Mark as fixed.
+            Choose Critical only if you need a new approval.
+          </Alert>
+        )}
         <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Flag">
           {options.map((o) => (
             <button key={o.v} type="button" role="radio" aria-checked={flag === o.v} onClick={() => setFlag(o.v)}
@@ -307,7 +315,7 @@ function FlagStep({ ticket, busy, run, managerName }: { ticket: Ticket; busy: bo
 
         {flag === 'I' && (
           <>
-            {ticket.flag !== 'I' && <Button variant="secondary" className="self-start" loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'set_flag', flag: 'I' }))}>Save as Immediate</Button>}
+            {!approved && ticket.flag !== 'I' && <Button variant="secondary" className="self-start" loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'set_flag', flag: 'I' }))}>Save as Immediate</Button>}
             <Field label="When the work is done: what was done" hint="The reporter is then asked to check it">
               {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />}
             </Field>

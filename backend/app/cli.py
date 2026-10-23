@@ -232,19 +232,29 @@ async def _smoke_accounts(a: argparse.Namespace) -> int:
         return 2
     async with sessionmaker()() as db:
         for email, name, role in [("smoke-faculty@dbit.edu", "Smoke Faculty", "faculty"),
-                                  ("smoke-manager@dbit.edu", "Smoke Manager", "facility_manager")]:
+                                  ("smoke-manager@dbit.edu", "Smoke Manager", "facility_manager"),
+                                  ("smoke-management@dbit.edu", "Smoke Management", "management")]:
             u = await db.scalar(select(User).where(User.email == email))
             if u is None:
                 u = User(id=uuid.uuid4(), email=email, name=name, role=role, active=True,
                          totp_enabled=False, recovery_code_hashes=[])
                 db.add(u)
+            # Reset every smoke account, including ones a manual test suspended
+            # or gave an authenticator, so the browser suite starts clean.
+            u.name = name
+            u.role = role
+            u.active = True
             u.password_hash = hash_password(a.password)
             u.must_change_password = False
             u.temp_password_expires_at = None
             u.temp_password_enc = None
             u.password_changed_at = now()
+            u.totp_enabled = False
+            u.totp_secret = None
+            u.totp_last_step = None
+            u.recovery_code_hashes = []
         await db.commit()
-    print("smoke accounts ready: smoke-faculty@dbit.edu, smoke-manager@dbit.edu")
+    print("smoke accounts ready: smoke-faculty@dbit.edu, smoke-manager@dbit.edu, smoke-management@dbit.edu")
     return 0
 
 

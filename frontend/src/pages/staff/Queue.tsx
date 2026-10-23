@@ -12,7 +12,9 @@ import type { Priority, TicketSort, TicketSummary, WorkFlag } from '../../lib/ty
 
 type View = 'action' | 'working' | 'all'
 
-const needsAction = (x: TicketSummary) => ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status)
+const needsAction = (x: TicketSummary, canTriage: boolean) =>
+  ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status) ||
+  (canTriage && x.status === 'InProgress' && x.proposal?.state === 'approved')
 
 const SORTS: { value: TicketSort; label: string }[] = [
   { value: 'newest', label: 'Newest first' },
@@ -46,6 +48,7 @@ export default function Queue() {
     sort,
   }
   const { tickets, error, total, page, pageSize, pageCount, setPage, setPageSize, reload } = useTickets('queue', filters)
+  const canTriage = can('ticket.triage')
 
   // The tiles must describe the whole open set, not the filtered page, so they come
   // from GET /reports rather than being counted from whatever rows are on screen.
@@ -58,8 +61,8 @@ export default function Queue() {
   }, [place, kind])
 
   const shown = useMemo(
-    () => (tickets ?? []).filter((x) => view === 'all' || (view === 'action' ? needsAction(x) : !needsAction(x))),
-    [tickets, view],
+    () => (tickets ?? []).filter((x) => view === 'all' || (view === 'action' ? needsAction(x, canTriage) : !needsAction(x, canTriage))),
+    [tickets, view, canTriage],
   )
 
   const filtering = !!(applied || priority || place || kind || flag || workerName.trim())
@@ -140,7 +143,8 @@ export default function Queue() {
         <>
           <TicketList>
             {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
-              extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}</>} />)}
+              extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}
+                {x.status === 'InProgress' && x.proposal?.state === 'approved' && <Badge tone="ok">Approved</Badge>}</>} />)}
           </TicketList>
           <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
         </>
