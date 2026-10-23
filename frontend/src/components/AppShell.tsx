@@ -48,7 +48,7 @@ export default function AppShell({ children }: { children: ReactNode }) {
         {user && (
           <div className="border-t border-line px-5 py-4 text-[13px]">
             <p className="truncate font-medium">{user.name}</p>
-            <p className="token text-muted">{user.employeeId} · {user.role.replace('_', ' ')}</p>
+            <p className="token text-muted">{user.email} · {user.role.replace('_', ' ')}</p>
           </div>
         )}
       </aside>

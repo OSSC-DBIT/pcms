@@ -1,6 +1,6 @@
 """Sign-in, forced password change, second factor, sign-out and identity.
 
-POST   /session           employee ID + password                      -> StepOut
+POST   /session           college email + password                    -> StepOut
 POST   /session/totp      TOTP code or recovery code (verify or enrol) -> StepOut
 POST   /session/password  change password (forced or voluntary)       -> StepOut
 DELETE /session           sign out (revokes the server-side session)
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import get_session
 from app.errors import ApiError
 from app.models.session import UserSession
-from app.models.user import User, normalise_employee_id
+from app.models.user import User, normalise_email
 from app.schemas.session import ChangePasswordIn, MeOut, MeWithCsrf, SignInIn, StepOut, TotpEnrolment, TotpIn
 from app.security import totp
 from app.security.deps import Principal, current_principal, pending_principal
@@ -25,15 +25,20 @@ from app.security.passwords import hash_password, needs_rehash, verify_password
 from app.security.roles import capabilities_for
 from app.security.sessions import clear_cookies, client_ip, create_session, now, rotate, set_cookies
 from app.services import audit, throttle
-from app.services.accounts import next_step, temp_password_expired, validate_new_password
+from app.services.accounts import (
+    clear_temporary_password,
+    next_step,
+    temp_password_expired,
+    validate_new_password,
+)
 
 router = APIRouter(tags=["session"])
 
-BAD_CREDENTIALS = "Employee ID or password is incorrect. Access is managed by the college roster."
+BAD_CREDENTIALS = "Email or password is incorrect. Access is managed by Team OSSC."
 
 
 def me_out(user: User) -> MeOut:
-    return MeOut(id=str(user.id), employee_id=user.employee_id, name=user.name,
+    return MeOut(id=str(user.id), email=user.email, name=user.name,
                  role=user.role, capabilities=capabilities_for(user.role))
 
 
@@ -44,7 +49,7 @@ def step_out(user: User, sess: UserSession, recovery_codes: list[str] | None = N
         if not sess.pending_totp_secret:
             sess.pending_totp_secret = totp.new_secret()
         enrolment = TotpEnrolment(secret=sess.pending_totp_secret,
-                                  uri=totp.provisioning_uri(sess.pending_totp_secret, user.employee_id))
+                                  uri=totp.provisioning_uri(sess.pending_totp_secret, user.email))
     return StepOut(user=me_out(user), next=step, csrf_token=sess.csrf_token,
                    enrolment=enrolment, recovery_codes=recovery_codes)
 
@@ -57,16 +62,16 @@ def _signed_in(db: AsyncSession, user: User) -> None:
 @router.post("/session", response_model=StepOut)
 async def sign_in(body: SignInIn, request: Request, response: Response,
                   db: AsyncSession = Depends(get_session)) -> StepOut:
-    emp = normalise_employee_id(body.employee_id)
+    email = normalise_email(body.email)
     ip = client_ip(request)
-    await throttle.check(db, emp, ip)
+    await throttle.check(db, f"login:{email}", ip)
 
-    user = await db.scalar(select(User).where(User.employee_id == emp))
+    user = await db.scalar(select(User).where(User.email == email))
     ok = verify_password(user.password_hash if user else None, body.password)
     if not ok or user is None or not user.active:
-        await throttle.record_failure(db, emp, ip)
-        audit.record(db, actor_id=user.id if user else None, actor_label=emp, action="signin.failed",
-                     entity_type="user", entity_id=user.id if user else emp,
+        await throttle.record_failure(db, f"login:{email}", ip)
+        audit.record(db, actor_id=user.id if user else None, actor_label=email, action="signin.failed",
+                     entity_type="user", entity_id=user.id if user else email,
                      reason="suspended" if (user and ok and not user.active) else "bad_credentials")
         await db.commit()
         raise ApiError(401, "invalid_credentials", BAD_CREDENTIALS)
@@ -77,7 +82,7 @@ async def sign_in(body: SignInIn, request: Request, response: Response,
         raise ApiError(401, "temp_password_expired",
                        "Your temporary password has expired. Ask Team OSSC to issue a new one.")
 
-    await throttle.clear(db, emp)
+    await throttle.clear(db, f"login:{email}")
     if not user.must_change_password and needs_rehash(user.password_hash):
         user.password_hash = hash_password(body.password)
 
@@ -101,7 +106,7 @@ async def verify_totp(body: TotpIn, request: Request, response: Response,
     if step not in ("totp", "enrol_totp"):
         raise ApiError(409, "mfa_not_pending", "No second-factor step is pending for this session.")
 
-    key = f"totp:{user.employee_id}"
+    key = f"totp:{user.email}"
     await throttle.check(db, key, client_ip(request))
 
     recovery_codes = None
@@ -162,7 +167,7 @@ async def change_password(body: ChangePasswordIn, request: Request, response: Re
     if step == "enrol_totp" and not user.must_change_password:
         raise ApiError(401, "mfa_required", "Set up your authenticator app first.")
 
-    key = f"pw:{user.employee_id}"
+    key = f"pw:{user.email}"
     await throttle.check(db, key, client_ip(request))
     if not verify_password(user.password_hash, body.current_password):
         await db.rollback()
@@ -170,13 +175,12 @@ async def change_password(body: ChangePasswordIn, request: Request, response: Re
         await db.commit()
         raise ApiError(400, "invalid_credentials", "Your current password is incorrect.",
                        {"currentPassword": "Incorrect"})
-    validate_new_password(body.new_password, user)
+    validate_new_password(body.new_password, email=user.email, current_hash=user.password_hash)
 
     forced = user.must_change_password
     user.password_hash = hash_password(body.new_password)
     user.password_changed_at = now()
-    user.must_change_password = False
-    user.temp_password_expires_at = None
+    clear_temporary_password(user)
     # Sign out every other device; this session continues with fresh tokens.
     await db.execute(
         update(UserSession)

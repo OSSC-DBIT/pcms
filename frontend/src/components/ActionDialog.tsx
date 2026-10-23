@@ -4,7 +4,7 @@ import { Alert, Button, Dialog, Field, Input, Select, Textarea, errorMessage } f
 export interface FormField {
   name: string
   label: string
-  type?: 'text' | 'textarea' | 'date' | 'select'
+  type?: 'text' | 'textarea' | 'date' | 'password' | 'select'
   options?: { value: string; label: string }[]
   required?: boolean
   placeholder?: string
@@ -30,7 +30,8 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
     if (missing) return
     setBusy(true); setError(null)
     try {
-      await onSubmit(Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v.trim()])))
+      const passwordFields = new Set(fields.filter((f) => f.type === 'password').map((f) => f.name))
+      await onSubmit(Object.fromEntries(Object.entries(values).map(([k, v]) => [k, passwordFields.has(k) ? v : v.trim()])))
       close()
     } catch (err) {
       setError(errorMessage(err))
@@ -53,7 +54,7 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
               : f.type === 'textarea'
               ? <Textarea id={id} aria-describedby={d} rows={3} maxLength={1000} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />
-              : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : 'text'} maxLength={500} placeholder={f.placeholder}
+              : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : f.type === 'password' ? 'password' : 'text'} maxLength={500} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />}
           </Field>
         ))}

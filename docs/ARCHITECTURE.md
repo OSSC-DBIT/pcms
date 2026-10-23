@@ -186,7 +186,7 @@ falls back to a placeholder for an unknown code.
 sequenceDiagram
     participant B as Browser
     participant A as API
-    B->>A: POST /session (employee ID, password)
+    B->>A: POST /session (college email, password)
     A-->>B: HttpOnly session cookie + CSRF token, next step
     alt temporary password (first sign-in or reset)
         B->>A: POST /session/password

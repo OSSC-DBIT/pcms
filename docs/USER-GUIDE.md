@@ -4,8 +4,9 @@ Open PCMS on the campus Wi-Fi at the address Team OSSC gives you, for example `h
 On a phone, tap **Install app** (Android) or **Share, then Add to Home Screen** (iPhone) to use it like an app.
 Allow notifications when asked so you hear about updates.
 
-**First sign-in.** Use your employee ID and the temporary password from Team OSSC, then choose your
-own password (at least 10 characters). Super admins also scan a QR code with Google or Microsoft Authenticator.
+**First sign-in.** Use your college email and the temporary password from Team OSSC, then choose your
+own password (at least 10 characters). If you forget it, ask Team OSSC to reset it; PCMS does not email
+password links. Super admins also scan a QR code with Google or Microsoft Authenticator.
 
 ## Faculty
 
@@ -56,9 +57,11 @@ review date) or **Reject** (with the next step). You cannot approve something yo
 
 ## Super admin (Team OSSC)
 
-- **Admin, then People**: **Import CSV** (columns `employee_id, name, role, email`). Preview first, then
-  download the file with temporary passwords, hand each password over in person, and delete the file afterwards.
-  **Add person** creates one account. **Reset** issues a new temporary password (and can reset a lost authenticator).
+- **Admin, then People**: **Import file** accepts `.xlsx` or `.csv` with columns `email, name, role, password`.
+  Preview first, then download the credentials workbook, hand each password over in person, and delete the
+  file afterwards. **Add person** creates one account; **Credentials file** downloads every temporary password
+  that is still valid (it asks for your own password and is audited). **Reset** issues a new temporary password
+  (and can reset a lost authenticator). Once a person chooses their own password, it cannot be downloaded.
   **Suspend** blocks access at once.
 - **Types** and **Places**: add new types (each with an unused token letter) and buildings with their floors.
   **Edit** renames one or changes its parts or floors. **Retire** hides it from the report form without touching

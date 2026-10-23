@@ -34,8 +34,8 @@ def _signed(path: str, params: dict) -> dict:
 
 
 async def test_rollback_drops_notification_intent(client):
-    await make_user("DB2101", "faculty")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty")
+    fac = await sign_in(client, "faculty@dbit.edu")
     r = await fac.post(f"{API}/tickets", json=ticket_body(title="no"))
     assert r.status_code == 400
     async with sessionmaker()() as db:
@@ -55,20 +55,20 @@ async def test_webhook_signature_required(client, monkeypatch):
 async def test_legacy_accept_button_still_works(client, monkeypatch):
     """A job sent before the cutover can still be accepted from WhatsApp."""
     _twilio(monkeypatch)
-    await make_user("DB2101", "faculty")
-    await make_user("DB0001", "facility_manager")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty")
+    await make_user("manager@dbit.edu", "facility_manager")
+    fac = await sign_in(client, "faculty@dbit.edu")
     created = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
 
     mc = new_client()
     try:
-        mgr = await sign_in(mc, "DB0001")
+        mgr = await sign_in(mc, "manager@dbit.edu")
         t = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
                             json={"action": "triage", "priority": "P2", "flag": "I", "expectedVersion": 1})).json()
         t = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
                             json={"action": "assign", "workerName": "Legacy Worker", "expectedVersion": t["version"]})).json()
         async with sessionmaker()() as db:
-            manager_id = await db.scalar(select(User.id).where(User.employee_id == "DB0001"))
+            manager_id = await db.scalar(select(User.id).where(User.email == "manager@dbit.edu"))
             w = Worker(name="Legacy Worker", phone_e164="+919876500077", area="Campus", language="kn",
                        mode="whatsapp", kind="employee", active=True, version=1)
             db.add(w)
@@ -97,11 +97,11 @@ async def test_legacy_accept_button_still_works(client, monkeypatch):
 
 
 async def test_verification_reminder_once_per_resolution(client):
-    u = await make_user("DB2101", "faculty")
+    u = await make_user("faculty@dbit.edu", "faculty")
     async with sessionmaker()() as db:
         (await db.get(type(u), u.id)).email = "f@example.edu"
         await db.commit()
-    fac = await sign_in(client, "DB2101")
+    fac = await sign_in(client, "f@example.edu")
     tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
     async with sessionmaker()() as db:
         await db.execute(update(Ticket).where(Ticket.id == tid).values(status="Resolved", resolved_at=now() - timedelta(days=3)))

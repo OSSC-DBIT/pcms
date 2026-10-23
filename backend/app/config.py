@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     env: Literal["dev", "test", "prod"] = "dev"
     database_url: str = "postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms"
     secret_key: str = Field(default="dev-only-change-me", min_length=16)
+    # Encrypts the temporary passwords Team OSSC issues. Keep this separate from
+    # secret_key. Chosen passwords are never stored reversibly.
+    credential_key: str = Field(default="dev-only-credential-key-change-me", min_length=16)
 
     # College code used as the token prefix (DB26C0123).
     college_code: str = "DB"
@@ -24,7 +27,7 @@ class Settings(BaseSettings):
     session_hours: int = 12
     cookie_secure: bool = False
 
-    # Sign-in throttling: attempts per window per employee ID and per client IP.
+    # Sign-in throttling: attempts per window per email and per client IP.
     signin_max_attempts: int = 5
     signin_window_seconds: int = 300
 
@@ -85,6 +88,8 @@ class Settings(BaseSettings):
             return problems
         if self.secret_key.startswith("dev-") or len(self.secret_key) < 32:
             problems.append("PCMS_SECRET_KEY must be a random value of at least 32 characters")
+        if self.credential_key.startswith("dev-") or len(self.credential_key) < 32:
+            problems.append("PCMS_CREDENTIAL_KEY must be a random value of at least 32 characters")
         if not self.cookie_secure:
             problems.append("PCMS_COOKIE_SECURE must be true (HTTPS only)")
         if "pcms_dev" in self.database_url:

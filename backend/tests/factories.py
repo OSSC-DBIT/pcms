@@ -1,12 +1,14 @@
 """Test-only helpers. Accounts are created per test; nothing here ships as data."""
 
 import time
+import uuid
 from datetime import timedelta
 
 import pyotp
 
 from app.db import sessionmaker
-from app.models.user import User
+from app.models.user import User, normalise_email
+from app.security.credentials import encrypt_password
 from app.security.passwords import hash_password
 from app.security.sessions import now
 
@@ -14,14 +16,18 @@ PASSWORD = "Correct-horse-42"
 API = "/api/v1"
 
 
-async def make_user(employee_id: str, role: str, name: str | None = None, password: str | None = PASSWORD,
+async def make_user(email: str, role: str, name: str | None = None, password: str | None = PASSWORD,
                     active: bool = True, temporary: bool = False) -> User:
+    email = normalise_email(email)
+    uid = uuid.uuid4()
     async with sessionmaker()() as s:
-        u = User(employee_id=employee_id, name=name or f"User {employee_id}", role=role,
+        u = User(id=uid, email=email, name=name or f"User {email}", role=role,
                  password_hash=hash_password(password) if password else None, active=active,
+                 temp_password_enc=encrypt_password(password, aad=str(uid)) if (temporary and password) else None,
                  totp_enabled=False, recovery_code_hashes=[],
                  must_change_password=temporary,
-                 temp_password_expires_at=now() + timedelta(days=7) if temporary else None)
+                 temp_password_expires_at=now() + timedelta(days=7) if temporary else None,
+                 password_changed_at=None if temporary else now())
         s.add(u)
         await s.commit()
         await s.refresh(u)
@@ -77,10 +83,10 @@ def ticket_body(**over) -> dict:
     return body
 
 
-async def sign_in(client, employee_id: str, password: str = PASSWORD, totp_secret: str | None = None,
+async def sign_in(client, email: str, password: str = PASSWORD, totp_secret: str | None = None,
                   new_password: str | None = None) -> Session:
     """Walk every sign-in step until full access."""
-    r = await client.post(f"{API}/session", json={"employeeId": employee_id, "password": password})
+    r = await client.post(f"{API}/session", json={"email": email, "password": password})
     assert r.status_code == 200, r.text
     body = r.json()
     secret = totp_secret

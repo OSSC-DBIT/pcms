@@ -1,7 +1,8 @@
-"""Sliding-window sign-in throttling stored in PostgreSQL.
+"""Sliding-window sign-in and credential-export throttling stored in PostgreSQL.
 
-Failures are counted per employee ID and per client IP inside a short window.
-The window expires on its own, so there is no permanent lockout to abuse.
+Failures are counted per identifier (login email, password-change, TOTP or
+export) and per client IP inside a short window. The window expires on its own,
+so there is no permanent lockout to abuse.
 """
 
 from datetime import timedelta
@@ -17,24 +18,24 @@ from app.security.sessions import now
 IP_MULTIPLIER = 4
 
 
-def _keys(employee_id: str, ip: str) -> list[tuple[str, int]]:
+def _keys(identifier: str, ip: str) -> list[tuple[str, int]]:
     limit = get_settings().signin_max_attempts
-    return [(f"emp:{employee_id}", limit), (f"ip:{ip}", limit * IP_MULTIPLIER)]
+    return [(identifier, limit), (f"ip:{ip}", limit * IP_MULTIPLIER)]
 
 
-async def check(db: AsyncSession, employee_id: str, ip: str) -> None:
+async def check(db: AsyncSession, identifier: str, ip: str) -> None:
     window_start = now() - timedelta(seconds=get_settings().signin_window_seconds)
-    for key, limit in _keys(employee_id, ip):
+    for key, limit in _keys(identifier, ip):
         await db.execute(delete(ThrottleEvent).where(ThrottleEvent.key == key, ThrottleEvent.at < window_start))
         count = await db.scalar(select(func.count()).select_from(ThrottleEvent).where(ThrottleEvent.key == key))
         if (count or 0) >= limit:
-            raise ApiError(429, "throttled", "Too many sign-in attempts. Wait a few minutes and try again.")
+            raise ApiError(429, "throttled", "Too many attempts. Wait a few minutes and try again.")
 
 
-async def record_failure(db: AsyncSession, employee_id: str, ip: str) -> None:
-    for key, _ in _keys(employee_id, ip):
+async def record_failure(db: AsyncSession, identifier: str, ip: str) -> None:
+    for key, _ in _keys(identifier, ip):
         db.add(ThrottleEvent(key=key))
 
 
-async def clear(db: AsyncSession, employee_id: str) -> None:
-    await db.execute(delete(ThrottleEvent).where(ThrottleEvent.key == f"emp:{employee_id}"))
+async def clear(db: AsyncSession, identifier: str) -> None:
+    await db.execute(delete(ThrottleEvent).where(ThrottleEvent.key == identifier))

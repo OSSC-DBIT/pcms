@@ -21,7 +21,7 @@ export default function Settings() {
   const nav = useNavigate()
   return (
     <Stack className="mx-auto max-w-2xl">
-      <PageHeader title={t('nav.settings')} subtitle={user ? `${user.name} · ${user.employeeId}` : undefined} />
+      <PageHeader title={t('nav.settings')} subtitle={user ? `${user.name} · ${user.email}` : undefined} />
       <InstallCard />
       <Card title={t('settings.appearance')}>
         <Stack>

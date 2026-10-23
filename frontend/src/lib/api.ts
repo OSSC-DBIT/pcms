@@ -15,6 +15,7 @@ export { HttpError } from './http'
 export { category } from './catalog'
 
 const DRAFTS_KEY = 'pcms.drafts'
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 export interface CreatedTicket {
   id: string
@@ -62,8 +63,8 @@ export type TransitionAction =
 
 export const api = {
   // ---------- session ----------
-  async signIn(employeeId: string, password: string): Promise<StepResult> {
-    const r = await request<StepResult>('POST', '/session', { body: { employeeId, password }, quiet401: true })
+  async signIn(email: string, password: string): Promise<StepResult> {
+    const r = await request<StepResult>('POST', '/session', { body: { email, password }, quiet401: true })
     setCsrf(r.csrfToken)
     return r
   },
@@ -186,17 +187,17 @@ export const api = {
   },
 
   // ---------- admin: users ----------
-  listUsers(params: { q?: string; role?: string; active?: boolean; page?: number; pageSize?: number } = {}): Promise<Page<AdminUser>> {
+  listUsers(params: { q?: string; role?: string; active?: boolean; pending?: boolean; page?: number; pageSize?: number } = {}): Promise<Page<AdminUser>> {
     return request('GET', `/admin/users${qs({ ...params, pageSize: params.pageSize ?? 25 })}`)
   },
-  createUser(body: { employeeId: string; name: string; role: AdminUser['role']; email?: string }): Promise<Credential> {
+  createUser(body: { email: string; name: string; role: AdminUser['role']; password: string }): Promise<Credential> {
     return request('POST', '/admin/users', { body })
   },
-  updateUser(u: Pick<AdminUser, 'id' | 'version'>, patch: { name?: string; email?: string; role?: AdminUser['role']; active?: boolean; reason?: string }): Promise<AdminUser> {
+  updateUser(u: Pick<AdminUser, 'id' | 'version'>, patch: { email?: string; name?: string; role?: AdminUser['role']; active?: boolean; reason?: string }): Promise<AdminUser> {
     return request('PATCH', `/admin/users/${u.id}`, { body: { ...patch, expectedVersion: u.version } })
   },
-  resetUserPassword(u: Pick<AdminUser, 'id'>, resetMfa: boolean): Promise<Credential> {
-    return request('POST', `/admin/users/${u.id}/reset-password`, { body: { resetMfa } })
+  resetUserPassword(u: Pick<AdminUser, 'id'>, resetMfa: boolean, password?: string): Promise<Credential> {
+    return request('POST', `/admin/users/${u.id}/reset-password`, { body: { resetMfa, password: password?.trim() || null } })
   },
   previewImport(file: File): Promise<{ toCreate: number; alreadyExist: string[] }> {
     const form = new FormData()
@@ -206,11 +207,15 @@ export const api = {
   async importUsers(file: File): Promise<{ blob: Blob; filename: string; created: number; existing: number }> {
     const form = new FormData()
     form.append('file', file, file.name)
-    const r = await requestBlob('POST', '/admin/users/import', { form, accept: 'text/csv' })
+    const r = await requestBlob('POST', '/admin/users/import', { form, accept: XLSX })
     return { blob: r.blob, filename: r.filename, created: Number(r.headers.get('x-pcms-created') ?? 0), existing: Number(r.headers.get('x-pcms-existing') ?? 0) }
   },
   importTemplate(): Promise<{ blob: Blob; filename: string }> {
-    return requestBlob('GET', '/admin/users/import/template', { accept: 'text/csv' })
+    return requestBlob('GET', '/admin/users/import/template', { accept: XLSX })
+  },
+  /** Audited download of temporary passwords Team OSSC issued. Requires the admin's own password. */
+  credentialsExport(password: string, filters: { q?: string; role?: string; active?: boolean; pending?: boolean } = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('POST', '/admin/users/credentials/export', { body: { password, ...filters }, accept: XLSX })
   },
 
   // ---------- messages needing a person ----------

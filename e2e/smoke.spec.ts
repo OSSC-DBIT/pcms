@@ -15,9 +15,9 @@ async function pngFromCanvas(page: Page): Promise<Buffer> {
   return Buffer.from(url.split(',')[1], 'base64')
 }
 
-async function signIn(page: Page, emp: string) {
+async function signIn(page: Page, email: string) {
   await page.goto('/login')
-  await page.getByLabel('Employee ID').fill(emp)
+  await page.getByLabel('College email').fill(email)
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
 }
@@ -25,13 +25,22 @@ async function signIn(page: Page, emp: string) {
 async function signOut(page: Page) {
   await page.goto('/settings')
   await page.getByRole('button', { name: 'Sign out' }).click()
-  await expect(page.getByLabel('Employee ID')).toBeVisible()
+  await expect(page.getByLabel('College email')).toBeVisible()
+}
+
+/** A photo uses loading="lazy", so on a phone it loads only after scrolling. */
+async function expectPhotoLoaded(page: Page, name: string) {
+  const img = page.locator(`img[alt="${name}"]`).first()
+  await expect(img).toBeVisible()
+  await img.scrollIntoViewIfNeeded()
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  return img
 }
 
 test('faculty reports a problem with Other and a photo; manager sees it with the image', async ({ page }, info) => {
   const shot = (name: string) => page.screenshot({ path: `out/${info.project.name}-${name}.png`, fullPage: true })
 
-  await signIn(page, 'SMOKE-FAC')
+  await signIn(page, 'smoke-faculty@dbit.edu')
   await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
   await shot('1-home')
 
@@ -56,20 +65,16 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
 
   await page.getByRole('link', { name: 'View ticket' }).click()
   await expect(page.getByText('Other: Bench')).toBeVisible()
-  const ownImg = page.locator('img[alt="bench.jpg"]').first()
-  await expect(ownImg).toBeVisible()
-  expect(await ownImg.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  await expectPhotoLoaded(page, 'bench.jpg')
   await shot('4-ticket-faculty')
   await signOut(page)
 
   // Facility manager: password only (no authenticator), sees the ticket and the photo.
-  await signIn(page, 'SMOKE-FM')
+  await signIn(page, 'smoke-manager@dbit.edu')
   await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
   await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()
   await expect(page.getByText('Step 1: Accept or reject this report')).toBeVisible()
-  const img = page.locator('img[alt="bench.jpg"]').first()
-  await expect(img).toBeVisible()
-  expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  const img = await expectPhotoLoaded(page, 'bench.jpg')
   await img.click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.keyboard.press('Escape')
@@ -90,7 +95,7 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
   await signOut(page)
 
   // Back as the reporter: verify the fix and rate the repair.
-  await signIn(page, 'SMOKE-FAC')
+  await signIn(page, 'smoke-faculty@dbit.edu')
   await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
   await page.goto('/tickets')
   await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()

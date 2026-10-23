@@ -43,13 +43,16 @@ flowchart LR
 cd /srv/pcms/app
 cp .env.example /srv/pcms/pcms.env && chmod 600 /srv/pcms/pcms.env
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"      # PCMS_SECRET_KEY
+python3 -c "import secrets; print(secrets.token_urlsafe(48))"      # PCMS_CREDENTIAL_KEY
 python3 -c "import secrets; print(secrets.token_urlsafe(24))" > /srv/pcms/secrets/db_password
 echo "db:5432:pcms:pcms:$(cat /srv/pcms/secrets/db_password)" > /srv/pcms/secrets/pgpass
 chmod 600 /srv/pcms/secrets/*
 ```
 
 Edit `/srv/pcms/pcms.env`:
-- Put the same database password into `PCMS_DATABASE_URL`, and set `PCMS_SECRET_KEY`.
+- Put the same database password into `PCMS_DATABASE_URL`, and set `PCMS_SECRET_KEY` and `PCMS_CREDENTIAL_KEY`.
+  `PCMS_CREDENTIAL_KEY` encrypts temporary passwords until each person chooses their own. Keep it out of
+  backups of the database; losing it means Team OSSC must reset any temporary password still outstanding.
 - Set the hostnames, the SMTP relay, and `PCMS_MESSAGING_PROVIDER` (`none` until Twilio is ready).
 
 **Backup encryption key.** Make it on a custodian's computer, not on the server:
@@ -78,7 +81,7 @@ For an offline server: build on another machine, `docker save` the images, copy 
 ```sh
 docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env up -d
 docker compose -f compose.prod.yml ps                         # all healthy; migrate exited 0
-docker compose -f compose.prod.yml exec api python -m app.cli create-admin --employee-id OSSC001 --name "Full Name" --email you@dbit.edu.in
+docker compose -f compose.prod.yml exec api python -m app.cli create-admin --email you@dbit.edu.in --name "Full Name"
 ```
 
 The command prints a temporary password. That person:
@@ -86,7 +89,10 @@ The command prints a temporary password. That person:
 2. Sets their own password.
 3. Scans the authenticator QR code and saves the recovery codes.
 
-They then import everyone else under **Admin, then People, then Import CSV**.
+They then create everyone else under **Admin, then People**, one at a time or with **Import file**
+(Excel or CSV). The import response is a credentials workbook with the temporary passwords; share each
+row with that person and delete the file afterwards. It can be downloaded again until the person sets
+their own password.
 
 `migrate` runs `check-config` first, so the stack will not start with unsafe settings.
 

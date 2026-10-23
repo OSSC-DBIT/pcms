@@ -18,8 +18,8 @@ Common commands (inside the `api` container):
 ```sh
 alembic upgrade head
 python -m app.cli seed
-python -m app.cli create-admin --employee-id OSSC001 --name "Full Name"
-python -m app.cli reset-password --employee-id OSSC001 [--reset-mfa]
+python -m app.cli create-admin --email ossc@dbit.edu --name "Full Name"
+python -m app.cli reset-password --email ossc@dbit.edu [--reset-mfa]
 python -m app.cli vapid-keys
 python -m app.cli push-test-all
 python -m app.cli check-config

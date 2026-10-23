@@ -168,15 +168,15 @@ async def export_tickets(days: int = Query(90, ge=1, le=731), p: Principal = Dep
                          db: AsyncSession = Depends(get_session)) -> Response:
     since = now() - timedelta(days=days)
     rows = (await db.execute(
-        select(Ticket, Category.code, User.employee_id).join(Category, Category.id == Ticket.category_id)
+        select(Ticket, Category.code, User.email).join(Category, Category.id == Ticket.category_id)
         .join(User, User.id == Ticket.reporter_id).where(Ticket.created_at >= since).order_by(Ticket.created_at))).all()
     body = to_csv(
         ["token", "created_at", "status", "priority", "flag", "category", "building", "floor", "room", "title",
-         "reporter_employee_id", "resolved_at", "closed_at", "verified_by_reporter"],
+         "reporter_email", "resolved_at", "closed_at", "verified_by_reporter"],
         [[t.token, t.created_at.isoformat(), t.status, t.priority, t.flag or "", code, t.building_code or "", t.floor or "",
-          t.room or t.landmark or "", t.title, emp, t.resolved_at.isoformat() if t.resolved_at else "",
+          t.room or t.landmark or "", t.title, email, t.resolved_at.isoformat() if t.resolved_at else "",
           t.closed_at.isoformat() if t.closed_at else "", "" if t.verified_by_reporter is None else str(t.verified_by_reporter)]
-         for t, code, emp in rows])
+         for t, code, email in rows])
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.tickets", entity_type="export",
                  entity_id="tickets", after={"days": days, "rows": len(rows)})
     await db.commit()

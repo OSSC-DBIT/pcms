@@ -10,21 +10,21 @@ from tests.factories import API, make_user, new_client, sign_in, ticket_body
 async def _closed_ticket(client, *, stars: int | None = None, comment: str | None = None,
                          reporter_email: str | None = None, manager_email: str | None = None):
     """Run a ticket through the manual flow to Closed, optionally rating it."""
-    fac_user = await make_user("DB2101", "faculty", "Reporter")
-    await make_user("DB0001", "facility_manager", "Manager One")
-    await make_user("DB0002", "management", "Principal Office")
+    fac_user = await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    await make_user("manager@dbit.edu", "facility_manager", "Manager One")
+    await make_user("management@dbit.edu", "management", "Principal Office")
     async with sessionmaker()() as db:
         if reporter_email:
             (await db.get(User, fac_user.id)).email = reporter_email
         if manager_email:
-            mgr_user = await db.scalar(select(User).where(User.employee_id == "DB0001"))
+            mgr_user = await db.scalar(select(User).where(User.email == "manager@dbit.edu"))
             mgr_user.email = manager_email
         await db.commit()
 
-    fac = await sign_in(client, "DB2101")
+    fac = await sign_in(client, reporter_email or "faculty@dbit.edu")
     created = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
     mc = new_client()
-    mgr = await sign_in(mc, "DB0001")
+    mgr = await sign_in(mc, manager_email or "manager@dbit.edu")
 
     async def tr(s, **body):
         v = (await s.get(f"{API}/tickets/{created['id']}")).json()["version"]
@@ -68,13 +68,13 @@ async def test_a_second_rating_is_refused(client):
 
 
 async def test_resolved_but_not_closed_cannot_be_rated(client):
-    await make_user("DB2101", "faculty")
-    await make_user("DB0001", "facility_manager")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty")
+    await make_user("manager@dbit.edu", "facility_manager")
+    fac = await sign_in(client, "faculty@dbit.edu")
     created = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
     mc = new_client()
     try:
-        mgr = await sign_in(mc, "DB0001")
+        mgr = await sign_in(mc, "manager@dbit.edu")
         async def tr(s, **body):
             v = (await s.get(f"{API}/tickets/{created['id']}")).json()["version"]
             return await s.post(f"{API}/tickets/{created['id']}/transitions", json={"expectedVersion": v, **body})
@@ -92,13 +92,13 @@ async def test_other_faculty_get_404_and_staff_get_403(client):
     fac, mgr, mc, tid, detail, rating = await _closed_ticket(client)
     try:
         async with new_client() as other:
-            await make_user("DB2102", "faculty", "Someone Else")
-            s = await sign_in(other, "DB2102")
+            await make_user("faculty2@dbit.edu", "faculty", "Someone Else")
+            s = await sign_in(other, "faculty2@dbit.edu")
             assert (await s.post(f"{API}/tickets/{tid}/rating", json={"stars": 1})).status_code == 404
 
         assert (await mgr.post(f"{API}/tickets/{tid}/rating", json={"stars": 1})).status_code == 403
         async with new_client() as c:
-            await sign_in(c, "DB0002")
+            await sign_in(c, "management@dbit.edu")
             assert (await c.post(f"{API}/tickets/{tid}/rating", json={"stars": 1})).status_code == 403
     finally:
         await mc.aclose()
@@ -159,8 +159,8 @@ async def test_reports_aggregate_ratings_and_show_low_ones(client):
     fac, mgr, mc, tid, detail, rating = await _closed_ticket(client, stars=2, comment="Still shaky")
     try:
         async with new_client() as c:
-            await make_user("DB2102", "faculty", "Second Reporter")
-            s = await sign_in(c, "DB2102")
+            await make_user("faculty2@dbit.edu", "faculty", "Second Reporter")
+            s = await sign_in(c, "faculty2@dbit.edu")
             created = (await s.post(f"{API}/tickets", json=ticket_body())).json()
             v = (await mgr.get(f"{API}/tickets/{created['id']}")).json()["version"]
             v = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
@@ -195,8 +195,8 @@ async def test_faculty_lists_stay_private_and_have_no_worker_data(client):
         assert mine[0]["workerName"] is None
 
         async with new_client() as other:
-            await make_user("DB2102", "faculty", "Someone Else")
-            s = await sign_in(other, "DB2102")
+            await make_user("faculty2@dbit.edu", "faculty", "Someone Else")
+            s = await sign_in(other, "faculty2@dbit.edu")
             assert (await s.get(f"{API}/tickets", params={"scope": "mine"})).json()["items"] == []
             assert (await s.get(f"{API}/tickets/{tid}")).status_code == 404
 

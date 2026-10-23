@@ -17,8 +17,8 @@ def new_secret() -> str:
     return pyotp.random_base32()
 
 
-def provisioning_uri(secret: str, employee_id: str) -> str:
-    return pyotp.TOTP(secret).provisioning_uri(name=employee_id, issuer_name=ISSUER)
+def provisioning_uri(secret: str, account_name: str) -> str:
+    return pyotp.TOTP(secret).provisioning_uri(name=account_name, issuer_name=ISSUER)
 
 
 def match_step(secret: str, code: str, *, now: float | None = None, window: int = 1) -> int | None:

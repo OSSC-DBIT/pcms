@@ -420,6 +420,22 @@
             }
           },
           {
+            "name": "pending",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pending"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -662,12 +678,51 @@
         },
         "responses": {
           "200": {
-            "description": "Credentials CSV",
+            "description": "Credentials XLSX",
             "content": {
               "application/json": {
                 "schema": {}
               },
-              "text/csv": {}
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/credentials/export": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Export Credentials",
+        "operationId": "export_credentials_api_v1_admin_users_credentials_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
             }
           },
           "422": {
@@ -1952,24 +2007,13 @@
             "format": "uuid",
             "title": "Id"
           },
-          "employeeId": {
+          "email": {
             "type": "string",
-            "title": "Employeeid"
+            "title": "Email"
           },
           "name": {
             "type": "string",
             "title": "Name"
-          },
-          "email": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email"
           },
           "role": {
             "type": "string",
@@ -1994,6 +2038,18 @@
               }
             ],
             "title": "Temppasswordexpiresat"
+          },
+          "passwordChangedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwordchangedat"
           },
           "totpEnabled": {
             "type": "boolean",
@@ -2024,13 +2080,13 @@
         "type": "object",
         "required": [
           "id",
-          "employeeId",
-          "name",
           "email",
+          "name",
           "role",
           "active",
           "mustChangePassword",
           "tempPasswordExpiresAt",
+          "passwordChangedAt",
           "totpEnabled",
           "lastLoginAt",
           "createdAt",
@@ -2690,11 +2746,11 @@
       },
       "CreateUserIn": {
         "properties": {
-          "employeeId": {
+          "email": {
             "type": "string",
-            "maxLength": 32,
-            "minLength": 1,
-            "title": "Employeeid"
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email"
           },
           "name": {
             "type": "string",
@@ -2712,24 +2768,19 @@
             ],
             "title": "Role"
           },
-          "email": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 254
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email"
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password"
           }
         },
         "type": "object",
         "required": [
-          "employeeId",
+          "email",
           "name",
-          "role"
+          "role",
+          "password"
         ],
         "title": "CreateUserIn"
       },
@@ -2743,8 +2794,15 @@
             "title": "Temporarypassword"
           },
           "expiresAt": {
-            "type": "string",
-            "format": "date-time",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Expiresat"
           }
         },
@@ -2932,6 +2990,72 @@
         ],
         "title": "EventOut"
       },
+      "ExportIn": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "faculty",
+                  "ossc",
+                  "facility_manager",
+                  "management"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "ExportIn"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3114,9 +3238,9 @@
             "type": "string",
             "title": "Id"
           },
-          "employeeId": {
+          "email": {
             "type": "string",
-            "title": "Employeeid"
+            "title": "Email"
           },
           "name": {
             "type": "string",
@@ -3137,7 +3261,7 @@
         "type": "object",
         "required": [
           "id",
-          "employeeId",
+          "email",
           "name",
           "role",
           "capabilities"
@@ -3151,9 +3275,9 @@
             "type": "string",
             "title": "Id"
           },
-          "employeeId": {
+          "email": {
             "type": "string",
-            "title": "Employeeid"
+            "title": "Email"
           },
           "name": {
             "type": "string",
@@ -3178,7 +3302,7 @@
         "type": "object",
         "required": [
           "id",
-          "employeeId",
+          "email",
           "name",
           "role",
           "capabilities",
@@ -3707,6 +3831,18 @@
       },
       "ResetIn": {
         "properties": {
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
           "resetMfa": {
             "type": "boolean",
             "title": "Resetmfa",
@@ -3718,11 +3854,11 @@
       },
       "SignInIn": {
         "properties": {
-          "employeeId": {
+          "email": {
             "type": "string",
-            "maxLength": 32,
-            "minLength": 1,
-            "title": "Employeeid"
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email"
           },
           "password": {
             "type": "string",
@@ -3733,7 +3869,7 @@
         },
         "type": "object",
         "required": [
-          "employeeId",
+          "email",
           "password"
         ],
         "title": "SignInIn"
@@ -4726,18 +4862,6 @@
             "type": "integer",
             "title": "Expectedversion"
           },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
           "email": {
             "anyOf": [
               {
@@ -4749,6 +4873,18 @@
               }
             ],
             "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "role": {
             "anyOf": [

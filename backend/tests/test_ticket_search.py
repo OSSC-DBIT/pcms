@@ -15,12 +15,12 @@ async def _triage(s, tid, priority="P2"):
                         json={"action": "triage", "priority": priority, "expectedVersion": v})
 
 
-async def _faculty(client, emp="DB2101"):
+async def _faculty(client, emp="faculty@dbit.edu"):
     await make_user(emp, "faculty")
     return await sign_in(client, emp)
 
 
-async def _manager(client, emp="DB0001"):
+async def _manager(client, emp="manager@dbit.edu"):
     await make_user(emp, "facility_manager")
     return await sign_in(client, emp)
 
@@ -187,14 +187,14 @@ async def test_worker_filter_matches_the_free_text_name(client):
 
 async def test_filters_never_cross_the_visibility_boundary(client):
     """A faculty member cannot reach another reporter's ticket through a filter."""
-    await make_user("DB2101", "faculty", "Reporter One")
-    await make_user("DB2102", "faculty", "Reporter Two")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter One")
+    await make_user("faculty2@dbit.edu", "faculty", "Reporter Two")
+    fac = await sign_in(client, "faculty@dbit.edu")
     await fac.post(f"{API}/tickets", json=ticket_body(title="Broken chair"))
 
     other = new_client()
     try:
-        two = await sign_in(other, "DB2102")
+        two = await sign_in(other, "faculty2@dbit.edu")
         # The queue scope is refused outright, filter or no filter.
         assert (await fac.get(f"{API}/tickets", params={"scope": "queue"})).status_code == 403
         assert (await fac.get(f"{API}/tickets", params={"scope": "queue", "search": "Broken"})).status_code == 403

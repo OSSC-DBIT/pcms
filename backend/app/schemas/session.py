@@ -8,7 +8,7 @@ StepName = Literal["totp", "change_password", "enrol_totp", "done"]
 
 
 class SignInIn(CamelModel):
-    employee_id: str = Field(min_length=1, max_length=32)
+    email: str = Field(min_length=3, max_length=254)
     password: str = Field(min_length=1, max_length=256)
 
 
@@ -16,7 +16,7 @@ class MeOut(CamelModel):
     """Matches the frontend User interface."""
 
     id: str
-    employee_id: str
+    email: str
     name: str
     role: str
     capabilities: list[str]

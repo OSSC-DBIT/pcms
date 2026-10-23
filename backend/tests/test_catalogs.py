@@ -90,8 +90,15 @@ async def test_upgrade_with_existing_users():
         await s.commit()
     await run_alembic(command.upgrade, "head")
     async with sessionmaker()() as s:
-        row = (await s.execute(text("SELECT must_change_password, version FROM app_user WHERE employee_id='DB9999'"))).one()
-    assert row == (True, 1)
+        row = (await s.execute(text(
+            "SELECT must_change_password, version, email FROM app_user WHERE email='db9999@pcms.invalid'"
+        ))).one()
+        old_column = await s.scalar(text(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name='app_user' AND column_name='employee_id'"
+        ))
+    assert row == (True, 1, "db9999@pcms.invalid")
+    assert old_column == 0
 
 
 async def test_migrations_downgrade_and_upgrade():

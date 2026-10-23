@@ -15,11 +15,18 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 ## Controls
 
 **Accounts**
-- Named accounts only. Team OSSC creates them one at a time or by CSV import.
-- Each new or reset account gets a random temporary password (about 70 bits). It is shown or
-  downloaded once and stored only as an Argon2id hash.
+- Named accounts only, signed in with a college email. Team OSSC creates them one at a time or by
+  Excel/CSV import. There is no self-registration, email link, OTP or security question.
+- Each new or reset account gets a temporary password: random (about 70 bits) or chosen by the admin.
+  It is stored as an Argon2id hash for verification and, until the person replaces it, as
+  AES-256-GCM ciphertext under `PCMS_CREDENTIAL_KEY`. The key is separate from `PCMS_SECRET_KEY`.
+- A temporary password can be downloaded again by Team OSSC under **Admin, People, Credentials file**.
+  That download needs the admin's own password, is throttled, is marked `no-store`, and is audited.
+  Once the person chooses a password, the ciphertext and expiry are deleted; the chosen password is
+  never stored reversibly.
 - Temporary passwords expire after 7 days and must be changed at first sign-in.
-- Suspending a person or changing their role ends all of their sessions.
+- Forgotten passwords are reset by Team OSSC. No password is ever emailed.
+- Suspending a person or changing their role or email ends all of their sessions.
 - The last active super admin cannot be removed, and admins cannot change their own role.
 
 **Sessions**
@@ -28,8 +35,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - The CSRF token must be sent as the `X-CSRF-Token` header on every change.
 
 **Sign-in**
-- Throttled per employee ID and per IP; the window expires on its own, so there is no permanent lockout.
-- Unknown ID and wrong password look the same. TOTP codes cannot be replayed. Recovery codes work once.
+- Throttled per email and per IP; the window expires on its own, so there is no permanent lockout.
+- Unknown email and wrong password look the same. TOTP codes cannot be replayed. Recovery codes work once.
 
 **Authorisation**
 - Checked by the server on every request.
@@ -62,7 +69,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 
 **Data**
 - History tables are append-only through database triggers, and every change writes an audit event.
-- CSV exports neutralise spreadsheet formulas and are themselves audited.
+- CSV and Excel exports neutralise spreadsheet formulas by writing every cell as text, and are themselves audited.
+  Imports reject formula cells and macro workbooks.
 
 **Operations**
 - The API refuses to start in production with a weak secret, insecure cookies, the dev database

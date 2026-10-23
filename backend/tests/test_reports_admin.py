@@ -7,14 +7,14 @@ from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
 async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(client):
-    await make_user("DB2101", "faculty", "Reporter")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    fac = await sign_in(client, "faculty@dbit.edu")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
 
     mc = new_client()
     try:
-        await make_user("DB0001", "facility_manager", "Manager")
-        mgr = await sign_in(mc, "DB0001")
+        await make_user("manager@dbit.edu", "facility_manager", "Manager")
+        mgr = await sign_in(mc, "manager@dbit.edu")
         v = (await mgr.post(f"{API}/tickets/{t['id']}/transitions",
                             json={"action": "triage", "priority": "P2", "expectedVersion": 1})).json()["version"]
         assigned = (await mgr.post(f"{API}/tickets/{t['id']}/transitions", json={
@@ -38,14 +38,14 @@ async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(cli
 
 async def test_assessment_needs_an_assigned_ticket(client):
     """Assessing before a worker is on the job is a 409, not a silent write."""
-    await make_user("DB2101", "faculty", "Reporter")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    fac = await sign_in(client, "faculty@dbit.edu")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
 
     mc = new_client()
     try:
-        await make_user("DB0001", "facility_manager", "Manager")
-        mgr = await sign_in(mc, "DB0001")
+        await make_user("manager@dbit.edu", "facility_manager", "Manager")
+        mgr = await sign_in(mc, "manager@dbit.edu")
         r = await mgr.post(f"{API}/tickets/{t['id']}/assessments", json={
             "assessments": ["simple"], "via": "call",
             "note": "Not assigned yet", "expectedVersion": 1})
@@ -56,8 +56,8 @@ async def test_assessment_needs_an_assigned_ticket(client):
 
 async def test_catalogs_hides_retired_but_admin_can_still_see_them(client):
     """A retired type must vanish from the report form yet stay restorable."""
-    await make_user("DB0000", "ossc", "Super Admin")
-    o = await sign_in(client, "DB0000")
+    await make_user("admin@dbit.edu", "ossc", "Super Admin")
+    o = await sign_in(client, "admin@dbit.edu")
 
     active_before = (await client.get(f"{API}/catalogs")).json()
     assert "phone" in {c["code"] for c in active_before["categories"]}
@@ -86,8 +86,8 @@ async def test_last_active_category_cannot_be_retired(client):
     from app.models import Category
     from sqlalchemy import update
 
-    await make_user("DB0000", "ossc", "Super Admin")
-    o = await sign_in(client, "DB0000")
+    await make_user("admin@dbit.edu", "ossc", "Super Admin")
+    o = await sign_in(client, "admin@dbit.edu")
     async with sessionmaker()() as s:
         await s.execute(update(Category).values(active=False).where(Category.code != "carpentry"))
         await s.commit()
@@ -96,8 +96,8 @@ async def test_last_active_category_cannot_be_retired(client):
 
 
 async def test_building_rename_and_retire(client):
-    await make_user("DB0000", "ossc", "Super Admin")
-    o = await sign_in(client, "DB0000")
+    await make_user("admin@dbit.edu", "ossc", "Super Admin")
+    o = await sign_in(client, "admin@dbit.edu")
     r = await o.patch(f"{API}/admin/buildings/CSE", json={"nameEn": "Computing Block", "nameHi": "कंप्यूटिंग ब्लॉक"})
     assert r.status_code == 204
     buildings = (await client.get(f"{API}/catalogs")).json()["buildings"]
@@ -111,14 +111,14 @@ async def test_building_rename_and_retire(client):
 
 
 async def test_report_shows_the_fields_the_dashboard_renders(client):
-    await make_user("DB2101", "faculty", "Reporter")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    fac = await sign_in(client, "faculty@dbit.edu")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
 
     mc = new_client()
     try:
-        await make_user("DB0001", "facility_manager", "Manager")
-        mgr = await sign_in(mc, "DB0001")
+        await make_user("manager@dbit.edu", "facility_manager", "Manager")
+        mgr = await sign_in(mc, "manager@dbit.edu")
         await mgr.post(f"{API}/tickets/{t['id']}/transitions",
                        json={"action": "triage", "priority": "P3", "expectedVersion": 1})
         r = (await mgr.get(f"{API}/reports")).json()
@@ -144,13 +144,13 @@ async def test_report_shows_the_fields_the_dashboard_renders(client):
 
 async def test_audit_log_cursors_backwards(client):
     """The audit screen pages with beforeId, so rows must not repeat or vanish."""
-    await make_user("DB2101", "faculty", "Reporter")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    fac = await sign_in(client, "faculty@dbit.edu")
     for i in range(5):
         await fac.post(f"{API}/tickets", json=ticket_body(title=f"Broken chair {i}"))
 
-    await make_user("DB0000", "ossc", "Super Admin")
-    o = await sign_in(new_client(), "DB0000")
+    await make_user("admin@dbit.edu", "ossc", "Super Admin")
+    o = await sign_in(new_client(), "admin@dbit.edu")
 
     page1 = (await o.get(f"{API}/admin/audit", params={"limit": 5})).json()
     assert len(page1) == 5

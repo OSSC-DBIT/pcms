@@ -2,7 +2,7 @@ export type Role = 'faculty' | 'ossc' | 'facility_manager' | 'management'
 
 export interface User {
   id: string
-  employeeId: string
+  email: string
   name: string
   role: Role
   capabilities: Capability[]
@@ -170,20 +170,20 @@ export interface Draft {
 
 export interface AdminUser {
   id: string
-  employeeId: string
+  email: string
   name: string
-  email: string | null
   role: Role
   active: boolean
   mustChangePassword: boolean
   tempPasswordExpiresAt: string | null
+  passwordChangedAt: string | null
   totpEnabled: boolean
   lastLoginAt: string | null
   createdAt: string
   version: number
 }
 
-export interface Credential { user: AdminUser; temporaryPassword: string; expiresAt: string }
+export interface Credential { user: AdminUser; temporaryPassword: string; expiresAt: string | null }
 
 export interface Page<T> { items: T[]; total: number; page: number; pageSize: number }
 

@@ -65,17 +65,17 @@ function useSubmit(fn: () => Promise<void>) {
 
 function Credentials({ password, onStep }: { password: React.MutableRefObject<string>; onStep: (s: StepResult) => Promise<void> }) {
   const { t } = useT()
-  const [emp, setEmp] = useState('')
+  const [email, setEmail] = useState('')
   const [pw, setPw] = useState('')
   const { busy, error, submit } = useSubmit(async () => {
-    const step = await api.signIn(emp, pw)
+    const step = await api.signIn(email, pw)
     password.current = pw
     setPw('')
     await onStep(step)
   })
   return (
     <form onSubmit={submit} className="space-y-4">
-      <Field label={t('login.employeeId')}>{(id) => <Input id={id} value={emp} onChange={(e) => setEmp(e.target.value)} autoComplete="username" autoCapitalize="characters" spellCheck={false} maxLength={32} required />}</Field>
+      <Field label={t('login.email')}>{(id) => <Input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" inputMode="email" autoCapitalize="none" spellCheck={false} maxLength={254} required />}</Field>
       <Field label={t('login.password')}>{(id) => <Input id={id} type="password" value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" maxLength={256} required />}</Field>
       {error && <Alert tone="bad">{error}</Alert>}
       <Button type="submit" full loading={busy}>{t('login.submit')}</Button>
@@ -97,7 +97,7 @@ function ChangePassword({ step, current, onStep }: { step: StepResult; current: 
   return (
     <form onSubmit={submit} className="space-y-4">
       <div><h2 className="text-[17px] font-semibold">{t('login.changeTitle')}</h2><p className="mt-1 text-[14px] text-muted">{t('login.changeHelp')}</p></div>
-      <input type="text" autoComplete="username" value={step.user.employeeId} readOnly hidden />
+      <input type="text" autoComplete="username" value={step.user.email} readOnly hidden />
       <Field label={t('login.newPassword')} hint={t('login.passwordRule')}>{(id, d) => <Input id={id} aria-describedby={d} type="password" value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" minLength={10} maxLength={128} required />}</Field>
       <Field label={t('login.confirmPassword')}>{(id) => <Input id={id} type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" maxLength={128} required />}</Field>
       {error && <Alert tone="bad">{error}</Alert>}

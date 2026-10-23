@@ -17,13 +17,13 @@ from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
 async def _setup(client):
-    await make_user("DB2101", "faculty", "Reporter")
-    await make_user("DB0001", "facility_manager", "Manager One")
-    await make_user("DB0002", "management", "Principal Office")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    await make_user("manager@dbit.edu", "facility_manager", "Manager One")
+    await make_user("management@dbit.edu", "management", "Principal Office")
+    fac = await sign_in(client, "faculty@dbit.edu")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
     mgr_client = new_client()
-    mgr = await sign_in(mgr_client, "DB0001")
+    mgr = await sign_in(mgr_client, "manager@dbit.edu")
     return fac, mgr, mgr_client, t["id"]
 
 
@@ -201,9 +201,9 @@ async def test_approval_separation_of_duty_and_concurrency(client):
         assert (await mgr.post(f"{API}/proposals/{p['id']}/decisions", json={"kind": "approved", "proposalVersion": 1, "ceilingPaise": 235000})).status_code == 403
 
         async with new_client() as c1, new_client() as c2:
-            a1 = await sign_in(c1, "DB0002")
-            await make_user("DB0005", "management", "Dean Office")
-            a2 = await sign_in(c2, "DB0005")
+            a1 = await sign_in(c1, "management@dbit.edu")
+            await make_user("dean@dbit.edu", "management", "Dean Office")
+            a2 = await sign_in(c2, "dean@dbit.edu")
             low = await a1.post(f"{API}/proposals/{p['id']}/decisions", json={"kind": "approved", "proposalVersion": 1, "ceilingPaise": 100})
             assert low.status_code == 400
             r1, r2 = await asyncio.gather(
@@ -221,7 +221,7 @@ async def test_rejection_keeps_ticket_on_hold_with_next_action(client):
     try:
         t = await _to_awaiting_approval(mgr, tid)
         async with new_client() as c1:
-            a1 = await sign_in(c1, "DB0002")
+            a1 = await sign_in(c1, "management@dbit.edu")
             r = await a1.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "rejected", "proposalVersion": 1, "reason": "Use spare from store"})
             t = r.json()
             assert t["status"] == "OnHold" and "Use spare" in t["holdReason"] and t["holdReviewDate"]
@@ -252,7 +252,7 @@ async def test_dbit_flow_manual_assignment_then_critical_to_management(client):
         t = r.json()
         assert t["status"] == "AwaitingApproval" and t["flag"] == "C" and t["proposal"]["totalPaise"] == 0
         async with new_client() as c:
-            m = await sign_in(c, "DB0002")
+            m = await sign_in(c, "management@dbit.edu")
             r = await m.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "approved", "proposalVersion": 1})
             assert r.status_code == 200 and r.json()["status"] == "InProgress"
     finally:

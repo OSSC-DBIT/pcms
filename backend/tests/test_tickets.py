@@ -10,7 +10,7 @@ from app.services.tickets import format_token, ist_year
 from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
-async def _faculty(client, emp="DB2101"):
+async def _faculty(client, emp="faculty@dbit.edu"):
     await make_user(emp, "faculty", f"Faculty {emp}")
     return await sign_in(client, emp)
 
@@ -32,7 +32,7 @@ async def test_create_returns_token_and_replays(client):
     assert changed.status_code == 409 and changed.json()["code"] == "idempotency_conflict"
 
     t = (await s.get(f"{API}/tickets/{created['id']}")).json()
-    assert t["priority"] == "P2" and t["reporterName"] == "Faculty DB2101"
+    assert t["priority"] == "P2" and t["reporterName"] == "Faculty faculty@dbit.edu"
     assert t["events"][0]["action"] == "Your report was received"
 
 
@@ -50,15 +50,15 @@ async def test_validation_errors(client):
 
 
 async def test_staff_cannot_create_without_capability(client):
-    await make_user("DB0002", "management")
-    s = await sign_in(client, "DB0002")
+    await make_user("management@dbit.edu", "management")
+    s = await sign_in(client, "management@dbit.edu")
     assert (await s.post(f"{API}/tickets", json=ticket_body())).status_code == 403
 
 
 async def test_100_parallel_creates_yield_unique_sequential_tokens(client):
-    await make_user("DB2101", "faculty")
+    await make_user("faculty@dbit.edu", "faculty")
     clients = [new_client() for _ in range(4)]
-    sessions = [await sign_in(c, "DB2101") for c in clients]
+    sessions = [await sign_in(c, "faculty@dbit.edu") for c in clients]
     gate = asyncio.Semaphore(25)
 
     async def one(i):
@@ -86,10 +86,10 @@ async def test_concurrent_identical_retries_create_one_ticket(client):
 
 
 async def test_faculty_cannot_see_other_reporters_tickets(client):
-    s1 = await _faculty(client, "DB2101")
+    s1 = await _faculty(client, "faculty@dbit.edu")
     created = (await s1.post(f"{API}/tickets", json=ticket_body())).json()
     async with new_client() as other:
-        s2 = await _faculty(other, "DB2102")
+        s2 = await _faculty(other, "faculty2@dbit.edu")
         assert (await s2.get(f"{API}/tickets/{created['id']}")).status_code == 404
         assert (await s2.get(f"{API}/tickets/{uuid.uuid4()}")).status_code == 404
         assert (await s2.get(f"{API}/tickets?scope=mine")).json()["total"] == 0
@@ -100,12 +100,12 @@ async def test_faculty_cannot_see_other_reporters_tickets(client):
 
 
 async def test_create_queues_receipt_and_manager_alerts(client):
-    u = await make_user("DB2101", "faculty")
+    u = await make_user("faculty@dbit.edu", "faculty")
     async with sessionmaker()() as db:
         (await db.get(type(u), u.id)).email = "faculty@example.edu"
         await db.commit()
-    await make_user("DB0001", "facility_manager")
-    s = await sign_in(client, "DB2101")
+    await make_user("manager@dbit.edu", "facility_manager")
+    s = await sign_in(client, "faculty@example.edu")
     await s.post(f"{API}/tickets", json=ticket_body())
     async with sessionmaker()() as db:
         rows = (await db.scalars(select(Outbox))).all()

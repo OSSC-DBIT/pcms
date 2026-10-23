@@ -9,6 +9,7 @@ x-api-env: &api-env
   PCMS_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms
   PCMS_TEST_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms_test
   PCMS_SECRET_KEY: dev-only-secret-key-change-me
+  PCMS_CREDENTIAL_KEY: dev-only-credential-key-change-me
   PCMS_CLAMAV_REQUIRED: "false"
   PCMS_VAPID_PUBLIC_KEY: ${PCMS_VAPID_PUBLIC_KEY:-}
   PCMS_VAPID_PRIVATE_KEY: ${PCMS_VAPID_PRIVATE_KEY:-}

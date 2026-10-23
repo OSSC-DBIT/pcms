@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, KeyRound, Pencil, Power, Upload, UserPlus } from 'lucide-react'
+import { Download, FileSpreadsheet, KeyRound, Pencil, Power, RefreshCw, Upload, UserPlus } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog } from '../../components/ActionDialog'
 import { Pager } from '../../components/Pager'
@@ -11,6 +11,13 @@ import type { AdminUser, Credential, Role } from '../../lib/types'
 
 const ROLE: Record<Role, string> = { faculty: 'Faculty', facility_manager: 'Facility manager', management: 'Institute management', ossc: 'Super admin (OSSC)' }
 const IST: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }
+
+/** A random initial password. The admin can see and replace it before creating the account. */
+function suggestPassword(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(12))
+  const token = Array.from(bytes, (b) => b.toString(36).padStart(2, '0')).join('').slice(0, 14)
+  return `Tmp-${token}-26`
+}
 
 export default function Admin() {
   const { can } = useAuth()
@@ -41,9 +48,9 @@ function CredentialDialog({ cred, onClose }: { cred: Credential | null; onClose:
       footer={<Button onClick={() => { setCopied(false); onClose() }}>Done</Button>}>
       {cred && (
         <Stack>
-          <p className="text-[14px]">For <b>{cred.user.name}</b> ({cred.user.employeeId}). Shown only now. They must change it at first sign-in.</p>
+          <p className="text-[14px]">For <b>{cred.user.name}</b> ({cred.user.email}). They must change it at first sign-in. It stays downloadable by Team OSSC until they do.</p>
           <p className="token select-all rounded-md bg-subtle px-4 py-3 text-center text-[24px] font-bold">{cred.temporaryPassword}</p>
-          <p className="text-[13px] text-muted">Expires {new Date(cred.expiresAt).toLocaleString('en-IN', IST)}. Give it to the person directly, not in a group chat.</p>
+          <p className="text-[13px] text-muted">{cred.expiresAt ? `Expires ${new Date(cred.expiresAt).toLocaleString('en-IN', IST)}. ` : ''}Give it to the person directly, not in a group chat.</p>
           <Button variant="secondary" onClick={async () => { await navigator.clipboard.writeText(cred.temporaryPassword); setCopied(true) }}>{copied ? 'Copied' : 'Copy'}</Button>
         </Stack>
       )}
@@ -63,6 +70,7 @@ function People() {
   const [cred, setCred] = useState<Credential | null>(null)
   const [adding, setAdding] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [action, setAction] = useState<{ user: AdminUser; kind: 'suspend' | 'reactivate' | 'role' | 'reset' } | null>(null)
 
   const load = useCallback(async (query: string, roleFilter: Role | '', atPage: number, size: number) => {
@@ -77,12 +85,13 @@ function People() {
   return (
     <Stack>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setImporting(true)}><Upload size={17} /> Import CSV</Button>
-        <Button variant="secondary" onClick={() => setAdding(true)}><UserPlus size={17} /> Add person</Button>
+        <Button onClick={() => setAdding(true)}><UserPlus size={17} /> Add person</Button>
+        <Button variant="secondary" onClick={() => setImporting(true)}><Upload size={17} /> Import file</Button>
+        <Button variant="secondary" onClick={() => setExporting(true)}><FileSpreadsheet size={17} /> Credentials file</Button>
       </div>
       <div className="flex flex-wrap gap-3">
         <div className="w-full sm:w-64">
-          <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Search by employee ID or name" aria-label="Search people" />
+          <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder="Search by email or name" aria-label="Search people" />
         </div>
         <div className="w-48">
           <Select aria-label="Filter by role" value={role} onChange={(e) => { setRole(e.target.value as Role | ''); setPage(1) }}>
@@ -93,14 +102,19 @@ function People() {
       {error && <Alert tone="bad">{error}</Alert>}
       {users === null ? <Skeleton className="h-40" /> : (
         <>
-          {users.length === 0 && !q && !role && <EmptyState title="No accounts yet" body="Add a person or import a CSV to get started." />}
+          {users.length === 0 && !q && !role && <EmptyState title="No accounts yet" body="Add a person or import an Excel or CSV file to get started." />}
           {users.length > 0 && (
             <div className="overflow-hidden rounded-lg border border-line bg-surface">
               {users.map((u) => (
                 <div key={u.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-b-0">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-medium">{u.name}</p>
-                    <p className="token text-[13px] text-muted">{u.employeeId} · {ROLE[u.role]}</p>
+                    <p className="token text-[13px] text-muted">{u.email} · {ROLE[u.role]}</p>
+                    <p className="mt-0.5 text-[12px] text-muted">
+                      {u.mustChangePassword
+                        ? (u.tempPasswordExpiresAt ? `Temporary password expires ${new Date(u.tempPasswordExpiresAt).toLocaleString('en-IN', IST)}` : 'No temporary password on file')
+                        : (u.passwordChangedAt ? `Password changed ${new Date(u.passwordChangedAt).toLocaleString('en-IN', IST)}` : 'Password set')}
+                    </p>
                   </div>
                   <Badge tone={!u.active ? 'bad' : u.mustChangePassword ? 'warn' : 'ok'}>{!u.active ? 'Suspended' : u.mustChangePassword ? 'Not activated' : 'Active'}</Badge>
                   {u.id !== me?.id && (
@@ -122,49 +136,78 @@ function People() {
       <ImportCsv open={importing} onClose={() => { setImporting(false); void load(q, role, page, pageSize) }} />
       <CredentialDialog cred={cred} onClose={() => setCred(null)} />
       {action?.kind === 'reset' && (
-        <ActionDialog open title={`Reset password for ${action.user.employeeId}`} confirmLabel="Issue new password"
-          description="Their current sessions end now. A new temporary password is shown once."
-          fields={action.user.totpEnabled ? [{ name: 'mfa', label: 'Also reset authenticator app?', type: 'select', required: true, options: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes, they lost their phone (identity checked)' }] }] : []}
+        <ActionDialog open title={`Reset password for ${action.user.email}`} confirmLabel="Issue new password"
+          description="Their current sessions end now. The temporary password stays downloadable until they set their own."
+          fields={[
+            { name: 'password', label: 'New temporary password', hint: 'Leave blank to generate a strong one. At least 10 characters.' },
+            ...(action.user.totpEnabled ? [{ name: 'mfa', label: 'Also reset authenticator app?', type: 'select' as const, required: true, options: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes, they lost their phone (identity checked)' }] }] : []),
+          ]}
           onClose={() => setAction(null)}
-          onSubmit={async (v) => { const c = await api.resetUserPassword(action.user, v.mfa === 'yes'); replace(c.user); setCred(c) }} />
+          onSubmit={async (v) => { const c = await api.resetUserPassword(action.user, v.mfa === 'yes', v.password); replace(c.user); setCred(c) }} />
       )}
       {(action?.kind === 'suspend' || action?.kind === 'reactivate') && (
-        <ActionDialog open title={`${action.kind === 'suspend' ? 'Suspend' : 'Reactivate'} ${action.user.employeeId}`} danger={action.kind === 'suspend'}
+        <ActionDialog open title={`${action.kind === 'suspend' ? 'Suspend' : 'Reactivate'} ${action.user.email}`} danger={action.kind === 'suspend'}
           confirmLabel={action.kind === 'suspend' ? 'Suspend' : 'Reactivate'} fields={[{ name: 'reason', label: 'Reason', type: 'textarea', required: true }]}
           onClose={() => setAction(null)}
           onSubmit={async (v) => replace(await api.updateUser(action.user, { active: action.kind === 'reactivate', reason: v.reason }))} />
       )}
       {action?.kind === 'role' && (
-        <ActionDialog open title={`Change role of ${action.user.employeeId}`} confirmLabel="Change role" description="Their sessions end and they sign in again."
+        <ActionDialog open title={`Change role of ${action.user.email}`} confirmLabel="Change role" description="Their sessions end and they sign in again."
           fields={[{ name: 'role', label: 'New role', type: 'select', required: true, options: (Object.keys(ROLE) as Role[]).filter((r) => r !== action.user.role).map((r) => ({ value: r, label: ROLE[r] })) },
             { name: 'reason', label: 'Reason', type: 'textarea', required: true }]}
           onClose={() => setAction(null)}
           onSubmit={async (v) => replace(await api.updateUser(action.user, { role: v.role as Role, reason: v.reason }))} />
+      )}
+      {exporting && (
+        <ActionDialog open title="Download credentials file" confirmLabel="Download"
+          description={<>This Excel file contains temporary passwords that are still valid. It uses the search and role filters on this screen. The download is audited and requires your own password.</>}
+          initial={{ scope: 'pending' }}
+          fields={[
+            { name: 'password', label: 'Your password', type: 'password', required: true },
+            { name: 'scope', label: 'Which accounts', type: 'select', required: true, options: [
+              { value: 'pending', label: 'Only not activated (has a temporary password)' },
+              { value: 'all', label: 'All accounts' },
+              { value: 'active', label: 'Only activated' },
+            ] },
+          ]}
+          onClose={() => setExporting(false)}
+          onSubmit={async (v) => {
+            const pending = v.scope === 'pending' ? true : v.scope === 'active' ? false : undefined
+            const r = await api.credentialsExport(v.password, { q: q || undefined, role: role || undefined, pending })
+            saveBlob(r.blob, r.filename)
+          }} />
       )}
     </Stack>
   )
 }
 
 function AddPerson({ open, onClose, onCreated }: { open: boolean; onClose: () => void; onCreated: (c: Credential) => void }) {
-  const [employeeId, setEmployeeId] = useState('')
-  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
+  const [name, setName] = useState('')
+  const [password, setPassword] = useState(() => suggestPassword())
   const [role, setRole] = useState<Role>('faculty')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const close = () => { setEmployeeId(''); setName(''); setEmail(''); setRole('faculty'); setError(null); onClose() }
+  const close = () => { setEmail(''); setName(''); setPassword(suggestPassword()); setRole('faculty'); setError(null); onClose() }
   async function save(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true); setError(null)
-    try { onCreated(await api.createUser({ employeeId, name, role, email: email.trim() || undefined })); close() }
+    try { onCreated(await api.createUser({ email: email.trim(), name, role, password })); close() }
     catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   return (
     <Dialog open={open} onClose={close} title="Add person">
       <form onSubmit={save} className="space-y-4">
-        <Field label="Employee ID">{(id) => <Input id={id} className="token" value={employeeId} onChange={(e) => setEmployeeId(e.target.value.toUpperCase())} maxLength={32} required />}</Field>
-        <Field label="Full name">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required />}</Field>
-        <Field label="Email" optional hint="For report receipts">{(id, d) => <Input id={id} aria-describedby={d} type="email" value={email} onChange={(e) => setEmail(e.target.value)} maxLength={254} />}</Field>
+        <Field label="College email">{(id) => <Input id={id} type="email" className="token" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" maxLength={254} required />}</Field>
+        <Field label="Full name">{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" maxLength={120} required />}</Field>
+        <Field label="Temporary password" hint="They must change it at first sign-in. Share it directly with this person.">
+          {(id, d) => (
+            <div className="flex gap-2">
+              <Input id={id} aria-describedby={d} className="token flex-1" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={10} maxLength={128} required />
+              <Button type="button" variant="secondary" onClick={() => setPassword(suggestPassword())}><RefreshCw size={15} /> Suggest</Button>
+            </div>
+          )}
+        </Field>
         <Field label="Role">{(id) => <Select id={id} value={role} onChange={(e) => setRole(e.target.value as Role)}>{(Object.keys(ROLE) as Role[]).map((r) => <option key={r} value={r}>{ROLE[r]}</option>)}</Select>}</Field>
         {error && <Alert tone="bad">{error}</Alert>}
         <div className="flex justify-end gap-2"><Button variant="secondary" onClick={close}>Cancel</Button><Button type="submit" loading={busy}>Create</Button></div>
@@ -200,15 +243,15 @@ function ImportCsv({ open, onClose }: { open: boolean; onClose: () => void }) {
   }
 
   return (
-    <Dialog open={open} onClose={close} title="Import people from CSV">
+    <Dialog open={open} onClose={close} title="Import people from Excel or CSV">
       <Stack>
-        <p className="text-[14px]">Columns: <span className="token">employee_id, name</span>, and optionally <span className="token">role, email</span>. Role is faculty, facility_manager or management. Up to 1000 per file; if any line is wrong nothing is imported.</p>
-        <Alert tone="warn">The downloaded file contains temporary passwords. Hand each one to the person directly and delete the file afterwards.</Alert>
+        <p className="text-[14px]">Columns: <span className="token">email, name, role, password</span>. Role is faculty, facility_manager or management, and defaults to faculty. Up to 1000 per file. If any line is wrong nothing is imported. OSSC accounts are added one at a time.</p>
+        <Alert tone="warn">The downloaded Excel file contains temporary passwords. Hand each one to the person directly and delete the file afterwards. You can download it again until they set their own password.</Alert>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={async () => { try { const t = await api.importTemplate(); saveBlob(t.blob, t.filename) } catch (e) { setError(errorMessage(e)) } }}><Download size={16} /> Template</Button>
-          <Button onClick={() => input.current?.click()}><Upload size={16} /> Choose CSV</Button>
+          <Button onClick={() => input.current?.click()}><Upload size={16} /> Choose file</Button>
         </div>
-        <input ref={input} type="file" accept=".csv,text/csv" hidden onChange={(e) => void choose(e.target.files?.[0])} />
+        <input ref={input} type="file" accept=".xlsx,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" hidden onChange={(e) => void choose(e.target.files?.[0])} />
         {busy && !preview && <Skeleton className="h-12" />}
         {file && preview && (
           <Card>

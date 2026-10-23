@@ -23,10 +23,10 @@ flowchart LR
 
 | Who | Signs in with | Can do |
 |---|---|---|
-| Faculty | Employee ID + password | Report, track, message, confirm or dispute the fix, rate the repair |
-| Facility manager | Employee ID + password | Queue, review, contact workers and record the state, close |
-| Institute management | Employee ID + password | Approve or reject spending, reports |
-| Super admin (Team OSSC) | Password + authenticator app | Everything, including people, CSV import, types, places, audit |
+| Faculty | College email + password | Report, track, message, confirm or dispute the fix, rate the repair |
+| Facility manager | College email + password | Queue, review, contact workers and record the state, close |
+| Institute management | College email + password | Approve or reject spending, reports |
+| Super admin (Team OSSC) | College email + password + authenticator app | Everything, including people, Excel or CSV import, types, places, audit |
 
 Workers have no login and are contacted directly. PCMS stores an optional worker or vendor
 name on the ticket for staff; it sends no messages to workers.
@@ -58,7 +58,7 @@ docker compose -f compose.dev.yml exec api python -m app.cli create-test-account
 
 - App with live reload: http://localhost:5173. Built app through nginx: http://localhost:8080
 - Emails sent by the app: http://localhost:8025 (Mailpit)
-- The second command prints one temporary password per role. Each account must set a new password at first sign-in.
+- The second command prints one email and temporary password per role. Each account must set a new password at first sign-in.
 
 To test push notifications locally, generate keys with `python -m app.cli vapid-keys` and put them in
 a `.env` file next to `compose.dev.yml` (it is gitignored). Then recreate `api` and `worker`.
