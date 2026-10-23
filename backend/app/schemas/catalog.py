@@ -16,6 +16,7 @@ class BuildingOut(CamelModel):
     name_en: str
     name_hi: str
     floors: list[str]
+    active: bool
 
 
 class CatalogsOut(CamelModel):

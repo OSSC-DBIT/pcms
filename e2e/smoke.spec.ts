@@ -15,9 +15,9 @@ async function pngFromCanvas(page: Page): Promise<Buffer> {
   return Buffer.from(url.split(',')[1], 'base64')
 }
 
-async function signIn(page: Page, emp: string) {
+async function signIn(page: Page, email: string) {
   await page.goto('/login')
-  await page.getByLabel('Employee ID').fill(emp)
+  await page.getByLabel('College email').fill(email)
   await page.getByLabel('Password').fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
 }
@@ -25,13 +25,22 @@ async function signIn(page: Page, emp: string) {
 async function signOut(page: Page) {
   await page.goto('/settings')
   await page.getByRole('button', { name: 'Sign out' }).click()
-  await expect(page.getByLabel('Employee ID')).toBeVisible()
+  await expect(page.getByLabel('College email')).toBeVisible()
+}
+
+/** A photo uses loading="lazy", so on a phone it loads only after scrolling. */
+async function expectPhotoLoaded(page: Page, name: string) {
+  const img = page.locator(`img[alt="${name}"]`).first()
+  await expect(img).toBeVisible()
+  await img.scrollIntoViewIfNeeded()
+  await expect.poll(() => img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  return img
 }
 
 test('faculty reports a problem with Other and a photo; manager sees it with the image', async ({ page }, info) => {
   const shot = (name: string) => page.screenshot({ path: `out/${info.project.name}-${name}.png`, fullPage: true })
 
-  await signIn(page, 'SMOKE-FAC')
+  await signIn(page, 'smoke-faculty@dbit.edu')
   await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
   await shot('1-home')
 
@@ -56,37 +65,110 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
 
   await page.getByRole('link', { name: 'View ticket' }).click()
   await expect(page.getByText('Other: Bench')).toBeVisible()
-  const ownImg = page.locator('img[alt="bench.jpg"]').first()
-  await expect(ownImg).toBeVisible()
-  expect(await ownImg.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  await expectPhotoLoaded(page, 'bench.jpg')
   await shot('4-ticket-faculty')
   await signOut(page)
 
   // Facility manager: password only (no authenticator), sees the ticket and the photo.
-  await signIn(page, 'SMOKE-FM')
+  await signIn(page, 'smoke-manager@dbit.edu')
   await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
   await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()
   await expect(page.getByText('Step 1: Accept or reject this report')).toBeVisible()
-  const img = page.locator('img[alt="bench.jpg"]').first()
-  await expect(img).toBeVisible()
-  expect(await img.evaluate((el: HTMLImageElement) => el.naturalWidth)).toBeGreaterThan(0)
+  const img = await expectPhotoLoaded(page, 'bench.jpg')
   await img.click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: 'Accept', exact: true }).click()
-  await expect(page.getByText('Step 2: Assign a worker')).toBeVisible()
-  await page.getByRole('checkbox', { name: /Smoke Carpenter/ }).check()
-  await page.getByRole('button', { name: 'Assign and send SMS' }).click()
+  await expect(page.getByText('Step 2: Who is doing the work?')).toBeVisible()
+  await page.getByLabel('Worker or vendor').fill('Smoke Carpenter')
+  await page.getByRole('button', { name: 'Mark as assigned' }).click()
+  await expect(page.getByText('Worker: Smoke Carpenter')).toBeVisible()
+  await page.getByRole('button', { name: 'Mark work started' }).click()
+  await expect(page.getByText('Step 3: What did the worker find?')).toBeVisible()
+  await page.getByRole('radio', { name: /Immediate/ }).click()
+  await page.getByRole('button', { name: 'Save as Immediate' }).click()
+  await expect(page.getByRole('button', { name: 'Save as Immediate' })).toHaveCount(0)
+  await page.getByLabel('When the work is done: what was done').fill('Replaced the cracked frame')
+  await page.getByRole('button', { name: 'Mark as fixed' }).click()
+  await expect(page.getByText('Waiting for the reporter to check the work')).toBeVisible()
+  await shot('5-staff-ticket')
+  await signOut(page)
+
+  // Back as the reporter: verify the fix and rate the repair.
+  await signIn(page, 'smoke-faculty@dbit.edu')
+  await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
+  await page.goto('/tickets')
+  await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()
+  await expect(page.getByText('Smoke Carpenter')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Yes, it is fixed' }).click()
+  await expect(page.getByText('How was the repair?')).toBeVisible()
+  await page.getByRole('radio', { name: '5 stars' }).click()
+  await page.getByLabel('Anything else? (optional)').fill('Quick work, thank you')
+  await page.getByRole('button', { name: 'Send rating' }).click()
+  await expect(page.getByText('Your rating')).toBeVisible()
+  await expect(page.getByText('Quick work, thank you')).toBeVisible()
+  await shot('6-faculty-rating')
+  await signOut(page)
+})
+
+test('approved critical cost can be finished after the facility manager reloads', async ({ page }) => {
+  const title = `Approved cost check ${Date.now()}`
+
+  // Faculty reports the problem.
+  await signIn(page, 'smoke-faculty@dbit.edu')
+  await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
+  await page.goto('/report')
+  await page.getByRole('radio', { name: 'Carpentry' }).click()
+  await page.getByRole('radiogroup', { name: 'Which part?' }).getByRole('radio', { name: 'Other' }).click()
+  await page.getByLabel('What is it?').fill('Desk')
+  await page.getByLabel('Building').selectOption('CSE')
+  await page.getByLabel('Floor').selectOption('2')
+  await page.getByLabel('Room or area').fill('204')
+  await page.getByLabel('Short title').fill(title)
+  await page.getByRole('button', { name: 'Send report' }).click()
+  const token = page.getByTestId('receipt-token')
+  await expect(token).toHaveText(/^C\d{2}-\d{4,}$/)
+  const tokenText = (await token.textContent())!.trim()
+  await signOut(page)
+
+  // Facility manager assigns a worker and asks management to approve the cost.
+  await signIn(page, 'smoke-manager@dbit.edu')
+  await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
+  await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()
+  await page.getByRole('button', { name: 'Accept', exact: true }).click()
+  await page.getByLabel('Worker or vendor').fill('Smoke Vendor')
+  await page.getByRole('button', { name: 'Mark as assigned' }).click()
+  await page.getByRole('button', { name: 'Mark work started' }).click()
   await expect(page.getByText('Step 3: What did the worker find?')).toBeVisible()
   await page.getByRole('radio', { name: /Critical/ }).click()
-  await page.getByLabel('Why is it critical?').fill('Frame cracked, needs replacement')
+  await page.getByLabel('Why is it critical?').fill('The desk frame is broken and needs a new part.')
+  await page.getByLabel('Estimated cost (Rs)').fill('1250')
   await page.getByRole('button', { name: 'Send to management' }).click()
   await expect(page.getByText('Waiting for institute management')).toBeVisible()
-  await shot('5-staff-ticket')
+  await signOut(page)
 
-  await page.goto('/staff/workers')
-  await expect(page.getByRole('button', { name: 'Add worker' })).toBeVisible()
-  await shot('6-workers')
+  // Institute management approves the estimate.
+  await signIn(page, 'smoke-management@dbit.edu')
+  await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
+  await page.goto('/staff/approvals')
+  await expect(page.getByRole('heading', { name: 'Approvals' })).toBeVisible()
+  await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()
+  await expect(page.getByText('Critical: sent to management')).toBeVisible()
+  await page.getByRole('button', { name: 'Record decision' }).click()
+  await expect(page.getByText('Approved by Smoke Management')).toBeVisible()
+  await signOut(page)
+
+  // Back as the facility manager: the approved ticket is in Needs action and
+  // can be marked fixed immediately, without choosing the flag again.
+  await signIn(page, 'smoke-manager@dbit.edu')
+  await expect(page.getByRole('heading', { name: 'Queue' })).toBeVisible()
+  await page.getByRole('link', { name: new RegExp(tokenText) }).first().click()
+  await expect(page.getByText('Step 4: Finish the approved work')).toBeVisible()
+  await expect(page.getByText('Approved by institute management')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save as Immediate' })).toHaveCount(0)
+  await page.getByLabel('When the work is done: what was done').fill('Replaced the broken desk frame')
+  await page.getByRole('button', { name: 'Mark as fixed' }).click()
+  await expect(page.getByText('Waiting for the reporter to check the work')).toBeVisible()
   await signOut(page)
 })
 

@@ -39,7 +39,6 @@ def create_app() -> FastAPI:
     app.include_router(admin_ops.router, prefix=API_PREFIX)
     app.include_router(tickets.router, prefix=API_PREFIX)
     app.include_router(directory.proposals, prefix=API_PREFIX)
-    app.include_router(directory.workers, prefix=API_PREFIX)
     app.include_router(attachments.api, prefix=API_PREFIX)
     app.include_router(attachments.public)
     app.include_router(webhooks.router)

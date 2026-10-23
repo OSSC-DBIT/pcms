@@ -4,7 +4,7 @@ import { Alert, Button, Dialog, Field, Input, Select, Textarea, errorMessage } f
 export interface FormField {
   name: string
   label: string
-  type?: 'text' | 'textarea' | 'date' | 'select'
+  type?: 'text' | 'textarea' | 'date' | 'password' | 'select'
   options?: { value: string; label: string }[]
   required?: boolean
   placeholder?: string
@@ -15,10 +15,10 @@ export interface FormField {
  * A small form in a dialog: used for every staff action that needs a reason,
  * a date or a note. Shows server errors inline and stays open on failure.
  */
-export function ActionDialog({ open, onClose, title, description, fields = [], confirmLabel, danger, onSubmit }:
-  { open: boolean; onClose: () => void; title: string; description?: ReactNode; fields?: FormField[]; confirmLabel: string; danger?: boolean
+export function ActionDialog({ open, onClose, title, description, fields = [], initial = {}, confirmLabel, danger, onSubmit }:
+  { open: boolean; onClose: () => void; title: string; description?: ReactNode; fields?: FormField[]; initial?: Record<string, string>; confirmLabel: string; danger?: boolean
     onSubmit: (values: Record<string, string>) => Promise<unknown> }) {
-  const [values, setValues] = useState<Record<string, string>>({})
+  const [values, setValues] = useState<Record<string, string>>(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const missing = fields.some((f) => f.required && !values[f.name]?.trim())
@@ -30,7 +30,8 @@ export function ActionDialog({ open, onClose, title, description, fields = [], c
     if (missing) return
     setBusy(true); setError(null)
     try {
-      await onSubmit(Object.fromEntries(Object.entries(values).map(([k, v]) => [k, v.trim()])))
+      const passwordFields = new Set(fields.filter((f) => f.type === 'password').map((f) => f.name))
+      await onSubmit(Object.fromEntries(Object.entries(values).map(([k, v]) => [k, passwordFields.has(k) ? v : v.trim()])))
       close()
     } catch (err) {
       setError(errorMessage(err))
@@ -53,7 +54,7 @@ export function ActionDialog({ open, onClose, title, description, fields = [], c
               : f.type === 'textarea'
               ? <Textarea id={id} aria-describedby={d} rows={3} maxLength={1000} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />
-              : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : 'text'} maxLength={500} placeholder={f.placeholder}
+              : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : f.type === 'password' ? 'password' : 'text'} maxLength={500} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />}
           </Field>
         ))}

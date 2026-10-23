@@ -10,6 +10,7 @@ POST  /admin/buildings    PATCH /admin/buildings/{code}
 """
 
 from datetime import datetime, timedelta
+import uuid
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -22,9 +23,10 @@ from app.errors import ApiError, conflict, not_found, validation
 from app.models.audit import AuditEvent
 from app.models.catalog import Building, Category
 from app.models.outbox import Outbox
+from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket
 from app.models.user import User
-from app.models.worker import Assignment, Worker
+from app.models.worker import Worker
 from app.schemas import CamelModel
 from app.security.deps import Principal, require
 from app.security.sessions import now
@@ -42,13 +44,31 @@ class Percentiles(CamelModel):
     p90_hours: float | None
 
 
+class LowRating(CamelModel):
+    ticket_id: uuid.UUID
+    token: str
+    title: str
+    stars: int
+    comment: str | None
+    created_at: datetime
+    category: str | None
+    building: str | None
+    room: str | None
+
+
+class RatingReport(CamelModel):
+    count: int
+    average: float | None
+    distribution: dict[str, int]
+    low: list[LowRating]
+
+
 class ReportOut(CamelModel):
     generated_at: datetime
     days: int
     open_by_status: dict[str, int]
     open_by_priority: dict[str, int]
     untriaged: int
-    unaccepted: int
     overdue_updates: int
     pending_approvals: int
     holds_by_reason: list[dict]
@@ -58,6 +78,7 @@ class ReportOut(CamelModel):
     triage_time: Percentiles
     resolution_time: Percentiles
     approved_paise: int
+    ratings: RatingReport
 
 
 async def _percentiles(db: AsyncSession, expr: str, where: str, params: dict) -> Percentiles:
@@ -76,6 +97,7 @@ async def report(days: int = Query(30, ge=1, le=366), building: str | None = Que
     since = now() - timedelta(days=days)
     flt = [Ticket.status.not_in(TERMINAL)]
     sql_where, params = "t.created_at >= :since", {"since": since}
+    cid: int | None = None
     if building:
         flt.append(Ticket.building_code == building)
         sql_where += " AND t.building_code = :b"
@@ -89,9 +111,6 @@ async def report(days: int = Query(30, ge=1, le=366), building: str | None = Que
 
     by_status = dict((await db.execute(select(open_q.c.status, func.count()).group_by(open_q.c.status))).all())
     by_priority = dict((await db.execute(select(open_q.c.priority, func.count()).group_by(open_q.c.priority))).all())
-    unaccepted = await db.scalar(
-        select(func.count(func.distinct(Assignment.ticket_id))).join(Ticket, Ticket.id == Assignment.ticket_id)
-        .where(*flt, Ticket.status == "Assigned", Assignment.released_at.is_(None), Assignment.accepted_at.is_(None))) or 0
     overdue = await db.scalar(select(func.count()).select_from(open_q).where(open_q.c.next_update_due < now())) or 0
     holds = [{"reason": r, "count": n} for r, n in (await db.execute(
         select(open_q.c.hold_reason, func.count()).where(open_q.c.status == "OnHold")
@@ -109,11 +128,39 @@ async def report(days: int = Query(30, ge=1, le=366), building: str | None = Que
     approved = await db.scalar(text("""
         SELECT coalesce(sum(d.ceiling_paise), 0) FROM decision d WHERE d.kind = 'approved' AND d.decided_at >= :since"""),
         {"since": since}) or 0
+
+    # Ratings are on closed tickets, so they use their own window and no open-status filter.
+    rating_flt = [TicketRating.created_at >= since]
+    if building:
+        rating_flt.append(Ticket.building_code == building)
+    if cid is not None:
+        rating_flt.append(Ticket.category_id == cid)
+    rating_join = select(func.count()).select_from(TicketRating).join(
+        Ticket, Ticket.id == TicketRating.ticket_id).where(*rating_flt)
+    rating_count = await db.scalar(rating_join) or 0
+    rating_avg = await db.scalar(select(func.avg(TicketRating.stars)).join(
+        Ticket, Ticket.id == TicketRating.ticket_id).where(*rating_flt))
+    distribution = {str(stars): 0 for stars in range(1, 6)}
+    for stars, n in (await db.execute(select(TicketRating.stars, func.count()).join(
+            Ticket, Ticket.id == TicketRating.ticket_id).where(*rating_flt).group_by(TicketRating.stars))).all():
+        distribution[str(stars)] = n
+    low_rows = (await db.execute(
+        select(TicketRating, Ticket, Category.code)
+        .join(Ticket, Ticket.id == TicketRating.ticket_id)
+        .join(Category, Category.id == Ticket.category_id)
+        .where(*rating_flt, TicketRating.stars <= 2)
+        .order_by(TicketRating.created_at.desc()).limit(10))).all()
+    low = [LowRating(ticket_id=tr.ticket_id, token=t.token, title=t.title, stars=tr.stars, comment=tr.comment,
+                     created_at=tr.created_at, category=code, building=t.building_code, room=t.room)
+           for tr, t, code in low_rows]
+
     return ReportOut(generated_at=now(), days=days, open_by_status=by_status, open_by_priority=by_priority,
-                     untriaged=by_status.get("Submitted", 0), unaccepted=unaccepted, overdue_updates=overdue,
+                     untriaged=by_status.get("Submitted", 0), overdue_updates=overdue,
                      pending_approvals=by_status.get("AwaitingApproval", 0), holds_by_reason=holds, disputes=disputes,
                      failed_notifications=failed, repeat_faults=repeat, triage_time=triage, resolution_time=resolution,
-                     approved_paise=int(approved))
+                     approved_paise=int(approved),
+                     ratings=RatingReport(count=rating_count, average=round(rating_avg, 2) if rating_avg is not None else None,
+                                          distribution=distribution, low=low))
 
 
 @router.get("/reports/tickets.csv")
@@ -121,15 +168,15 @@ async def export_tickets(days: int = Query(90, ge=1, le=731), p: Principal = Dep
                          db: AsyncSession = Depends(get_session)) -> Response:
     since = now() - timedelta(days=days)
     rows = (await db.execute(
-        select(Ticket, Category.code, User.employee_id).join(Category, Category.id == Ticket.category_id)
+        select(Ticket, Category.code, User.email).join(Category, Category.id == Ticket.category_id)
         .join(User, User.id == Ticket.reporter_id).where(Ticket.created_at >= since).order_by(Ticket.created_at))).all()
     body = to_csv(
         ["token", "created_at", "status", "priority", "flag", "category", "building", "floor", "room", "title",
-         "reporter_employee_id", "resolved_at", "closed_at", "verified_by_reporter"],
+         "reporter_email", "resolved_at", "closed_at", "verified_by_reporter"],
         [[t.token, t.created_at.isoformat(), t.status, t.priority, t.flag or "", code, t.building_code or "", t.floor or "",
-          t.room or t.landmark or "", t.title, emp, t.resolved_at.isoformat() if t.resolved_at else "",
+          t.room or t.landmark or "", t.title, email, t.resolved_at.isoformat() if t.resolved_at else "",
           t.closed_at.isoformat() if t.closed_at else "", "" if t.verified_by_reporter is None else str(t.verified_by_reporter)]
-         for t, code, emp in rows])
+         for t, code, email in rows])
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.tickets", entity_type="export",
                  entity_id="tickets", after={"days": days, "rows": len(rows)})
     await db.commit()

@@ -22,7 +22,7 @@ def jpeg_with_gps() -> bytes:
     return buf.getvalue()
 
 
-async def _ticket(client, emp="DB2101"):
+async def _ticket(client, emp="faculty@dbit.edu"):
     await make_user(emp, "faculty")
     s = await sign_in(client, emp)
     t = (await s.post(f"{API}/tickets", json=ticket_body())).json()
@@ -43,8 +43,8 @@ async def test_photo_upload_strips_metadata_and_downloads_for_owner_only(client)
     assert b"PhoneMaker" not in got.content and Image.open(io.BytesIO(got.content)).getexif().get(0x8825) is None
 
     async with new_client() as other:
-        await make_user("DB2102", "faculty")
-        o = await sign_in(other, "DB2102")
+        await make_user("faculty2@dbit.edu", "faculty")
+        o = await sign_in(other, "faculty2@dbit.edu")
         assert (await o.get(att["url"])).status_code == 404
         assert (await o.post(f"{API}/tickets/{tid}/attachments", files={"file": ("a.jpg", raw, "image/jpeg")})).status_code == 404
     assert (await new_client().get(att["url"])).status_code == 401
@@ -143,8 +143,8 @@ async def test_faculty_video_is_stored_and_visible_to_staff(client, tmp_path):
     att = r.json()
     assert att["kind"] == "video" and att["state"] == "available"
     async with new_client() as staff:
-        await make_user("DB0001", "facility_manager")
-        m = await sign_in(staff, "DB0001")
+        await make_user("manager@dbit.edu", "facility_manager")
+        m = await sign_in(staff, "manager@dbit.edu")
         t = (await m.get(f"{API}/tickets/{tid}")).json()
         assert [a["kind"] for a in t["attachments"]] == ["video"]
         got = await m.get(t["attachments"][0]["url"])

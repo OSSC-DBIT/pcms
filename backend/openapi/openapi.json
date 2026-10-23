@@ -54,7 +54,20 @@
           "catalogs"
         ],
         "summary": "Get Catalogs",
+        "description": "Active types and places.\n\nincludeInactive is for the administration screens, which need to show a retired\nrow so it can be restored. Everyone else always gets the active list, so a retired\ntype cannot be picked on a new report. Old tickets keep rendering either way,\nbecause the frontend falls back to a placeholder for an unknown code.",
         "operationId": "get_catalogs_api_v1_catalogs_get",
+        "parameters": [
+          {
+            "name": "includeInactive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includeinactive"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -62,6 +75,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CatalogsOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -397,6 +420,22 @@
             }
           },
           {
+            "name": "pending",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Pending"
+            }
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -408,15 +447,15 @@
             }
           },
           {
-            "name": "page_size",
+            "name": "pageSize",
             "in": "query",
             "required": false,
             "schema": {
               "type": "integer",
               "maximum": 200,
               "minimum": 1,
-              "default": 50,
-              "title": "Page Size"
+              "default": 25,
+              "title": "Pagesize"
             }
           }
         ],
@@ -639,12 +678,51 @@
         },
         "responses": {
           "200": {
-            "description": "Credentials CSV",
+            "description": "Credentials XLSX",
             "content": {
               "application/json": {
                 "schema": {}
               },
-              "text/csv": {}
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/users/credentials/export": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Export Credentials",
+        "operationId": "export_credentials_api_v1_admin_users_credentials_export_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
             }
           },
           "422": {
@@ -1195,6 +1273,119 @@
               "default": 100,
               "title": "Pagesize"
             }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Search"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          },
+          {
+            "name": "flag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^[ICP]$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Flag"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^P[1-4]$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Priority"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "worker",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Worker"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(newest|oldest|priority|updated)$",
+              "default": "newest",
+              "title": "Sort"
+            }
           }
         ],
         "responses": {
@@ -1393,6 +1584,60 @@
         }
       }
     },
+    "/api/v1/tickets/{ticket_id}/rating": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "Rate",
+        "description": "One immutable rating from the reporter, after the repair is closed.",
+        "operationId": "rate_api_v1_tickets__ticket_id__rating_post",
+        "parameters": [
+          {
+            "name": "ticket_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ticket Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RatingIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/tickets/{ticket_id}/transitions": {
       "post": {
         "tags": [
@@ -1471,185 +1716,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CommentIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tickets/{ticket_id}/assignments": {
-      "post": {
-        "tags": [
-          "tickets"
-        ],
-        "summary": "Assign",
-        "operationId": "assign_api_v1_tickets__ticket_id__assignments_post",
-        "parameters": [
-          {
-            "name": "ticket_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Ticket Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AssignIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tickets/{ticket_id}/assignments/{assignment_id}/accept": {
-      "post": {
-        "tags": [
-          "tickets"
-        ],
-        "summary": "Accept",
-        "operationId": "accept_api_v1_tickets__ticket_id__assignments__assignment_id__accept_post",
-        "parameters": [
-          {
-            "name": "ticket_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Ticket Id"
-            }
-          },
-          {
-            "name": "assignment_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Assignment Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AcceptIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TicketOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/tickets/{ticket_id}/assignments/{assignment_id}/release": {
-      "post": {
-        "tags": [
-          "tickets"
-        ],
-        "summary": "Release",
-        "operationId": "release_api_v1_tickets__ticket_id__assignments__assignment_id__release_post",
-        "parameters": [
-          {
-            "name": "ticket_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Ticket Id"
-            }
-          },
-          {
-            "name": "assignment_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Assignment Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReleaseIn"
               }
             }
           }
@@ -1837,218 +1903,6 @@
         }
       }
     },
-    "/api/v1/workers": {
-      "get": {
-        "tags": [
-          "workers"
-        ],
-        "summary": "List Workers",
-        "operationId": "list_workers_api_v1_workers_get",
-        "parameters": [
-          {
-            "name": "trade",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Trade"
-            }
-          },
-          {
-            "name": "active",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "boolean"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Active"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/WorkerOut"
-                  },
-                  "title": "Response List Workers Api V1 Workers Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "workers"
-        ],
-        "summary": "Create Worker",
-        "operationId": "create_worker_api_v1_workers_post",
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WorkerIn"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkerOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workers/import": {
-      "post": {
-        "tags": [
-          "workers"
-        ],
-        "summary": "Import Workers",
-        "description": "Add many contacts at once (picked from the phone or a contacts file). Each row stands alone.",
-        "operationId": "import_workers_api_v1_workers_import_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "items": {
-                  "$ref": "#/components/schemas/WorkerIn"
-                },
-                "type": "array",
-                "maxItems": 200,
-                "title": "Body"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ImportResultRow"
-                  },
-                  "type": "array",
-                  "title": "Response Import Workers Api V1 Workers Import Post"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/workers/{worker_id}": {
-      "patch": {
-        "tags": [
-          "workers"
-        ],
-        "summary": "Update Worker",
-        "operationId": "update_worker_api_v1_workers__worker_id__patch",
-        "parameters": [
-          {
-            "name": "worker_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Worker Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WorkerPatch"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WorkerOut"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/tickets/{ticket_id}/attachments": {
       "post": {
         "tags": [
@@ -2146,30 +2000,6 @@
   },
   "components": {
     "schemas": {
-      "AcceptIn": {
-        "properties": {
-          "via": {
-            "type": "string",
-            "enum": [
-              "call",
-              "in_person",
-              "sms"
-            ],
-            "title": "Via"
-          },
-          "expectedVersion": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Expectedversion"
-          }
-        },
-        "type": "object",
-        "required": [
-          "via",
-          "expectedVersion"
-        ],
-        "title": "AcceptIn"
-      },
       "AdminUserOut": {
         "properties": {
           "id": {
@@ -2177,24 +2007,13 @@
             "format": "uuid",
             "title": "Id"
           },
-          "employeeId": {
+          "email": {
             "type": "string",
-            "title": "Employeeid"
+            "title": "Email"
           },
           "name": {
             "type": "string",
             "title": "Name"
-          },
-          "email": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email"
           },
           "role": {
             "type": "string",
@@ -2219,6 +2038,18 @@
               }
             ],
             "title": "Temppasswordexpiresat"
+          },
+          "passwordChangedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Passwordchangedat"
           },
           "totpEnabled": {
             "type": "boolean",
@@ -2249,13 +2080,13 @@
         "type": "object",
         "required": [
           "id",
-          "employeeId",
-          "name",
           "email",
+          "name",
           "role",
           "active",
           "mustChangePassword",
           "tempPasswordExpiresAt",
+          "passwordChangedAt",
           "totpEnabled",
           "lastLoginAt",
           "createdAt",
@@ -2279,11 +2110,6 @@
             "maxItems": 4,
             "minItems": 1,
             "title": "Assessments"
-          },
-          "workerId": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Workerid"
           },
           "via": {
             "type": "string",
@@ -2311,147 +2137,11 @@
         "type": "object",
         "required": [
           "assessments",
-          "workerId",
           "via",
           "note",
           "expectedVersion"
         ],
         "title": "AssessmentIn"
-      },
-      "AssignIn": {
-        "properties": {
-          "workerIds": {
-            "items": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "type": "array",
-            "maxItems": 8,
-            "minItems": 1,
-            "title": "Workerids"
-          },
-          "leadWorkerId": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Leadworkerid"
-          },
-          "channel": {
-            "type": "string",
-            "enum": [
-              "whatsapp",
-              "sms",
-              "call",
-              "card"
-            ],
-            "title": "Channel"
-          },
-          "expectedVersion": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Expectedversion"
-          }
-        },
-        "type": "object",
-        "required": [
-          "workerIds",
-          "leadWorkerId",
-          "channel",
-          "expectedVersion"
-        ],
-        "title": "AssignIn"
-      },
-      "AssignmentOut": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "workerId": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Workerid"
-          },
-          "workerName": {
-            "type": "string",
-            "title": "Workername"
-          },
-          "lead": {
-            "type": "boolean",
-            "title": "Lead"
-          },
-          "assignedAt": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Assignedat"
-          },
-          "acceptedAt": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Acceptedat"
-          },
-          "startedAt": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Startedat"
-          },
-          "releasedAt": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Releasedat"
-          },
-          "channel": {
-            "type": "string",
-            "enum": [
-              "whatsapp",
-              "sms",
-              "call",
-              "card"
-            ],
-            "title": "Channel"
-          },
-          "delivery": {
-            "type": "string",
-            "title": "Delivery"
-          },
-          "accepted": {
-            "type": "boolean",
-            "title": "Accepted"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "workerId",
-          "workerName",
-          "lead",
-          "assignedAt",
-          "channel",
-          "delivery",
-          "accepted"
-        ],
-        "title": "AssignmentOut"
       },
       "AttachmentOut": {
         "properties": {
@@ -2706,6 +2396,10 @@
             },
             "type": "array",
             "title": "Floors"
+          },
+          "active": {
+            "type": "boolean",
+            "title": "Active"
           }
         },
         "type": "object",
@@ -2713,7 +2407,8 @@
           "code",
           "nameEn",
           "nameHi",
-          "floors"
+          "floors",
+          "active"
         ],
         "title": "BuildingOut"
       },
@@ -3051,11 +2746,11 @@
       },
       "CreateUserIn": {
         "properties": {
-          "employeeId": {
+          "email": {
             "type": "string",
-            "maxLength": 32,
-            "minLength": 1,
-            "title": "Employeeid"
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email"
           },
           "name": {
             "type": "string",
@@ -3073,24 +2768,19 @@
             ],
             "title": "Role"
           },
-          "email": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 254
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Email"
+          "password": {
+            "type": "string",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password"
           }
         },
         "type": "object",
         "required": [
-          "employeeId",
+          "email",
           "name",
-          "role"
+          "role",
+          "password"
         ],
         "title": "CreateUserIn"
       },
@@ -3104,8 +2794,15 @@
             "title": "Temporarypassword"
           },
           "expiresAt": {
-            "type": "string",
-            "format": "date-time",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Expiresat"
           }
         },
@@ -3293,6 +2990,72 @@
         ],
         "title": "EventOut"
       },
+      "ExportIn": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Password"
+          },
+          "q": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "faculty",
+                  "ossc",
+                  "facility_manager",
+                  "management"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "pending": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "ExportIn"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -3305,40 +3068,6 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
-      },
-      "ImportResultRow": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "phone": {
-            "type": "string",
-            "title": "Phone"
-          },
-          "status": {
-            "type": "string",
-            "title": "Status"
-          },
-          "message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "phone",
-          "status"
-        ],
-        "title": "ImportResultRow"
       },
       "LocationIn": {
         "properties": {
@@ -3420,15 +3149,98 @@
         ],
         "title": "LocationOut"
       },
+      "LowRating": {
+        "properties": {
+          "ticketId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Ticketid"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "stars": {
+            "type": "integer",
+            "title": "Stars"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "building": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building"
+          },
+          "room": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Room"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticketId",
+          "token",
+          "title",
+          "stars",
+          "comment",
+          "createdAt",
+          "category",
+          "building",
+          "room"
+        ],
+        "title": "LowRating"
+      },
       "MeOut": {
         "properties": {
           "id": {
             "type": "string",
             "title": "Id"
           },
-          "employeeId": {
+          "email": {
             "type": "string",
-            "title": "Employeeid"
+            "title": "Email"
           },
           "name": {
             "type": "string",
@@ -3449,7 +3261,7 @@
         "type": "object",
         "required": [
           "id",
-          "employeeId",
+          "email",
           "name",
           "role",
           "capabilities"
@@ -3463,9 +3275,9 @@
             "type": "string",
             "title": "Id"
           },
-          "employeeId": {
+          "email": {
             "type": "string",
-            "title": "Employeeid"
+            "title": "Email"
           },
           "name": {
             "type": "string",
@@ -3490,7 +3302,7 @@
         "type": "object",
         "required": [
           "id",
-          "employeeId",
+          "email",
           "name",
           "role",
           "capabilities",
@@ -3824,26 +3636,103 @@
         ],
         "title": "PushConfigOut"
       },
-      "ReleaseIn": {
+      "RatingIn": {
         "properties": {
-          "reason": {
-            "type": "string",
-            "maxLength": 500,
-            "minLength": 2,
-            "title": "Reason"
-          },
-          "expectedVersion": {
+          "stars": {
             "type": "integer",
+            "maximum": 5.0,
             "minimum": 1.0,
-            "title": "Expectedversion"
+            "title": "Stars"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
           }
         },
         "type": "object",
         "required": [
-          "reason",
-          "expectedVersion"
+          "stars"
         ],
-        "title": "ReleaseIn"
+        "title": "RatingIn"
+      },
+      "RatingOut": {
+        "properties": {
+          "stars": {
+            "type": "integer",
+            "title": "Stars"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Createdat"
+          }
+        },
+        "type": "object",
+        "required": [
+          "stars",
+          "createdAt"
+        ],
+        "title": "RatingOut"
+      },
+      "RatingReport": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "average": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average"
+          },
+          "distribution": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Distribution"
+          },
+          "low": {
+            "items": {
+              "$ref": "#/components/schemas/LowRating"
+            },
+            "type": "array",
+            "title": "Low"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count",
+          "average",
+          "distribution",
+          "low"
+        ],
+        "title": "RatingReport"
       },
       "ReportOut": {
         "properties": {
@@ -3873,10 +3762,6 @@
           "untriaged": {
             "type": "integer",
             "title": "Untriaged"
-          },
-          "unaccepted": {
-            "type": "integer",
-            "title": "Unaccepted"
           },
           "overdueUpdates": {
             "type": "integer",
@@ -3919,6 +3804,9 @@
           "approvedPaise": {
             "type": "integer",
             "title": "Approvedpaise"
+          },
+          "ratings": {
+            "$ref": "#/components/schemas/RatingReport"
           }
         },
         "type": "object",
@@ -3928,7 +3816,6 @@
           "openByStatus",
           "openByPriority",
           "untriaged",
-          "unaccepted",
           "overdueUpdates",
           "pendingApprovals",
           "holdsByReason",
@@ -3937,12 +3824,25 @@
           "repeatFaults",
           "triageTime",
           "resolutionTime",
-          "approvedPaise"
+          "approvedPaise",
+          "ratings"
         ],
         "title": "ReportOut"
       },
       "ResetIn": {
         "properties": {
+          "password": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
           "resetMfa": {
             "type": "boolean",
             "title": "Resetmfa",
@@ -3954,11 +3854,11 @@
       },
       "SignInIn": {
         "properties": {
-          "employeeId": {
+          "email": {
             "type": "string",
-            "maxLength": 32,
-            "minLength": 1,
-            "title": "Employeeid"
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email"
           },
           "password": {
             "type": "string",
@@ -3969,7 +3869,7 @@
         },
         "type": "object",
         "required": [
-          "employeeId",
+          "email",
           "password"
         ],
         "title": "SignInIn"
@@ -4396,12 +4296,16 @@
             ],
             "title": "Verifiedbyreporter"
           },
-          "assignments": {
-            "items": {
-              "$ref": "#/components/schemas/AssignmentOut"
-            },
-            "type": "array",
-            "title": "Assignments"
+          "workerName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workername"
           },
           "proposal": {
             "anyOf": [
@@ -4482,6 +4386,16 @@
               }
             ],
             "title": "Holdreviewdate"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RatingOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -4501,7 +4415,6 @@
           "version",
           "createdAt",
           "updatedAt",
-          "assignments",
           "description",
           "attachments",
           "events",
@@ -4701,12 +4614,16 @@
             ],
             "title": "Verifiedbyreporter"
           },
-          "assignments": {
-            "items": {
-              "$ref": "#/components/schemas/AssignmentOut"
-            },
-            "type": "array",
-            "title": "Assignments"
+          "workerName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workername"
           },
           "proposal": {
             "anyOf": [
@@ -4735,8 +4652,7 @@
           "status",
           "version",
           "createdAt",
-          "updatedAt",
-          "assignments"
+          "updatedAt"
         ],
         "title": "TicketSummaryOut"
       },
@@ -4784,6 +4700,9 @@
               "recategorise",
               "hold",
               "resume",
+              "assign",
+              "start",
+              "set_worker",
               "resolve",
               "verify",
               "dispute",
@@ -4916,6 +4835,18 @@
               }
             ],
             "title": "Canonicaltoken"
+          },
+          "workerName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workername"
           }
         },
         "type": "object",
@@ -4931,18 +4862,6 @@
             "type": "integer",
             "title": "Expectedversion"
           },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
           "email": {
             "anyOf": [
               {
@@ -4954,6 +4873,18 @@
               }
             ],
             "title": "Email"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
           },
           "role": {
             "anyOf": [
@@ -5072,304 +5003,6 @@
           "type"
         ],
         "title": "ValidationError"
-      },
-      "WorkerIn": {
-        "properties": {
-          "name": {
-            "type": "string",
-            "maxLength": 120,
-            "minLength": 2,
-            "title": "Name"
-          },
-          "phone": {
-            "type": "string",
-            "maxLength": 24,
-            "minLength": 1,
-            "title": "Phone"
-          },
-          "trades": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "maxItems": 9,
-            "minItems": 1,
-            "title": "Trades"
-          },
-          "area": {
-            "type": "string",
-            "maxLength": 120,
-            "title": "Area",
-            "default": ""
-          },
-          "language": {
-            "type": "string",
-            "enum": [
-              "hi",
-              "en",
-              "kn",
-              "mr",
-              "ta",
-              "te"
-            ],
-            "title": "Language",
-            "default": "kn"
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "whatsapp",
-              "sms",
-              "call"
-            ],
-            "title": "Mode"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "employee",
-              "vendor"
-            ],
-            "title": "Kind"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "phone",
-          "trades",
-          "mode",
-          "kind"
-        ],
-        "title": "WorkerIn"
-      },
-      "WorkerOut": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "phoneMasked": {
-            "type": "string",
-            "title": "Phonemasked"
-          },
-          "trades": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Trades"
-          },
-          "area": {
-            "type": "string",
-            "title": "Area"
-          },
-          "language": {
-            "type": "string",
-            "title": "Language"
-          },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "whatsapp",
-              "sms",
-              "call"
-            ],
-            "title": "Mode"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "employee",
-              "vendor"
-            ],
-            "title": "Kind"
-          },
-          "active": {
-            "type": "boolean",
-            "title": "Active"
-          },
-          "workload": {
-            "type": "integer",
-            "title": "Workload"
-          },
-          "lastVerified": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lastverified"
-          },
-          "version": {
-            "type": "integer",
-            "title": "Version"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "phoneMasked",
-          "trades",
-          "area",
-          "language",
-          "mode",
-          "kind",
-          "active",
-          "workload",
-          "version"
-        ],
-        "title": "WorkerOut"
-      },
-      "WorkerPatch": {
-        "properties": {
-          "expectedVersion": {
-            "type": "integer",
-            "minimum": 1.0,
-            "title": "Expectedversion"
-          },
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 120,
-                "minLength": 2
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
-          },
-          "phone": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 20,
-                "minLength": 8
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Phone"
-          },
-          "trades": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array",
-                "maxItems": 9,
-                "minItems": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Trades"
-          },
-          "area": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 120
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Area"
-          },
-          "language": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "hi",
-                  "en",
-                  "kn",
-                  "mr",
-                  "ta",
-                  "te"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Language"
-          },
-          "mode": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "whatsapp",
-                  "sms",
-                  "call"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Mode"
-          },
-          "kind": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "employee",
-                  "vendor"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Kind"
-          },
-          "active": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Active"
-          },
-          "verified": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Verified"
-          }
-        },
-        "type": "object",
-        "required": [
-          "expectedVersion"
-        ],
-        "title": "WorkerPatch"
       }
     }
   }

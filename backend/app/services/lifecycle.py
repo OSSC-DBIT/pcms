@@ -40,6 +40,9 @@ RULES: dict[str, Rule] = {
     "recategorise": Rule("ticket.triage", ("Submitted", "Triaged", "Assigned", "InProgress", "OnHold")),
     "hold": Rule("ticket.escalate", ("Triaged", "Assigned", "InProgress")),
     "resume": Rule("ticket.assign", ("OnHold",)),
+    "assign": Rule("ticket.assign", ("Triaged", "OnHold")),
+    "start": Rule("ticket.assign", ("Assigned",)),
+    "set_worker": Rule("ticket.assign", ("Assigned", "InProgress", "OnHold")),
     "resolve": Rule("ticket.triage", ("Assigned", "InProgress")),
     "verify": Rule(None, ("Resolved",), reporter=True),
     "dispute": Rule(None, ("Resolved", "Closed"), reporter=True),
@@ -80,7 +83,8 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
         raise ApiError(409, "invalid_transition", f"That action is not possible while the ticket is {t.status}.")
 
     s = get_settings()
-    before = {"status": t.status, "priority": t.priority, "flag": t.flag, "category_id": t.category_id}
+    before = {"status": t.status, "priority": t.priority, "flag": t.flag, "category_id": t.category_id,
+              "worker_name": t.worker_name}
     old = t.status
     new = old
     detail: str | None = None
@@ -125,12 +129,21 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             t.flag = "P"
             new, detail = "OnHold", f"Postponed: {reason}. Review on {body.review_date.isoformat()}"
         case "resume":
-            active = await db.scalar(select(Assignment.id).where(Assignment.ticket_id == t.id, Assignment.released_at.is_(None)).limit(1))
-            if active is None:
-                raise ApiError(409, "invalid_transition", "Assign workers to resume this ticket.")
             new = "Assigned"
             t.hold_reason = t.hold_owner = t.hold_next_action = None
             t.hold_review_date = None
+        case "assign":
+            # The manager contacts the worker directly. The name is optional and internal.
+            if body.worker_name is not None:
+                t.worker_name = body.worker_name
+            new = "Assigned"
+            t.hold_reason = t.hold_owner = t.hold_next_action = None
+            t.hold_review_date = None
+        case "start":
+            new = "InProgress"
+        case "set_worker":
+            t.worker_name = body.worker_name
+            detail, public = (f"Worker: {t.worker_name}" if t.worker_name else "Worker name cleared"), False
         case "resolve":
             _need(note=body.note)
             new, detail = "Resolved", body.note
@@ -181,9 +194,13 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
     bump(t)
     add_event(db, t, p.user, LABEL.get(new, "Updated") if new != old else _label(body.action),
               detail=detail, public=public, from_status=old, to_status=new)
+    if body.action == "assign" and body.worker_name:
+        add_event(db, t, p.user, "Worker assigned", detail=body.worker_name, public=False,
+                  from_status=old, to_status=new)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action=f"ticket.{body.action}", entity_type="ticket",
                  entity_id=t.id, before=before,
-                 after={"status": t.status, "priority": t.priority, "flag": t.flag, "category_id": t.category_id},
+                 after={"status": t.status, "priority": t.priority, "flag": t.flag, "category_id": t.category_id,
+                        "worker_name": t.worker_name},
                  reason=reason)
     if public and new != old and not is_reporter:
         await notify.notify_reporter(db, t, template=f"status_{new.lower()}", title=f"{t.token}: {LABEL.get(new, new)}",
@@ -193,4 +210,5 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
 
 
 def _label(action: str) -> str:
-    return {"set_priority": "Priority changed", "set_flag": "Work type set", "recategorise": "Type changed"}.get(action, "Updated")
+    return {"set_priority": "Priority changed", "set_flag": "Work type set", "recategorise": "Type changed",
+            "set_worker": "Worker updated"}.get(action, "Updated")

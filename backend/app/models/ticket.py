@@ -79,6 +79,8 @@ class Ticket(Base):
     priority: Mapped[str] = mapped_column(String(2), nullable=False)
     flag: Mapped[str | None] = mapped_column(String(1))
     assessments: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    # Free text recorded by the facility manager. It is internal: staff only, no login or phone.
+    worker_name: Mapped[str | None] = mapped_column(String(120))
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Submitted")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 

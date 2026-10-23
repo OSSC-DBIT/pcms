@@ -25,11 +25,11 @@ from app.errors import ApiError, conflict, not_found, validation
 from app.models.attachment import Attachment
 from app.models.catalog import Building, Category
 from app.models.proposal import Decision, Proposal, ProposalLine
+from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket, TicketComment, TicketEvent, TokenCounter
 from app.models.user import User
-from app.models.worker import Assignment, Worker
 from app.schemas.ticket import (
-    AssignmentOut, AttachmentOut, CommentOut, EventOut, LocationOut, ProposalLineIO, ProposalOut, TicketCreateIn,
+    AttachmentOut, CommentOut, EventOut, LocationOut, ProposalLineIO, ProposalOut, RatingOut, TicketCreateIn,
     TicketOut, TicketSummaryOut,
 )
 from app.security.deps import Principal
@@ -77,14 +77,6 @@ def add_event(db: AsyncSession, t: Ticket, actor: User | None, action: str, *, d
                        actor_label=actor_label or (actor.name if actor else "PCMS"), action=action,
                        detail=(detail or None) and detail[:1000], public=public, from_status=from_status,
                        to_status=to_status, delegated_worker=delegated_worker))
-
-
-def location_text(t: Ticket, buildings: dict[str, Building] | None = None) -> str:
-    if t.outdoors:
-        return f"Outdoors, {t.landmark}" if t.landmark else "Outdoors"
-    name = buildings[t.building_code].name_en if buildings and t.building_code in buildings else t.building_code
-    floor = "" if not t.floor else (", Ground floor" if t.floor == "Ground" else f", Floor {t.floor}")
-    return f"{name}{floor}, Room {t.room}"
 
 
 # ---------- token allocation ----------
@@ -206,7 +198,6 @@ class Lookups:
     def __init__(self):
         self.categories: dict[int, Category] = {}
         self.users: dict[uuid.UUID, User] = {}
-        self.assignments: dict[uuid.UUID, list[tuple[Assignment, Worker]]] = defaultdict(list)
         self.proposals: dict[uuid.UUID, tuple[Proposal, list[ProposalLine], Decision | None]] = {}
 
     @classmethod
@@ -216,10 +207,6 @@ class Lookups:
             return lk
         ids = [t.id for t in tickets]
         lk.categories = {c.id: c for c in (await db.scalars(select(Category))).all()}
-        rows = (await db.execute(select(Assignment, Worker).join(Worker, Worker.id == Assignment.worker_id)
-                                 .where(Assignment.ticket_id.in_(ids)).order_by(Assignment.assigned_at))).all()
-        for a, w in rows:
-            lk.assignments[a.ticket_id].append((a, w))
         user_ids = {t.reporter_id for t in tickets}
         if staff:
             latest = select(Proposal.ticket_id, func.max(Proposal.version).label("v")).where(
@@ -248,13 +235,6 @@ class Lookups:
 
 
 def _summary_fields(t: Ticket, lk: Lookups, staff: bool) -> dict:
-    assignments = [
-        AssignmentOut(id=a.id, worker_id=w.id, worker_name=w.name, lead=a.lead, assigned_at=a.assigned_at,
-                      accepted_at=a.accepted_at, started_at=a.started_at, released_at=a.released_at,
-                      channel=a.channel, delivery=a.delivery, accepted=a.accepted_at is not None)
-        for a, w in lk.assignments.get(t.id, [])
-        if staff or a.released_at is None
-    ]
     proposal = None
     if staff and t.id in lk.proposals:
         pr, lines, d = lk.proposals[t.id]
@@ -277,7 +257,7 @@ def _summary_fields(t: Ticket, lk: Lookups, staff: bool) -> dict:
         status=t.status, version=t.version, created_at=t.created_at, updated_at=t.updated_at,
         next_update_due=t.next_update_due if t.status not in TERMINAL else None,
         duplicate_of=t.duplicate_of_id, verified_by_reporter=t.verified_by_reporter,
-        assignments=assignments, proposal=proposal,
+        worker_name=t.worker_name if staff else None, proposal=proposal,
     )
 
 
@@ -296,11 +276,13 @@ async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
     events = (await db.scalars(ev_q)).all()
     comments = (await db.scalars(cm_q)).all()
     atts = (await db.scalars(select(Attachment).where(Attachment.ticket_id == t.id).order_by(Attachment.created_at))).all()
+    rating = await db.scalar(select(TicketRating).where(TicketRating.ticket_id == t.id))
     return TicketOut(
         **_summary_fields(t, lk, staff),
         description=t.description, access_note=t.access_note, alt_contact=t.alt_contact,
         hold_reason=t.hold_reason if t.status == "OnHold" else None,
         hold_review_date=t.hold_review_date if t.status == "OnHold" else None,
+        rating=RatingOut(stars=rating.stars, comment=rating.comment, created_at=rating.created_at) if rating else None,
         events=[EventOut(id=str(e.id), at=e.at, actor=e.actor_label if staff or e.actor_id == p.user.id else _public_actor(e),
                          action=e.action, detail=e.detail, delegated_worker=e.delegated_worker if staff else None)
                 for e in events],

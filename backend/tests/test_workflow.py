@@ -1,3 +1,10 @@
+"""Lifecycle, manual worker coordination and the spending workflow.
+
+Facility managers contact workers directly. There is no worker directory, no
+dispatch message and no acceptance step; the manager records the worker name
+and moves the ticket through the normal state machine.
+"""
+
 import asyncio
 from datetime import date, timedelta
 
@@ -6,17 +13,17 @@ from sqlalchemy import select, update
 from app.db import sessionmaker
 from app.models import Outbox, Ticket
 from app.security.sessions import now
-from tests.factories import API, make_user, make_worker, new_client, sign_in, ticket_body
+from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
 async def _setup(client):
-    await make_user("DB2101", "faculty", "Reporter")
-    await make_user("DB0001", "facility_manager", "Manager One")
-    await make_user("DB0002", "management", "Principal Office")
-    fac = await sign_in(client, "DB2101")
+    await make_user("faculty@dbit.edu", "faculty", "Reporter")
+    await make_user("manager@dbit.edu", "facility_manager", "Manager One")
+    await make_user("management@dbit.edu", "management", "Principal Office")
+    fac = await sign_in(client, "faculty@dbit.edu")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
     mgr_client = new_client()
-    mgr = await sign_in(mgr_client, "DB0001")
+    mgr = await sign_in(mgr_client, "manager@dbit.edu")
     return fac, mgr, mgr_client, t["id"]
 
 
@@ -29,36 +36,90 @@ async def _tr(s, tid, **body):
     return await s.post(f"{API}/tickets/{tid}/transitions", json={"expectedVersion": v, **body})
 
 
-async def test_full_journey_with_verification(client):
+async def test_full_journey_without_a_worker_directory(client):
     fac, mgr, mc, tid = await _setup(client)
-    w = await make_worker()
     try:
         assert (await _tr(fac, tid, action="triage", priority="P1", flag="I")).status_code == 403
         r = await _tr(mgr, tid, action="triage", priority="P2", flag="I")
         assert r.status_code == 200 and r.json()["status"] == "Triaged"
 
-        v = r.json()["version"]
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(w.id)], "leadWorkerId": str(w.id), "channel": "whatsapp", "expectedVersion": v})
+        r = await _tr(mgr, tid, action="assign", workerName="Ramesh K")
         assert r.status_code == 200, r.text
         t = r.json()
-        assert t["status"] == "Assigned" and t["assignments"][0]["delivery"] == "queued"
-        async with sessionmaker()() as db:
-            job = await db.scalar(select(Outbox).where(Outbox.channel == "whatsapp"))
-        assert job.payload["token"] == t["token"] and job.payload["flag"] == "I"
+        assert t["status"] == "Assigned" and t["workerName"] == "Ramesh K"
 
-        aid = t["assignments"][0]["id"]
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments/{aid}/accept", json={"via": "call", "expectedVersion": t["version"]})
+        # The manager records the worker by hand; nothing is queued for delivery.
+        async with sessionmaker()() as db:
+            jobs = (await db.scalars(select(Outbox).where(
+                Outbox.template.in_(("job_dispatch", "job_fallback"))))).all()
+        assert jobs == []
+
+        r = await _tr(mgr, tid, action="start")
         assert r.status_code == 200 and r.json()["status"] == "InProgress"
-        assert any(e["delegatedWorker"] == "Ramesh K" for e in r.json()["events"])
 
         assert (await _tr(mgr, tid, action="resolve")).status_code == 400  # note required
         assert (await _tr(mgr, tid, action="resolve", note="Backrests replaced")).json()["status"] == "Resolved"
 
         ft = await _get(fac, tid)
-        assert all(e["actor"] in ("Facilities", "Reporter", "PCMS") for e in ft["events"])  # no staff or worker names
-        assert "delegatedWorker" not in ft["events"][0] or ft["events"][0]["delegatedWorker"] is None
+        assert "assignments" not in ft
+        assert ft["workerName"] is None
+        assert all(e["actor"] in ("Facilities", "Reporter", "PCMS") for e in ft["events"])
+        assert all(e.get("delegatedWorker") is None for e in ft["events"])
+        assert all("Ramesh" not in (e["detail"] or "") for e in ft["events"])
+
         r = await _tr(fac, tid, action="verify")
         assert r.status_code == 200 and r.json()["status"] == "Closed" and r.json()["verifiedByReporter"]
+
+        r = await fac.post(f"{API}/tickets/{tid}/rating", json={"stars": 5, "comment": "Quick and tidy"})
+        assert r.status_code == 200, r.text
+        assert r.json()["rating"]["stars"] == 5 and r.json()["rating"]["comment"] == "Quick and tidy"
+    finally:
+        await mc.aclose()
+
+
+async def test_worker_name_is_staff_only_and_does_not_change_status(client):
+    fac, mgr, mc, tid = await _setup(client)
+    try:
+        r = await _tr(mgr, tid, action="triage", priority="P3", flag="I")
+        t = (await _tr(mgr, tid, action="assign", workerName="Suresh")).json()
+        assert t["status"] == "Assigned"
+
+        r = await _tr(mgr, tid, action="set_worker", workerName="Manju")
+        assert r.status_code == 200
+        t = r.json()
+        assert t["status"] == "Assigned" and t["workerName"] == "Manju"
+
+        r = await _tr(mgr, tid, action="set_worker", workerName="")
+        t = r.json()
+        assert t["status"] == "Assigned" and t["workerName"] is None
+
+        # The change is only visible to staff.
+        assert (await _get(fac, tid))["workerName"] is None
+        # Assignment is not possible before triage.
+        tid2 = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
+        assert (await _tr(mgr, tid2, action="assign")).status_code == 409
+    finally:
+        await mc.aclose()
+
+
+async def test_resume_and_assessment_need_no_assignment(client):
+    fac, mgr, mc, tid = await _setup(client)
+    try:
+        await _tr(mgr, tid, action="triage", priority="P2", flag="C")
+        assert (await _tr(mgr, tid, action="resolve", note="Temporary fix")).status_code == 409  # not assigned
+        await _tr(mgr, tid, action="assign", workerName="Ramesh K")
+
+        v = (await _get(mgr, tid))["version"]
+        r = await mgr.post(f"{API}/tickets/{tid}/assessments", json={
+            "assessments": ["parts"], "via": "in_person", "note": "Seat frame is bent", "expectedVersion": v})
+        assert r.status_code == 200, r.text
+
+        r = await _tr(mgr, tid, action="hold", reason="Parts", owner="Store", nextAction="Order",
+                      reviewDate=(date.today() + timedelta(days=3)).isoformat())
+        assert r.json()["status"] == "OnHold"
+        r = await _tr(mgr, tid, action="resume")
+        assert r.json()["status"] == "Assigned"
+        assert r.json()["workerName"] == "Ramesh K"
     finally:
         await mc.aclose()
 
@@ -84,17 +145,14 @@ async def test_stale_version_conflicts_and_invalid_transitions(client):
 
 async def test_dispute_within_window_reopens_and_after_window_fails(client):
     fac, mgr, mc, tid = await _setup(client)
-    w = await make_worker()
     try:
-        r = await _tr(mgr, tid, action="triage", priority="P3", flag="I")
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(w.id)], "leadWorkerId": str(w.id), "channel": "call", "expectedVersion": r.json()["version"]})
-        t = r.json()
-        await mgr.post(f"{API}/tickets/{tid}/assignments/{t['assignments'][0]['id']}/accept", json={"via": "call", "expectedVersion": t["version"]})
+        await _tr(mgr, tid, action="triage", priority="P3", flag="I")
+        await _tr(mgr, tid, action="assign", workerName="Ramesh K")
+        await _tr(mgr, tid, action="start")
         await _tr(mgr, tid, action="resolve", note="Done")
         r = await _tr(fac, tid, action="dispute", reason="Still wobbles")
         assert r.status_code == 200 and r.json()["status"] == "Triaged"
 
-        await _tr(mgr, tid, action="resume") if False else None
         async with sessionmaker()() as db:
             await db.execute(update(Ticket).where(Ticket.id == tid).values(status="Resolved", resolved_at=now() - timedelta(days=8)))
             await db.commit()
@@ -117,36 +175,13 @@ async def test_internal_notes_hidden_from_faculty(client):
         await mc.aclose()
 
 
-async def test_one_active_lead_and_inactive_worker_rejected(client):
-    fac, mgr, mc, tid = await _setup(client)
-    a = await make_worker("A One", "+919876500011")
-    b = await make_worker("B Two", "+919876500012")
-    off = await make_worker("Off Duty", "+919876500013", active=False)
-    sms_only = await make_worker("Sms Only", "+919876500014", mode="sms")
-    try:
-        v = (await _tr(mgr, tid, action="triage", priority="P3", flag="C")).json()["version"]
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(off.id)], "leadWorkerId": str(off.id), "channel": "sms", "expectedVersion": v})
-        assert r.status_code == 400
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(sms_only.id)], "leadWorkerId": str(sms_only.id), "channel": "whatsapp", "expectedVersion": v})
-        assert r.status_code == 400
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(a.id), str(b.id)], "leadWorkerId": str(b.id), "channel": "sms", "expectedVersion": v})
-        t = r.json()
-        assert [x["workerName"] for x in t["assignments"] if x["lead"]] == ["B Two"]
-        lead = next(x for x in t["assignments"] if x["lead"])
-        r = await mgr.post(f"{API}/tickets/{tid}/assignments/{lead['id']}/release", json={"reason": "Absent", "expectedVersion": t["version"]})
-        active = [x for x in r.json()["assignments"] if not x["releasedAt"]]
-        assert len(active) == 1 and active[0]["lead"] and active[0]["workerName"] == "A One"
-    finally:
-        await mc.aclose()
-
-
 async def _to_awaiting_approval(mgr, tid):
-    w = await make_worker()
-    r = await _tr(mgr, tid, action="triage", priority="P2", flag="C")
-    r = await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(w.id)], "leadWorkerId": str(w.id), "channel": "call", "expectedVersion": r.json()["version"]})
-    t = r.json()
-    t = (await mgr.post(f"{API}/tickets/{tid}/assignments/{t['assignments'][0]['id']}/accept", json={"via": "call", "expectedVersion": t["version"]})).json()
-    t = (await mgr.post(f"{API}/tickets/{tid}/assessments", json={"assessments": ["parts", "expenditure"], "workerId": str(w.id), "via": "call", "note": "HDMI port needs replacement", "expectedVersion": t["version"]})).json()
+    await _tr(mgr, tid, action="triage", priority="P2", flag="C")
+    await _tr(mgr, tid, action="assign", workerName="Ramesh K")
+    v = (await _get(mgr, tid))["version"]
+    t = (await mgr.post(f"{API}/tickets/{tid}/assessments", json={
+        "assessments": ["parts", "expenditure"], "via": "call",
+        "note": "HDMI port needs replacement", "expectedVersion": v})).json()
     r = await mgr.post(f"{API}/tickets/{tid}/proposals", json={
         "lines": [{"label": "HDMI port assembly", "paise": 185000}, {"label": "Labour", "paise": 50000}],
         "requestedDate": (date.today() + timedelta(days=3)).isoformat(), "remedy": "Replace port", "expectedVersion": t["version"]})
@@ -166,9 +201,9 @@ async def test_approval_separation_of_duty_and_concurrency(client):
         assert (await mgr.post(f"{API}/proposals/{p['id']}/decisions", json={"kind": "approved", "proposalVersion": 1, "ceilingPaise": 235000})).status_code == 403
 
         async with new_client() as c1, new_client() as c2:
-            a1 = await sign_in(c1, "DB0002")
-            await make_user("DB0005", "management", "Dean Office")
-            a2 = await sign_in(c2, "DB0005")
+            a1 = await sign_in(c1, "management@dbit.edu")
+            await make_user("dean@dbit.edu", "management", "Dean Office")
+            a2 = await sign_in(c2, "dean@dbit.edu")
             low = await a1.post(f"{API}/proposals/{p['id']}/decisions", json={"kind": "approved", "proposalVersion": 1, "ceilingPaise": 100})
             assert low.status_code == 400
             r1, r2 = await asyncio.gather(
@@ -186,7 +221,7 @@ async def test_rejection_keeps_ticket_on_hold_with_next_action(client):
     try:
         t = await _to_awaiting_approval(mgr, tid)
         async with new_client() as c1:
-            a1 = await sign_in(c1, "DB0002")
+            a1 = await sign_in(c1, "management@dbit.edu")
             r = await a1.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "rejected", "proposalVersion": 1, "reason": "Use spare from store"})
             t = r.json()
             assert t["status"] == "OnHold" and "Use spare" in t["holdReason"] and t["holdReviewDate"]
@@ -199,54 +234,17 @@ async def test_rejection_keeps_ticket_on_hold_with_next_action(client):
         await mc.aclose()
 
 
-async def test_worker_directory_permissions_and_phone_masking(client):
-    await make_user("DB2101", "faculty")
-    fac = await sign_in(client, "DB2101")
-    assert (await fac.get(f"{API}/workers")).status_code == 403
-    async with new_client() as c:
-        await make_user("DB0000", "ossc")
-        ossc = await sign_in(c, "DB0000")
-        r = await ossc.post(f"{API}/workers", json={"name": "Suresh P", "phone": "98765 43210", "trades": ["plumbing"], "mode": "sms", "kind": "employee"})
-        assert r.status_code == 201, r.text
-        assert r.json()["phoneMasked"] == "+91 ***** 3210" and "phone" not in r.json()
-        dup = await ossc.post(f"{API}/workers", json={"name": "Other", "phone": "+919876543210", "trades": ["plumbing"], "mode": "sms", "kind": "employee"})
-        assert dup.status_code == 409
-        w = r.json()
-        r = await ossc.patch(f"{API}/workers/{w['id']}", json={"expectedVersion": 1, "active": False})
-        assert r.json()["active"] is False
-        assert (await ossc.patch(f"{API}/workers/{w['id']}", json={"expectedVersion": 1, "active": True})).status_code == 409
-
-
-
-async def test_facility_manager_imports_worker_contacts(client):
-    await make_user("DB0001", "facility_manager")
-    m = await sign_in(client, "DB0001")
-    rows = [
-        {"name": "Manju Carpenter", "phone": "098450 12345", "trades": ["carpentry"], "mode": "whatsapp", "kind": "employee"},
-        {"name": "Manju Again", "phone": "+91 98450 12345", "trades": ["carpentry"], "mode": "sms", "kind": "employee"},
-        {"name": "Bad Number", "phone": "12345", "trades": ["plumbing"], "mode": "sms", "kind": "vendor"},
-        {"name": "Ravi Electric", "phone": "9845067890", "trades": ["electrical"], "mode": "call", "kind": "vendor"},
-    ]
-    r = await m.post(f"{API}/workers/import", json=rows)
-    assert r.status_code == 200, r.text
-    assert [x["status"] for x in r.json()] == ["created", "exists", "invalid", "created"]
-    ws = (await m.get(f"{API}/workers")).json()
-    assert sorted(w["name"] for w in ws) == ["Manju Carpenter", "Ravi Electric"]
-
-
-
-async def test_dbit_flow_accept_sms_then_critical_to_management(client):
-    """Faculty reports -> FM accepts -> assigns (automatic SMS) -> flags Critical -> management decides."""
+async def test_dbit_flow_manual_assignment_then_critical_to_management(client):
+    """Faculty reports -> FM accepts -> assigns by hand -> flags Critical -> management decides."""
     fac, mgr, mc, tid = await _setup(client)
-    w = await make_worker("Call Only", "+919876500099", mode="call")
     try:
         r = await _tr(mgr, tid, action="triage", priority="P2")  # accept: no flag needed yet
         assert r.status_code == 200 and r.json()["status"] == "Triaged" and r.json()["flag"] is None
-        t = (await mgr.post(f"{API}/tickets/{tid}/assignments", json={"workerIds": [str(w.id)], "leadWorkerId": str(w.id), "channel": "sms", "expectedVersion": r.json()["version"]})).json()
+        t = (await _tr(mgr, tid, action="assign", workerName="Call Only")).json()
         assert t["status"] == "Assigned", t
         async with sessionmaker()() as db:
-            sms = await db.scalar(select(Outbox).where(Outbox.channel == "sms", Outbox.template == "job_dispatch"))
-        assert sms is not None and sms.payload["token"] == t["token"]
+            sms = await db.scalar(select(Outbox).where(Outbox.template.in_(("job_dispatch", "job_fallback"))))
+        assert sms is None
 
         r = await mgr.post(f"{API}/tickets/{tid}/proposals", json={"lines": [], "requestedDate": date.today().isoformat(),
                                                                   "remedy": "Ceiling cracked, needs a structural check", "expectedVersion": t["version"]})
@@ -254,9 +252,18 @@ async def test_dbit_flow_accept_sms_then_critical_to_management(client):
         t = r.json()
         assert t["status"] == "AwaitingApproval" and t["flag"] == "C" and t["proposal"]["totalPaise"] == 0
         async with new_client() as c:
-            m = await sign_in(c, "DB0002")
+            m = await sign_in(c, "management@dbit.edu")
             r = await m.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "approved", "proposalVersion": 1})
             assert r.status_code == 200 and r.json()["status"] == "InProgress"
+
+        # Reloading as the facility manager must keep the approved proposal and
+        # allow the final resolve without asking for the flag again.
+        fresh = await _get(mgr, tid)
+        assert fresh["status"] == "InProgress" and fresh["flag"] == "C"
+        assert fresh["proposal"]["state"] == "approved"
+        assert fresh["proposal"]["decidedBy"] == "Principal Office"
+        r = await _tr(mgr, tid, action="resolve", note="Checked and fixed after approval")
+        assert r.status_code == 200 and r.json()["status"] == "Resolved"
     finally:
         await mc.aclose()
 

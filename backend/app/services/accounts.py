@@ -1,6 +1,6 @@
 """Account provisioning and the sign-in step sequence.
 
-Team OSSC creates accounts (one at a time or by CSV import). Each new or reset
+Team OSSC creates accounts (one at a time or by Excel/CSV import). Each new or reset
 account gets a random temporary password that is shown once, stored only as an
 Argon2 hash, and expires. At first sign-in the person must replace it.
 Admin-portal roles then enrol (or present) a TOTP second factor.
@@ -15,6 +15,7 @@ Step order for a signed-in session (next_step):
 """
 
 import secrets
+import uuid
 from datetime import timedelta
 from typing import Literal
 
@@ -22,6 +23,7 @@ from app.config import get_settings
 from app.errors import validation
 from app.models.session import UserSession
 from app.models.user import User
+from app.security.credentials import encrypt_password
 from app.security.passwords import hash_password, verify_password
 from app.security.roles import requires_second_factor
 from app.security.sessions import now
@@ -43,41 +45,60 @@ def generate_temporary_password() -> str:
     return f"{raw[:4]}-{raw[4:8]}-{raw[8:]}"
 
 
-def temporary_password_fields(password_hash: str) -> dict:
+def temporary_password_fields(user: User, plaintext: str, password_hash: str) -> dict:
     """Column values for an account holding a freshly issued temporary password."""
+    if user.id is None:
+        user.id = uuid.uuid4()
     return {
         "password_hash": password_hash,
+        "temp_password_enc": encrypt_password(plaintext, aad=str(user.id)),
         "must_change_password": True,
         "temp_password_expires_at": now() + timedelta(days=get_settings().temp_password_days),
     }
 
 
+def set_temporary_password(user: User, plaintext: str, password_hash: str) -> None:
+    for k, v in temporary_password_fields(user, plaintext, password_hash).items():
+        setattr(user, k, v)
+
+
 def issue_temporary_password(user: User) -> str:
     pw = generate_temporary_password()
-    for k, v in temporary_password_fields(hash_password(pw)).items():
-        setattr(user, k, v)
+    set_temporary_password(user, pw, hash_password(pw))
     return pw
+
+
+def clear_temporary_password(user: User) -> None:
+    user.temp_password_enc = None
+    user.temp_password_expires_at = None
+    user.must_change_password = False
 
 
 def temp_password_expired(user: User) -> bool:
     return bool(user.must_change_password and user.temp_password_expires_at and user.temp_password_expires_at < now())
 
 
-def validate_new_password(password: str, user: User) -> None:
+def validate_new_password(password: str, *, email: str, current_hash: str | None) -> None:
     s = get_settings()
+    lowered = password.lower()
+    local = email.split("@", 1)[0].lower()
     msg = None
     if len(password) < s.password_min_length:
         msg = f"Use at least {s.password_min_length} characters."
     elif len(password) > 128:
         msg = "Use at most 128 characters."
-    elif user.employee_id in password.upper():
-        msg = "Do not use your employee ID in your password."
+    elif email.lower() in lowered or (len(local) >= 3 and local in lowered):
+        msg = "Do not use your college email in your password."
     elif password.lower() in COMMON_PASSWORDS or len(set(password)) < 5:
         msg = "This password is too easy to guess."
-    elif user.password_hash and verify_password(user.password_hash, password):
+    elif current_hash and verify_password(current_hash, password):
         msg = "Choose a password different from your current one."
     if msg:
         raise validation("Choose a stronger password.", {"newPassword": msg})
+
+
+def validate_initial_password(password: str, email: str) -> None:
+    validate_new_password(password, email=email, current_hash=None)
 
 
 def next_step(user: User, sess: UserSession) -> Step:

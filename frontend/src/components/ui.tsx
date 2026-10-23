@@ -54,12 +54,15 @@ export function PageHeader({ title, subtitle, actions, back }: { title: ReactNod
   )
 }
 
-export function Card({ title, actions, children, className, padded = true }: { title?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; padded?: boolean }) {
+export function Card({ title, subtitle, actions, children, className, padded = true }: { title?: ReactNode; subtitle?: ReactNode; actions?: ReactNode; children: ReactNode; className?: string; padded?: boolean }) {
   return (
     <section className={clsx('rounded-lg border border-line bg-surface', padded && 'p-4 md:p-5', className)}>
       {(title || actions) && (
-        <div className={clsx('mb-3 flex items-center justify-between gap-3', !padded && 'px-4 pt-4')}>
-          {title && <h2 className="text-[16px] font-semibold">{title}</h2>}
+        <div className={clsx('mb-3 flex items-start justify-between gap-3', !padded && 'px-4 pt-4')}>
+          <div className="min-w-0">
+            {title && <h2 className="text-[16px] font-semibold">{title}</h2>}
+            {subtitle && <p className="mt-0.5 text-[13px] text-muted">{subtitle}</p>}
+          </div>
           {actions}
         </div>
       )}

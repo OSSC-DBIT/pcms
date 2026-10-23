@@ -7,6 +7,7 @@ os.environ["PCMS_DATABASE_URL"] = os.environ.get(
     "PCMS_TEST_DATABASE_URL", "postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms_test"
 )
 os.environ.setdefault("PCMS_SECRET_KEY", "test-secret-key-0123456789")
+os.environ.setdefault("PCMS_CREDENTIAL_KEY", "test-credential-key-0123456789abcdef")
 os.environ["PCMS_CLAMAV_REQUIRED"] = "false"
 # Uploads from tests go to a throwaway directory, never the dev media volume.
 os.environ["PCMS_MEDIA_ROOT"] = __import__("tempfile").mkdtemp(prefix="pcms-test-media-")

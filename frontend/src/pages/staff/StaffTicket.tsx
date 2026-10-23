@@ -1,23 +1,23 @@
 /**
  * Staff ticket page. The highlighted card is always the next step of the flow DBIT confirmed:
  *   1. Review: accept (with priority) or reject with a reason.
- *   2. Assign a worker: an SMS is sent to them automatically.
+ *   2. Contact a worker directly and record the state. PCMS sends no worker messages.
  *   3. After the worker looks at it, choose the flag:
  *        I Immediate  -> fix it now, then mark as fixed
  *        C Critical   -> send to institute management (reason, optional cost)
  *        P Postpone   -> on hold with a reason and review date
- *   4. Management decides critical tickets; the reporter confirms the fix.
+ *   4. Management decides critical tickets; the reporter confirms the fix and rates the repair.
  */
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, Clock, MessageSquare, Phone, Wrench } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, Clock, MessageSquare, Wrench } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog, type FormField } from '../../components/ActionDialog'
-import { Gallery, Messages, TicketSummaryCard, Timeline, ago } from '../../components/ticket'
-import { Alert, Badge, Button, Card, Chips, Field, Input, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
+import { Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, ago } from '../../components/ticket'
+import { Alert, Badge, Button, Card, Chips, Field, Input, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, formatPaise, HttpError, parseRupees, type TransitionAction } from '../../lib/api'
 import { categories, category } from '../../lib/catalog'
-import { TERMINAL, type Channel, type DecisionKind, type Priority, type Ticket, type Worker } from '../../lib/types'
+import { TERMINAL, type Assessment, type Channel, type DecisionKind, type Priority, type Ticket } from '../../lib/types'
 
 type Run = (fn: () => Promise<Ticket>) => Promise<boolean>
 interface Action { key: string; label: string; danger?: boolean; fields: FormField[]; description?: string; build: (v: Record<string, string>) => TransitionAction }
@@ -26,16 +26,12 @@ export default function StaffTicket() {
   const { id } = useParams()
   const { user, can } = useAuth()
   const [ticket, setTicket] = useState<Ticket | null | undefined>(undefined)
-  const [workers, setWorkers] = useState<Worker[]>([])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [dialog, setDialog] = useState<Action | null>(null)
 
   const load = useCallback(async () => { if (id) setTicket(await api.getTicket(id)) }, [id])
-  useEffect(() => {
-    load().catch(() => setTicket(null))
-    if (can('worker.directory')) api.listWorkers({ active: true }).then(setWorkers).catch(() => setWorkers([]))
-  }, [load, can])
+  useEffect(() => { load().catch(() => setTicket(null)) }, [load])
 
   const run: Run = useCallback(async (fn) => {
     setBusy(true); setError(null)
@@ -51,8 +47,8 @@ export default function StaffTicket() {
   if (ticket === null) return <p className="text-muted">Ticket not found.</p>
 
   const s = ticket.status
-  const active = ticket.assignments.filter((a) => !a.releasedAt)
   const p = ticket.proposal
+  const approvedCritical = ticket.flag === 'C' && p?.state === 'approved'
   const canDecide = can('cost.approve') && p?.state === 'pending' && p.requestedById !== user?.id && ticket.reporterId !== user?.id
 
   return (
@@ -64,6 +60,7 @@ export default function StaffTicket() {
             <div className="mt-3 flex flex-wrap gap-2">
               <Badge>Priority {ticket.priority}</Badge>
               {ticket.flag && <Badge tone={ticket.flag === 'C' ? 'bad' : ticket.flag === 'P' ? 'warn' : 'ok'}>{FLAG_LABEL[ticket.flag]}</Badge>}
+              {approvedCritical && <Badge tone="ok">Spending approved</Badge>}
               {ticket.originalCategoryCode !== ticket.categoryCode && <Badge>Reported as {category(ticket.originalCategoryCode).nameEn}</Badge>}
               <Badge>Age {ago(ticket.createdAt).replace(' ago', '')}</Badge>
             </div>
@@ -76,15 +73,15 @@ export default function StaffTicket() {
           {error && <Alert tone="bad">{error}</Alert>}
 
           {can('ticket.triage') && s === 'Submitted' && <ReviewStep ticket={ticket} busy={busy} run={run} />}
-          {can('ticket.assign') && (s === 'Triaged' || (s === 'OnHold' && active.length === 0)) && <AssignStep ticket={ticket} workers={workers} busy={busy} run={run} />}
-          {active.length > 0 && <AssignmentsCard ticket={ticket} busy={busy} run={run} canAssign={can('ticket.assign')} />}
-          {can('ticket.triage') && (s === 'Assigned' || s === 'InProgress') && <FlagStep ticket={ticket} busy={busy} run={run} managerName={user?.name ?? 'Facilities'} />}
-          {can('ticket.assign') && s === 'OnHold' && active.length > 0 && (
-            <Next title="Ready to continue?"><Button loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'resume' }))}>Resume work</Button></Next>
-          )}
+          {can('ticket.assign') && (s === 'Triaged' || s === 'OnHold') && <AssignStep ticket={ticket} busy={busy} run={run} />}
+          {can('ticket.assign') && (s === 'Assigned' || s === 'InProgress') && <WorkerLine ticket={ticket} run={run} />}
+          {can('ticket.assign') && s === 'Assigned' && <StartStep ticket={ticket} busy={busy} run={run} />}
+          {can('ticket.assess') && (s === 'Assigned' || s === 'InProgress') && <AssessStep ticket={ticket} busy={busy} run={run} />}
+          {can('ticket.triage') && (s === 'Assigned' || s === 'InProgress') && <FlagStep key={ticket.id} ticket={ticket} busy={busy} run={run} managerName={user?.name ?? 'Facilities'} approved={approvedCritical} />}
           {s === 'AwaitingApproval' && !canDecide && <Alert tone="info" title="Waiting for institute management">Marked critical and sent for a decision.</Alert>}
           {p && <ManagementCard ticket={ticket} busy={busy} run={run} canDecide={!!canDecide} />}
           {s === 'Resolved' && <Alert tone="info" title="Waiting for the reporter to check the work">They can confirm it is fixed or say it is still broken.</Alert>}
+          <RatingCard ticket={ticket} />
 
           <Card title="Photos and video"><Gallery ticket={ticket} canAdd={!TERMINAL.includes(s)} onChanged={load} /></Card>
         </Stack>
@@ -149,90 +146,163 @@ function ReviewStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run:
 
 // ---------- 2. assign ----------
 
-function AssignStep({ ticket, workers, busy, run }: { ticket: Ticket; workers: Worker[]; busy: boolean; run: Run }) {
-  const [all, setAll] = useState(false)
-  const [picked, setPicked] = useState<string[]>([])
-  const [channel, setChannel] = useState<Channel>('sms')
-  const list = useMemo(() => workers.filter((w) => all || w.trades.includes(ticket.categoryCode)), [workers, all, ticket.categoryCode])
-  const chosen = workers.filter((w) => picked.includes(w.id))
-  const noWhatsApp = channel === 'whatsapp' && chosen.some((w) => w.mode !== 'whatsapp')
+/**
+ * The manager contacts the worker outside PCMS, then records the state here.
+ * The name is optional and stays internal; no message is sent to the worker.
+ */
+function AssignStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run: Run }) {
+  const [name, setName] = useState(ticket.workerName ?? '')
+  const onHold = ticket.status === 'OnHold'
   return (
-    <Next title="Step 2: Assign a worker">
+    <Next title={onHold ? 'Step 2: Continue this work' : 'Step 2: Who is doing the work?'}>
       <Stack>
-        {list.length === 0 && <Alert tone="warn">No active worker for {category(ticket.categoryCode).nameEn}. Show all workers, or add one in Workers.</Alert>}
-        <div className="grid gap-2 sm:grid-cols-2">
-          {list.map((w) => (
-            <label key={w.id} className={`flex cursor-pointer items-start gap-3 rounded-md border px-3 py-2.5 ${picked.includes(w.id) ? 'border-accent bg-accent-soft' : 'border-line'}`}>
-              <input type="checkbox" className="mt-1 h-4 w-4 accent-[var(--c-accent)]" checked={picked.includes(w.id)}
-                onChange={() => setPicked((x) => x.includes(w.id) ? x.filter((y) => y !== w.id) : [...x, w.id])} />
-              <span className="min-w-0">
-                <span className="block text-[14.5px] font-medium">{w.name}</span>
-                <span className="block text-[12.5px] text-muted">{w.phoneMasked} · {w.workload} open jobs</span>
-              </span>
-            </label>
-          ))}
-        </div>
-        <button type="button" className="self-start text-[13.5px] text-accent" onClick={() => setAll((v) => !v)}>{all ? 'Only matching work' : 'Show all workers'}</button>
-        <div>
-          <p className="mb-1.5 text-[14px] font-medium">Send the job by</p>
-          <Chips label="Send by" value={channel} onChange={setChannel} options={[{ value: 'sms', label: 'SMS' }, { value: 'whatsapp', label: 'WhatsApp' }]} />
-          <p className="mt-1.5 text-[13px] text-muted">The job (token, problem, place) is sent to the worker automatically when you assign.</p>
-          {noWhatsApp && <p className="mt-1 text-[13px] text-bad">Some selected workers are not on WhatsApp. Use SMS.</p>}
-        </div>
-        <Button className="self-start" loading={busy} disabled={!picked.length || noWhatsApp}
-          onClick={() => run(() => api.assign(ticket, picked, picked[0], channel))}>Assign and send {channel === 'sms' ? 'SMS' : 'WhatsApp'}</Button>
+        <Field label="Worker or vendor" optional hint="A person, a vendor or a team. Only staff see this.">
+          {(id, d) => <Input id={id} aria-describedby={d} maxLength={120} value={name} onChange={(e) => setName(e.target.value)} />}
+        </Field>
+        <p className="text-[13px] text-muted">PCMS does not send messages to workers. Contact them by phone, WhatsApp or in person, then record the state here.</p>
+        <Button className="self-start" loading={busy}
+          onClick={() => run(() => api.transition(ticket, { action: 'assign', workerName: name.trim() || undefined }))}>
+          {onHold ? 'Resume work' : 'Mark as assigned'}
+        </Button>
       </Stack>
     </Next>
   )
 }
 
-function AssignmentsCard({ ticket, busy, run, canAssign }: { ticket: Ticket; busy: boolean; run: Run; canAssign: boolean }) {
-  const [release, setRelease] = useState<string | null>(null)
-  const active = ticket.assignments.filter((a) => !a.releasedAt)
+function WorkerLine({ ticket, run }: { ticket: Ticket; run: Run }) {
+  const [open, setOpen] = useState(false)
   return (
-    <Card title="Assigned workers">
-      <ul className="divide-y divide-line">
-        {active.map((a) => (
-          <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-            <span>
-              <span className="text-[14.5px] font-medium">{a.workerName}</span> {a.lead && active.length > 1 && <Badge>Lead</Badge>}
-              <span className="block text-[13px] text-muted">{a.channel.toUpperCase()} {a.delivery.replace('_', ' ')} · {a.accepted ? `accepted ${ago(a.acceptedAt!)}` : `assigned ${ago(a.assignedAt)}`}</span>
-            </span>
-            {canAssign && (
-              <span className="flex gap-2">
-                {!a.accepted && ticket.status === 'Assigned' && (
-                  <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => api.recordAcceptance(ticket, a.id, 'call'))}><Phone size={15} /> Worker confirmed</Button>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => setRelease(a.id)}>Change worker</Button>
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-      {release && (
-        <ActionDialog open title="Remove this worker" confirmLabel="Remove" fields={[{ name: 'reason', label: 'Reason', required: true, type: 'textarea' }]}
-          onClose={() => setRelease(null)} onSubmit={async (v) => { await run(() => api.releaseAssignment(ticket, release, v.reason)) }} />
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[14px]">
+          <span className="text-muted">Worker: </span>
+          {ticket.workerName ? <span className="font-medium">{ticket.workerName}</span> : <span className="text-muted">No worker recorded</span>}
+        </p>
+        <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>{ticket.workerName ? 'Change' : 'Add worker name'}</Button>
+      </div>
+      {open && (
+        <ActionDialog open title="Worker or vendor" confirmLabel="Save"
+          description="Only staff see this. Leave the field blank to clear the name."
+          initial={{ workerName: ticket.workerName ?? '' }}
+          fields={[{ name: 'workerName', label: 'Name', placeholder: 'For example, Ramesh K or Carpentry vendor' }]}
+          onClose={() => setOpen(false)}
+          onSubmit={async (v) => { await run(() => api.transition(ticket, { action: 'set_worker', workerName: v.workerName || undefined })) }} />
       )}
     </Card>
   )
 }
 
-// ---------- 3. flag ----------
+function StartStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run: Run }) {
+  return (
+    <Card>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-[14px] text-muted">Has the worker started? This is optional; you can mark the work fixed from here.</p>
+        <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'start' }))}>Mark work started</Button>
+      </div>
+    </Card>
+  )
+}
 
-function FlagStep({ ticket, busy, run, managerName }: { ticket: Ticket; busy: boolean; run: Run; managerName: string }) {
-  const [flag, setFlag] = useState<'I' | 'C' | 'P' | null>(ticket.flag === 'I' ? 'I' : null)
+// ---------- 3. assess ----------
+
+const ASSESSMENT_LABEL: Record<Assessment, string> = {
+  simple: 'One person can do it',
+  workforce: 'Needs more people',
+  parts: 'Needs parts',
+  expenditure: 'Needs money up front',
+}
+
+const ASSESS_VIA = [
+  { value: 'in_person' as const, label: 'In person' },
+  { value: 'call' as const, label: 'Phone call' },
+  { value: 'sms' as const, label: 'SMS' },
+  { value: 'whatsapp' as const, label: 'WhatsApp' },
+  { value: 'card' as const, label: 'Job card' },
+]
+
+/**
+ * What the worker found, recorded before the I/C/P flag. Optional in the flow,
+ * but it is what tells management whether a ticket needs money or people.
+ */
+function AssessStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run: Run }) {
+  const [picked, setPicked] = useState<Assessment[]>(ticket.assessments)
+  const [via, setVia] = useState<Channel | 'in_person'>('in_person')
+  const [note, setNote] = useState('')
+  const [open, setOpen] = useState(false)
+  const recorded = ticket.assessments.length > 0
+
+  if (!recorded && !open) {
+    return (
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[14px] text-muted">Recorded what the work needs? It helps management decide.</p>
+          <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>Record assessment</Button>
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <Card title="Assessment" subtitle={recorded ? 'What the work needs' : undefined}>
+      <Stack>
+        {recorded && !open && (
+          <p className="text-[14px]">
+            {ticket.assessments.map((a) => ASSESSMENT_LABEL[a]).join(', ')}
+            <Button size="sm" variant="ghost" className="ml-2" onClick={() => setOpen(true)}>Change</Button>
+          </p>
+        )}
+        {open && (
+          <form onSubmit={(e) => { e.preventDefault(); void run(() => api.recordAssessment(ticket, picked, via, note.trim())).then((ok) => { if (ok) { setOpen(false); setNote('') } }) }} className="space-y-4">
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(Object.keys(ASSESSMENT_LABEL) as Assessment[]).map((a) => (
+                <label key={a} className={`flex cursor-pointer items-center gap-3 rounded-md border px-3.5 py-2.5 ${picked.includes(a) ? 'border-accent bg-accent-soft' : 'border-line'}`}>
+                  <input type="checkbox" className="h-4 w-4 accent-[var(--c-accent)]" checked={picked.includes(a)}
+                    onChange={() => setPicked((x) => x.includes(a) ? x.filter((y) => y !== a) : [...x, a])} />
+                  <span className="text-[14.5px]">{ASSESSMENT_LABEL[a]}</span>
+                </label>
+              ))}
+            </div>
+            <Field label="How it was reported">
+              {(id) => <Select id={id} value={via} onChange={(e) => setVia(e.target.value as Channel | 'in_person')}>
+                {ASSESS_VIA.map((v) => <option key={v.value} value={v.value}>{v.label}</option>)}
+              </Select>}
+            </Field>
+            <Field label="What was found" hint="Internal note. The reporter does not see this.">
+              {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} required />}
+            </Field>
+            <div className="flex flex-wrap gap-2">
+              <Button type="submit" loading={busy} disabled={!picked.length || note.trim().length < 2}>Save assessment</Button>
+              <Button type="button" variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
+            </div>
+          </form>
+        )}
+      </Stack>
+    </Card>
+  )
+}
+
+// ---------- 4. flag ----------
+
+function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket: Ticket; busy: boolean; run: Run; managerName: string; approved?: boolean }) {
+  const [flag, setFlag] = useState<'I' | 'C' | 'P' | null>(approved || ticket.flag === 'I' ? 'I' : null)
   const [note, setNote] = useState('')
   const [cost, setCost] = useState('')
   const [review, setReview] = useState(() => new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10))
   const paise = cost.trim() ? parseRupees(cost) : 0
   const options = [
-    { v: 'I' as const, icon: Wrench, title: 'Immediate', body: 'Can be fixed now' },
-    { v: 'C' as const, icon: AlertTriangle, title: 'Critical', body: 'Send to institute management' },
+    { v: 'I' as const, icon: Wrench, title: 'Immediate', body: approved ? 'Finish the work and mark it fixed' : 'Can be fixed now' },
+    { v: 'C' as const, icon: AlertTriangle, title: 'Critical', body: approved ? 'Need more money? Send a new request' : 'Send to institute management' },
     { v: 'P' as const, icon: Clock, title: 'Postpone', body: 'Cannot be done now' },
   ]
   return (
-    <Next title="Step 3: What did the worker find?">
+    <Next title={approved ? 'Step 4: Finish the approved work' : 'Step 3: What did the worker find?'}>
       <Stack>
+        {approved && (
+          <Alert tone="ok" title="Approved by institute management">
+            Management has approved this work. Finish it, write what was done below and tap Mark as fixed.
+            Choose Critical only if you need a new approval.
+          </Alert>
+        )}
         <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Flag">
           {options.map((o) => (
             <button key={o.v} type="button" role="radio" aria-checked={flag === o.v} onClick={() => setFlag(o.v)}
@@ -245,7 +315,7 @@ function FlagStep({ ticket, busy, run, managerName }: { ticket: Ticket; busy: bo
 
         {flag === 'I' && (
           <>
-            {ticket.flag !== 'I' && <Button variant="secondary" className="self-start" loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'set_flag', flag: 'I' }))}>Save as Immediate</Button>}
+            {!approved && ticket.flag !== 'I' && <Button variant="secondary" className="self-start" loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'set_flag', flag: 'I' }))}>Save as Immediate</Button>}
             <Field label="When the work is done: what was done" hint="The reporter is then asked to check it">
               {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />}
             </Field>
@@ -279,6 +349,19 @@ function FlagStep({ ticket, busy, run, managerName }: { ticket: Ticket; busy: bo
 }
 
 // ---------- 4. management ----------
+
+/** Read-only view of the reporter rating. Staff cannot edit or delete it. */
+function RatingCard({ ticket }: { ticket: Ticket }) {
+  if (ticket.rating) {
+    return (
+      <Card title="Reporter rating" subtitle="Given after the repair was closed">
+        <RatingSummary stars={ticket.rating.stars} comment={ticket.rating.comment} createdAt={ticket.rating.createdAt} />
+      </Card>
+    )
+  }
+  if (ticket.status !== 'Closed') return null
+  return <Card title="Reporter rating"><p className="text-[14px] text-muted">Not rated yet.</p></Card>
+}
 
 function ManagementCard({ ticket, busy, run, canDecide }: { ticket: Ticket; busy: boolean; run: Run; canDecide: boolean }) {
   const p = ticket.proposal!

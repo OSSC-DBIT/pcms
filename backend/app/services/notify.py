@@ -18,7 +18,6 @@ from app.models.outbox import Outbox
 from app.models.push import PushSubscription
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.models.worker import Assignment, Worker
 from app.security.sessions import now
 
 
@@ -62,20 +61,3 @@ async def notify_role(db: AsyncSession, role: str, ticket: Ticket, *, template: 
             continue
         await notify_user(db, u, ticket, template=template, title=title, body=body, url=f"/staff/t/{ticket.id}",
                           key_suffix=key_suffix)
-
-
-async def dispatch_worker(db: AsyncSession, ticket: Ticket, assignment: Assignment, worker: Worker,
-                          category_name: str, location: str, *, channel: str | None = None,
-                          template: str = "job_dispatch") -> bool:
-    """Queue a job message. Returns False for call/card, which the manager handles by hand."""
-    channel = channel or assignment.channel
-    if channel not in ("whatsapp", "sms"):
-        return False
-    payload = {
-        "token": ticket.token, "plan_type": category_name, "plan": ticket.title, "location": location,
-        "flag": ticket.flag or "-", "priority": ticket.priority, "lead": assignment.lead,
-    }
-    # Assignment id in the key: a reassignment produces a new message, a retry does not.
-    await _enqueue(db, event_key=f"{template}:{assignment.id}:{channel}", channel=channel, template=template,
-                   worker_id=worker.id, ticket_id=ticket.id, assignment_id=assignment.id, payload=payload)
-    return True

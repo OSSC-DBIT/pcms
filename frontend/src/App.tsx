@@ -19,8 +19,9 @@ import TicketView from './pages/faculty/TicketView'
 const Queue = lazy(() => import('./pages/staff/Queue'))
 const StaffTicket = lazy(() => import('./pages/staff/StaffTicket'))
 const Approvals = lazy(() => import('./pages/staff/Approvals'))
-const Workers = lazy(() => import('./pages/staff/Workers'))
 const Admin = lazy(() => import('./pages/staff/Admin'))
+const Reports = lazy(() => import('./pages/staff/Reports'))
+const Audit = lazy(() => import('./pages/staff/Audit'))
 
 interface AuthState {
   user: User | null
@@ -106,8 +107,9 @@ function AppRoutes() {
       <Route path="/staff" element={<Gate cap="queue.view"><Queue /></Gate>} />
       <Route path="/staff/t/:id" element={<Gate cap="queue.view"><StaffTicket /></Gate>} />
       <Route path="/staff/approvals" element={<Gate cap="cost.approve"><Approvals /></Gate>} />
-      <Route path="/staff/workers" element={<Gate cap="worker.directory"><Workers /></Gate>} />
-      <Route path="/staff/admin" element={<Gate anyCap={['admin.users', 'admin.catalogs']}><Admin /></Gate>} />
+      <Route path="/staff/reports" element={<Gate cap="queue.view"><Reports /></Gate>} />
+      <Route path="/staff/audit" element={<Gate cap="admin.audit"><Audit /></Gate>} />
+      <Route path="/staff/admin" element={<Gate anyCap={['admin.users', 'admin.catalogs', 'admin.locations', 'admin.audit']}><Admin /></Gate>} />
       {/* Links in older notifications */}
       <Route path="/toal/t/:id" element={<LegacyTicket />} />
       <Route path="/toal/*" element={<Navigate to="/staff" replace />} />

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Star } from 'lucide-react'
 import { useAuth } from '../../App'
-import { Gallery, Messages, TicketSummaryCard, Timeline, fmtTime } from '../../components/ticket'
-import { Alert, Button, Card, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
+import { Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, fmtTime } from '../../components/ticket'
+import { Alert, Button, Card, Field, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, HttpError } from '../../lib/api'
 import { useT } from '../../lib/i18n'
 import { TERMINAL, type Ticket } from '../../lib/types'
@@ -15,6 +15,8 @@ export default function TicketView() {
   const [ticket, setTicket] = useState<Ticket | null | undefined>(undefined)
   const [disputing, setDisputing] = useState(false)
   const [reason, setReason] = useState('')
+  const [stars, setStars] = useState(0)
+  const [ratingComment, setRatingComment] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -32,6 +34,12 @@ export default function TicketView() {
       setError(errorMessage(e))
       if (e instanceof HttpError && e.code === 'stale_version') await load()
     } finally { setBusy(false) }
+  }
+
+  async function sendRating(fn: () => Promise<Ticket>) {
+    setBusy(true); setError(null)
+    try { setTicket(await fn()); setStars(0); setRatingComment('') }
+    catch (e) { setError(errorMessage(e)) } finally { setBusy(false) }
   }
 
   return (
@@ -61,6 +69,34 @@ export default function TicketView() {
         </Alert>
       )}
       {ticket.verifiedByReporter && <Alert tone="ok"><span className="inline-flex items-center gap-2"><BadgeCheck size={16} /> {t('ticket.verified')}</span></Alert>}
+
+      {mine && ticket.rating && (
+        <Card title={t('ticket.yourRating')} subtitle={t('ticket.rateThanks')}>
+          <RatingSummary stars={ticket.rating.stars} comment={ticket.rating.comment} createdAt={ticket.rating.createdAt} />
+        </Card>
+      )}
+
+      {mine && !ticket.rating && ticket.status === 'Closed' && (
+        <Card title={t('ticket.rateTitle')} subtitle={t('ticket.rateBody')}>
+          <Stack>
+            <div role="radiogroup" aria-label={t('ticket.rateStars')} className="flex flex-wrap items-center gap-2">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button key={n} type="button" role="radio" aria-checked={stars === n}
+                  aria-label={`${n} star${n === 1 ? '' : 's'}`} onClick={() => setStars(n)}
+                  className={`flex h-11 w-11 items-center justify-center rounded-md border ${stars === n ? 'border-accent bg-accent-soft' : 'border-line hover:bg-subtle'}`}>
+                  <Star size={24} className={n <= stars ? 'fill-current text-warn' : 'text-muted'} aria-hidden />
+                </button>
+              ))}
+              <span className="ml-1 text-[14px] text-muted">{stars ? `${stars} of 5` : ''}</span>
+            </div>
+            <Field label={t('ticket.rateComment')}>
+              {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={ratingComment} onChange={(e) => setRatingComment(e.target.value)} />}
+            </Field>
+            <Button className="self-start" loading={busy} disabled={!stars}
+              onClick={() => void sendRating(() => api.rate(ticket, stars, ratingComment))}>{t('ticket.rateSubmit')}</Button>
+          </Stack>
+        </Card>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('ticket.timeline')}><Timeline events={ticket.events} /></Card>

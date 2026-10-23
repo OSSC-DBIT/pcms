@@ -8,18 +8,25 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 |---|---|---|
 | Second factor for all admin-portal roles | Authenticator (TOTP) only for the super admin (Team OSSC) | A stolen facility manager or management password is enough to sign in. Mitigations: 10-character minimum, sign-in throttling, sessions revoked on password change, campus-only access. Turning TOTP back on is a one-line change in `app/security/roles.py`. |
 | OSSC administers but does not dispatch or approve | OSSC has every capability | Separation of duty still holds: nobody, OSSC included, can approve a cost they requested or a ticket they reported. All actions are audited. |
-| Facility manager views the worker directory | Facility manager also adds, imports and edits worker contacts | Phone numbers stay masked in lists, and contact imports are audited per worker. |
+| Facility manager views the worker directory | Workers are contacted directly; PCMS keeps only an optional free-text worker or vendor name on the ticket | There is no worker login, phone number field or directory. The name is staff-only and never appears in faculty responses or public timeline entries. |
 | Token `DB26C0123` | Token `C26-0123` | Tokens are references, not credentials; guessing one reveals nothing (404). |
-| Worker messaging via Meta Cloud API, photos by media ID | Twilio, photos via signed links that expire in 10 minutes and stop working once the job closes | The link is unguessable (HMAC) and serves only that photo. |
+| Worker messaging via Meta Cloud API, photos by media ID | Twilio is legacy only: no new worker messages are queued. Messages sent before the cutover keep working, including signed photo links that expire in 10 minutes and stop working once the job closes | The link is unguessable (HMAC) and serves only that photo. A later cleanup release removes Twilio and the legacy tables. |
 
 ## Controls
 
 **Accounts**
-- Named accounts only. Team OSSC creates them one at a time or by CSV import.
-- Each new or reset account gets a random temporary password (about 70 bits). It is shown or
-  downloaded once and stored only as an Argon2id hash.
+- Named accounts only, signed in with a college email. Team OSSC creates them one at a time or by
+  Excel/CSV import. There is no self-registration, email link, OTP or security question.
+- Each new or reset account gets a temporary password: random (about 70 bits) or chosen by the admin.
+  It is stored as an Argon2id hash for verification and, until the person replaces it, as
+  AES-256-GCM ciphertext under `PCMS_CREDENTIAL_KEY`. The key is separate from `PCMS_SECRET_KEY`.
+- A temporary password can be downloaded again by Team OSSC under **Admin, People, Credentials file**.
+  That download needs the admin's own password, is throttled, is marked `no-store`, and is audited.
+  Once the person chooses a password, the ciphertext and expiry are deleted; the chosen password is
+  never stored reversibly.
 - Temporary passwords expire after 7 days and must be changed at first sign-in.
-- Suspending a person or changing their role ends all of their sessions.
+- Forgotten passwords are reset by Team OSSC. No password is ever emailed.
+- Suspending a person or changing their role or email ends all of their sessions.
 - The last active super admin cannot be removed, and admins cannot change their own role.
 
 **Sessions**
@@ -28,13 +35,18 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - The CSRF token must be sent as the `X-CSRF-Token` header on every change.
 
 **Sign-in**
-- Throttled per employee ID and per IP; the window expires on its own, so there is no permanent lockout.
-- Unknown ID and wrong password look the same. TOTP codes cannot be replayed. Recovery codes work once.
+- Throttled per email and per IP; the window expires on its own, so there is no permanent lockout.
+- Unknown email and wrong password look the same. TOTP codes cannot be replayed. Recovery codes work once.
 
 **Authorisation**
 - Checked by the server on every request.
 - Faculty only ever see their own tickets; anything else is 404.
-- Faculty responses never include internal notes, costs, worker phone numbers, or staff and worker names in the timeline.
+- Faculty responses never include internal notes, costs, worker names or staff names in the timeline.
+- Only the reporter can rate a ticket, only after it is `Closed`. Another faculty member gets 404
+  through the normal visibility check; staff get 403 because they can see the ticket but cannot rate.
+- A rating is a single immutable row per ticket, enforced by a unique constraint. The comment is
+  visible only to the reporter and staff and is never copied into the timeline, push payloads or
+  the audit snapshot (which records the stars and whether a comment exists).
 
 **Uploads**
 - The type is detected from the bytes, not the name or browser.
@@ -43,10 +55,12 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - Files are stored under random keys in a private volume, held in quarantine until ClamAV clears
   them (production), and downloaded only after a permission check with `nosniff` and a sandbox CSP.
 
-**Twilio webhooks**
+**Twilio webhooks (legacy)**
 - Every call must carry a valid `X-Twilio-Signature` computed over the public URL.
 - Events are deduplicated. A button tap must come from the assigned worker's own number,
   replying to that job's message.
+- These handlers remain only for messages sent before worker dispatch was retired. No new worker
+  messages are queued.
 
 **Web**
 - Strict CSP with no inline script, HSTS, `X-Frame-Options: DENY`, `nosniff`, and a narrow `Permissions-Policy`.
@@ -55,7 +69,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 
 **Data**
 - History tables are append-only through database triggers, and every change writes an audit event.
-- CSV exports neutralise spreadsheet formulas and are themselves audited.
+- CSV and Excel exports neutralise spreadsheet formulas by writing every cell as text, and are themselves audited.
+  Imports reject formula cells and macro workbooks.
 
 **Operations**
 - The API refuses to start in production with a weak secret, insecure cookies, the dev database

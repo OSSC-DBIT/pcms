@@ -7,14 +7,15 @@ import { HttpError, qs, request, requestBlob, setCsrf } from './http'
 import { resetCatalogs } from './catalog'
 import { unsubscribeThisDevice } from './push'
 import type {
-  AdminUser, Assessment, Channel, Credential, DecisionKind, Draft, Location, Page, Priority, Proposal,
-  Status, StepResult, Ticket, TicketSummary, User, WorkFlag, Worker,
+  AdminUser, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Location, Page,
+  Priority, Proposal, Report, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag,
 } from './types'
 
 export { HttpError } from './http'
 export { category } from './catalog'
 
 const DRAFTS_KEY = 'pcms.drafts'
+const XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 
 export interface CreatedTicket {
   id: string
@@ -25,6 +26,22 @@ export interface CreatedTicket {
   attachmentUploadAllowed: boolean
 }
 
+/** Everything the ticket list can be narrowed by. All of it is applied by the server. */
+export interface TicketFilters {
+  scope: 'mine' | 'queue'
+  status?: Status[]
+  open?: boolean
+  search?: string
+  category?: string
+  flag?: WorkFlag
+  priority?: Priority
+  building?: string
+  worker?: string
+  sort?: TicketSort
+  page?: number
+  pageSize?: number
+}
+
 export type TransitionAction =
   | { action: 'triage'; priority: Priority; flag?: WorkFlag }
   | { action: 'set_priority'; priority: Priority; reason: string }
@@ -32,6 +49,9 @@ export type TransitionAction =
   | { action: 'recategorise'; categoryCode: string; reason?: string }
   | { action: 'hold'; reason: string; owner: string; nextAction: string; reviewDate: string }
   | { action: 'resume'; reason?: string }
+  | { action: 'assign'; workerName?: string }
+  | { action: 'start' }
+  | { action: 'set_worker'; workerName?: string }
   | { action: 'resolve'; note: string; evidenceNote?: string }
   | { action: 'verify' }
   | { action: 'dispute'; reason: string }
@@ -43,8 +63,8 @@ export type TransitionAction =
 
 export const api = {
   // ---------- session ----------
-  async signIn(employeeId: string, password: string): Promise<StepResult> {
-    const r = await request<StepResult>('POST', '/session', { body: { employeeId, password }, quiet401: true })
+  async signIn(email: string, password: string): Promise<StepResult> {
+    const r = await request<StepResult>('POST', '/session', { body: { email, password }, quiet401: true })
     setCsrf(r.csrfToken)
     return r
   },
@@ -83,10 +103,12 @@ export const api = {
   },
 
   // ---------- tickets ----------
-  listTickets(params: { scope: 'mine' | 'queue'; status?: Status[]; open?: boolean; page?: number; pageSize?: number }): Promise<Page<TicketSummary>> {
+  listTickets(params: TicketFilters): Promise<Page<TicketSummary>> {
     return request('GET', `/tickets${qs({
       scope: params.scope, status: params.status?.join(','), open: params.open,
-      page: params.page, pageSize: params.pageSize ?? 100,
+      search: params.search, category: params.category, flag: params.flag, priority: params.priority,
+      building: params.building, worker: params.worker, sort: params.sort,
+      page: params.page, pageSize: params.pageSize ?? 25,
     })}`)
   },
   async getTicket(id: string): Promise<Ticket | null> {
@@ -148,18 +170,12 @@ export const api = {
     })
   },
 
-  // ---------- assignments and assessment ----------
-  assign(ticket: Pick<Ticket, 'id' | 'version'>, workerIds: string[], leadWorkerId: string, channel: Channel): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assignments`, { body: { workerIds, leadWorkerId, channel, expectedVersion: ticket.version } })
+  // ---------- assessment and rating ----------
+  recordAssessment(ticket: Pick<Ticket, 'id' | 'version'>, assessments: Assessment[], via: Channel | 'in_person', note: string): Promise<Ticket> {
+    return request('POST', `/tickets/${ticket.id}/assessments`, { body: { assessments, via, note, expectedVersion: ticket.version } })
   },
-  recordAcceptance(ticket: Pick<Ticket, 'id' | 'version'>, assignmentId: string, via: 'call' | 'in_person' | 'sms'): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assignments/${assignmentId}/accept`, { body: { via, expectedVersion: ticket.version } })
-  },
-  releaseAssignment(ticket: Pick<Ticket, 'id' | 'version'>, assignmentId: string, reason: string): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assignments/${assignmentId}/release`, { body: { reason, expectedVersion: ticket.version } })
-  },
-  recordAssessment(ticket: Pick<Ticket, 'id' | 'version'>, assessments: Assessment[], workerId: string, via: Channel | 'in_person', note: string): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/assessments`, { body: { assessments, workerId, via, note, expectedVersion: ticket.version } })
+  rate(ticket: Pick<Ticket, 'id'>, stars: number, comment?: string): Promise<Ticket> {
+    return request('POST', `/tickets/${ticket.id}/rating`, { body: { stars, comment: comment?.trim() || null } })
   },
 
   // ---------- costs ----------
@@ -170,32 +186,18 @@ export const api = {
     return request('POST', `/proposals/${proposal.id}/decisions`, { body: { kind, proposalVersion: proposal.version, ...opts } })
   },
 
-  // ---------- workers ----------
-  listWorkers(params: { trade?: string; active?: boolean } = {}): Promise<Worker[]> {
-    return request('GET', `/workers${qs(params)}`)
-  },
-  createWorker(w: { name: string; phone: string; trades: string[]; area: string; language: string; mode: Worker['mode']; kind: Worker['kind'] }): Promise<Worker> {
-    return request('POST', '/workers', { body: w })
-  },
-  updateWorker(w: Pick<Worker, 'id' | 'version'>, patch: Partial<{ name: string; phone: string; trades: string[]; area: string; language: string; mode: Worker['mode']; kind: Worker['kind']; active: boolean }>): Promise<Worker> {
-    return request('PATCH', `/workers/${w.id}`, { body: { ...patch, expectedVersion: w.version } })
-  },
-  importWorkers(rows: { name: string; phone: string; trades: string[]; area: string; language: string; mode: Worker['mode']; kind: Worker['kind'] }[]): Promise<{ name: string; phone: string; status: 'created' | 'exists' | 'invalid'; message: string | null }[]> {
-    return request('POST', '/workers/import', { body: rows })
-  },
-
   // ---------- admin: users ----------
-  listUsers(params: { q?: string; role?: string; active?: boolean; page?: number } = {}): Promise<Page<AdminUser>> {
-    return request('GET', `/admin/users${qs({ ...params, page_size: 50 })}`)
+  listUsers(params: { q?: string; role?: string; active?: boolean; pending?: boolean; page?: number; pageSize?: number } = {}): Promise<Page<AdminUser>> {
+    return request('GET', `/admin/users${qs({ ...params, pageSize: params.pageSize ?? 25 })}`)
   },
-  createUser(body: { employeeId: string; name: string; role: AdminUser['role']; email?: string }): Promise<Credential> {
+  createUser(body: { email: string; name: string; role: AdminUser['role']; password: string }): Promise<Credential> {
     return request('POST', '/admin/users', { body })
   },
-  updateUser(u: Pick<AdminUser, 'id' | 'version'>, patch: { name?: string; email?: string; role?: AdminUser['role']; active?: boolean; reason?: string }): Promise<AdminUser> {
+  updateUser(u: Pick<AdminUser, 'id' | 'version'>, patch: { email?: string; name?: string; role?: AdminUser['role']; active?: boolean; reason?: string }): Promise<AdminUser> {
     return request('PATCH', `/admin/users/${u.id}`, { body: { ...patch, expectedVersion: u.version } })
   },
-  resetUserPassword(u: Pick<AdminUser, 'id'>, resetMfa: boolean): Promise<Credential> {
-    return request('POST', `/admin/users/${u.id}/reset-password`, { body: { resetMfa } })
+  resetUserPassword(u: Pick<AdminUser, 'id'>, resetMfa: boolean, password?: string): Promise<Credential> {
+    return request('POST', `/admin/users/${u.id}/reset-password`, { body: { resetMfa, password: password?.trim() || null } })
   },
   previewImport(file: File): Promise<{ toCreate: number; alreadyExist: string[] }> {
     const form = new FormData()
@@ -205,11 +207,15 @@ export const api = {
   async importUsers(file: File): Promise<{ blob: Blob; filename: string; created: number; existing: number }> {
     const form = new FormData()
     form.append('file', file, file.name)
-    const r = await requestBlob('POST', '/admin/users/import', { form, accept: 'text/csv' })
+    const r = await requestBlob('POST', '/admin/users/import', { form, accept: XLSX })
     return { blob: r.blob, filename: r.filename, created: Number(r.headers.get('x-pcms-created') ?? 0), existing: Number(r.headers.get('x-pcms-existing') ?? 0) }
   },
   importTemplate(): Promise<{ blob: Blob; filename: string }> {
-    return requestBlob('GET', '/admin/users/import/template', { accept: 'text/csv' })
+    return requestBlob('GET', '/admin/users/import/template', { accept: XLSX })
+  },
+  /** Audited download of temporary passwords Team OSSC issued. Requires the admin's own password. */
+  credentialsExport(password: string, filters: { q?: string; role?: string; active?: boolean; pending?: boolean } = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('POST', '/admin/users/credentials/export', { body: { password, ...filters }, accept: XLSX })
   },
 
   // ---------- messages needing a person ----------
@@ -218,6 +224,29 @@ export const api = {
   },
   actOnNotification(id: number, op: 'retry' | 'dismiss'): Promise<void> {
     return request('POST', `/admin/notifications/${id}/${op}`)
+  },
+
+  // ---------- reports and export ----------
+  report(params: { days?: number; building?: string; category?: string } = {}): Promise<Report> {
+    return request('GET', `/reports${qs({ days: params.days, building: params.building, category: params.category })}`)
+  },
+  /** Audited on the server, so the download itself is recorded. */
+  exportTicketsCsv(days = 90): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/tickets.csv${qs({ days })}`, { accept: 'text/csv' })
+  },
+
+  // ---------- audit ----------
+  /** Newest first. Pass beforeId from the last row to page backwards through history. */
+  auditLog(params: { action?: string; entityId?: string; beforeId?: number; limit?: number } = {}): Promise<AuditEvent[]> {
+    return request('GET', `/admin/audit${qs({ action: params.action, entityId: params.entityId, beforeId: params.beforeId, limit: params.limit ?? 100 })}`)
+  },
+
+  // ---------- catalogs ----------
+  editCategory(code: string, patch: { nameEn?: string; nameHi?: string; subtypesEn?: string[]; subtypesHi?: string[]; active?: boolean }): Promise<void> {
+    return request('PATCH', `/admin/categories/${encodeURIComponent(code)}`, { body: patch })
+  },
+  editBuilding(code: string, patch: { nameEn?: string; nameHi?: string; floors?: string[]; active?: boolean }): Promise<void> {
+    return request('PATCH', `/admin/buildings/${encodeURIComponent(code)}`, { body: patch })
   },
 }
 

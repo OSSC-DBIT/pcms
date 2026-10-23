@@ -7,7 +7,7 @@ import { Button } from '../components/ui'
 const STEPS = [
   { icon: Camera, title: 'Report', body: 'Faculty describe the problem and add a photo. They get a token such as C26-0001.' },
   { icon: ClipboardCheck, title: 'Review', body: 'The facility manager accepts it, or rejects it with a reason.' },
-  { icon: Hammer, title: 'Fix', body: 'A worker is assigned and gets an SMS. Critical jobs go to institute management.' },
+  { icon: Hammer, title: 'Fix', body: 'Facilities arranges the work and updates the ticket. You can rate the repair when it is done.' },
   { icon: BellRing, title: 'Confirm', body: 'The reporter is notified and confirms the fix. Every step is recorded.' },
 ]
 

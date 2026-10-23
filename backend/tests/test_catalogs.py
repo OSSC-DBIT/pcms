@@ -25,7 +25,19 @@ async def test_catalogs_shape_matches_frontend(client):
     assert cats["carpentry"]["nameHi"] == "बढ़गीरी"
     codes = [b["code"] for b in body["buildings"]]
     assert codes[0] == "ADMIN" and {"CSE", "ISE", "ECE", "EEE", "LIB", "HOSTEL"} <= set(codes)
-    assert set(body["buildings"][0]) == {"code", "nameEn", "nameHi", "floors"}
+    # Buildings carry active too, so the Places screen can show and restore a retired one.
+    assert set(body["buildings"][0]) == {"code", "nameEn", "nameHi", "floors", "active"}
+    assert all(b["active"] for b in body["buildings"])
+
+
+async def test_catalogs_include_inactive_is_for_admin_screens(client):
+    """The default list stays active-only, so a retired type cannot be reported."""
+    async with sessionmaker()() as s:
+        await s.execute(text("UPDATE category SET active = false WHERE code = 'phone'"))
+        await s.commit()
+    assert "phone" not in {c["code"] for c in (await client.get("/api/v1/catalogs")).json()["categories"]}
+    full = (await client.get("/api/v1/catalogs", params={"includeInactive": True})).json()["categories"]
+    assert next(c for c in full if c["code"] == "phone")["active"] is False
 
 
 async def test_seed_is_idempotent_and_keeps_admin_edits():
@@ -78,8 +90,15 @@ async def test_upgrade_with_existing_users():
         await s.commit()
     await run_alembic(command.upgrade, "head")
     async with sessionmaker()() as s:
-        row = (await s.execute(text("SELECT must_change_password, version FROM app_user WHERE employee_id='DB9999'"))).one()
-    assert row == (True, 1)
+        row = (await s.execute(text(
+            "SELECT must_change_password, version, email FROM app_user WHERE email='db9999@pcms.invalid'"
+        ))).one()
+        old_column = await s.scalar(text(
+            "SELECT count(*) FROM information_schema.columns "
+            "WHERE table_name='app_user' AND column_name='employee_id'"
+        ))
+    assert row == (True, 1, "db9999@pcms.invalid")
+    assert old_column == 0
 
 
 async def test_migrations_downgrade_and_upgrade():
