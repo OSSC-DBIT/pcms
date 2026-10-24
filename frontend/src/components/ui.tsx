@@ -3,8 +3,8 @@
  * Mobile first; the same components lay out wider on desktop.
  */
 import { clsx } from 'clsx'
-import { ChevronDown, Loader2, X } from 'lucide-react'
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode,
+import { ChevronDown, Eye, EyeOff, Loader2, X } from 'lucide-react'
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode,
   type SelectHTMLAttributes, type TextareaHTMLAttributes } from 'react'
 import type { Status } from '../lib/types'
 import { useT } from '../lib/i18n'
@@ -99,6 +99,29 @@ const control = 'w-full rounded-md border border-line bg-surface px-3.5 text-fg 
 
 export function Input({ className, invalid, ...p }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
   return <input {...p} aria-invalid={invalid || undefined} className={clsx(control, 'h-11', className)} />
+}
+
+export function PasswordInput({ className, invalid, ...p }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+  const [show, setShow] = useState(false)
+  return (
+    <div className="relative">
+      <input
+        {...p}
+        type={show ? 'text' : 'password'}
+        aria-invalid={invalid || undefined}
+        className={clsx(control, 'h-11 pr-11', className)}
+      />
+      <button
+        type="button"
+        tabIndex={-1}
+        onClick={() => setShow((v) => !v)}
+        aria-label={show ? 'Hide password' : 'Show password'}
+        className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center text-muted transition-colors hover:text-fg focus:outline-none"
+      >
+        {show ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
+      </button>
+    </div>
+  )
 }
 
 export function Textarea({ className, invalid, ...p }: TextareaHTMLAttributes<HTMLTextAreaElement> & { invalid?: boolean }) {

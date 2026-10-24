@@ -3,7 +3,7 @@ import { LogOut } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../App'
 import InstallCard from '../components/InstallCard'
-import { Alert, Button, Card, Field, Input, PageHeader, Stack, Tabs, errorMessage } from '../components/ui'
+import { Alert, Button, Card, Field, PageHeader, PasswordInput, Stack, Tabs, errorMessage } from '../components/ui'
 import { api } from '../lib/api'
 import { useTheme, type Theme } from '../lib/hooks'
 import { LANGS, useT, type Lang, type TKey } from '../lib/i18n'
@@ -86,8 +86,8 @@ function PasswordCard() {
   return (
     <Card title={t('settings.password')}>
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('settings.password.current')}>{(id) => <Input id={id} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />}</Field>
-        <Field label={t('login.newPassword')} hint={t('login.passwordRule')}>{(id, d) => <Input id={id} aria-describedby={d} type="password" autoComplete="new-password" minLength={10} maxLength={128} value={next} onChange={(e) => setNext(e.target.value)} required />}</Field>
+        <Field label={t('settings.password.current')}>{(id) => <PasswordInput id={id} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />}</Field>
+        <Field label={t('login.newPassword')} hint={t('login.passwordRule')}>{(id, d) => <PasswordInput id={id} aria-describedby={d} autoComplete="new-password" minLength={10} maxLength={128} value={next} onChange={(e) => setNext(e.target.value)} required />}</Field>
         <div className="sm:col-span-2"><Button type="submit" variant="secondary" loading={busy}>{t('settings.password.change')}</Button></div>
         {msg && <div className="sm:col-span-2"><Alert tone={msg.tone}>{msg.text}</Alert></div>}
       </form>
