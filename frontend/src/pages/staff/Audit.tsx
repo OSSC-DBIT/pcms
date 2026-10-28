@@ -44,18 +44,18 @@ export default function Audit() {
 
   return (
     <Stack>
-      <PageHeader title={t('nav.audit')} subtitle="Every recorded change, newest first. This log cannot be edited or deleted." />
+      <PageHeader title={t('nav.audit')} subtitle={t('audit.subtitle')} />
       <div className="flex flex-wrap gap-3">
         <div className="w-full sm:w-64">
-          <Input value={action} onChange={(e) => setAction(e.target.value)} placeholder="Action, e.g. ticket" aria-label="Filter by action" />
+          <Input value={action} onChange={(e) => setAction(e.target.value)} placeholder={t('audit.filterAction')} aria-label={t('audit.filterActionLabel')} />
         </div>
         <div className="w-full sm:w-64">
-          <Input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder="Entity ID, e.g. a token or UUID" aria-label="Filter by entity" />
+          <Input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder={t('audit.filterEntity')} aria-label={t('audit.filterEntityLabel')} />
         </div>
       </div>
       {error && <Alert tone="bad">{error}</Alert>}
       {rows === null ? <Skeleton className="h-72" /> : rows.length === 0 ? (
-        <EmptyState title="Nothing recorded" body="No audit entries match these filters." />
+        <EmptyState title={t('audit.empty')} body={t('audit.emptyBody')} />
       ) : (
         <>
           <ul className="divide-y divide-line overflow-hidden rounded-lg border border-line bg-surface">
@@ -63,7 +63,7 @@ export default function Audit() {
           </ul>
           {more !== null && (
             <div className="flex justify-center">
-              <Button variant="secondary" loading={loading} onClick={() => void load(more, true)}>Load older entries</Button>
+              <Button variant="secondary" loading={loading} onClick={() => void load(more, true)}>{t('audit.loadOlder')}</Button>
             </div>
           )}
         </>
@@ -73,6 +73,7 @@ export default function Audit() {
 }
 
 function Row({ ev }: { ev: AuditEvent }) {
+  const { t } = useT()
   const change = diffLine(ev)
   return (
     <li className="px-4 py-3">
@@ -81,10 +82,10 @@ function Row({ ev }: { ev: AuditEvent }) {
         <span className="text-[13px] text-muted">{ev.entityType} {ev.entityId}</span>
         <span className="ml-auto text-[12.5px] text-muted">{new Date(ev.at).toLocaleString('en-IN', IST)}</span>
       </div>
-      <p className="mt-0.5 text-[13.5px]">{ev.actorLabel}{ev.delegatedWorker && <span className="text-muted"> (for {ev.delegatedWorker})</span>}</p>
+      <p className="mt-0.5 text-[13.5px]">{ev.actorLabel}{ev.delegatedWorker && <span className="text-muted"> ({t('audit.for')} {ev.delegatedWorker})</span>}</p>
       {change && <p className="token mt-1 break-words text-[12.5px] text-muted">{change}</p>}
       {ev.reason && <p className="mt-1 text-[13.5px]">{ev.reason}</p>}
-      {ev.requestId && <p className="mt-0.5 text-[12px] text-muted">Request {ev.requestId}</p>}
+      {ev.requestId && <p className="mt-0.5 text-[12px] text-muted">{t('audit.request')} {ev.requestId}</p>}
     </li>
   )
 }
