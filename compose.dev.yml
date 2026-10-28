@@ -101,13 +101,28 @@ services:
     depends_on: [api]
     profiles: ["nginx"]
 
+  # Quick tunnel for development: prints a https://<random>.trycloudflare.com
+  # URL in the logs, with no Cloudflare account and no DNS. Needs the built
+  # app, so run it with the nginx profile too:
+  #   docker compose -f compose.dev.yml --profile nginx --profile tunnel up -d --build
+  #   docker compose -f compose.dev.yml logs cloudflared | grep trycloudflare.com
+  #
+  # Serves the whole app over real HTTPS, which is what install-to-home-screen
+  # and web push need to be tested on an actual phone. The hostname changes on
+  # every restart, so push subscriptions from an older URL stop working.
   cloudflared:
     image: cloudflare/cloudflared:2026.10.1
-    # Quick tunnel for development; prints a trycloudflare.com URL in the logs.
-    # Points only at the public nginx listener (webhooks + signed media).
-    command: ["tunnel", "--no-autoupdate", "--url", "http://nginx:8081"]
+    command: ["tunnel", "--no-autoupdate", "--url", "http://nginx:8082"]
     depends_on: [nginx]
     profiles: ["tunnel"]
+
+  # The same quick tunnel aimed at the webhook listener, for testing Twilio
+  # callbacks (legacy) and signed photo links without exposing the app.
+  cloudflared-hooks:
+    image: cloudflare/cloudflared:2026.10.1
+    command: ["tunnel", "--no-autoupdate", "--url", "http://nginx:8081"]
+    depends_on: [nginx]
+    profiles: ["tunnel-hooks"]
 
 volumes:
   pgdata:

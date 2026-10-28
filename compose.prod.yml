@@ -108,16 +108,42 @@ services:
       retries: 3
     security_opt: ["no-new-privileges:true"]
 
+  # Cloudflare tunnel: gives PCMS a public HTTPS hostname with zero inbound
+  # ports open on the college server. Enable with:
+  #   docker compose -f compose.prod.yml --profile tunnel up -d
+  #
+  # 1. Zero Trust dashboard > Networks > Tunnels > Create a tunnel > cloudflared
+  # 2. Copy the tunnel token into PCMS_TUNNEL_TOKEN in pcms.env
+  # 3. Add the public hostnames (Service Type HTTP, no TLS on this hop):
+  #      pcms.dbit.edu.in        -> http://nginx:8082   (app + API)
+  #      pcms-hooks.dbit.edu.in  -> http://nginx:8081   (Twilio webhooks, signed photos)
+  #
+  # Put Cloudflare Access in front of the app hostname: see docs/DEPLOYMENT.md.
+  # Without it, anyone on the internet reaches the sign-in page, and only the
+  # super admin has a second factor (docs/SECURITY.md).
   tunnel:
     image: cloudflare/cloudflared:2026.10.1
     restart: unless-stopped
-    # Named tunnel managed by College IT; its public hostname must point to http://nginx:8081.
-    command: ["tunnel", "--no-autoupdate", "run"]
+    # --metrics binds the readiness endpoint to a known port so the
+    # healthcheck below can ask it whether the edge connections are up.
+    command: ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:2000", "run"]
     environment:
       TUNNEL_TOKEN: ${PCMS_TUNNEL_TOKEN:-}
-    depends_on: [nginx]
+    depends_on: { nginx: { condition: service_started } }
+    # egress reaches Cloudflare; internal reaches nginx. No published ports.
     networks: [internal, egress]
     profiles: [tunnel]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
 
   backup:
     image: ${PCMS_IMAGE_BACKUP:-pcms-backup:release}

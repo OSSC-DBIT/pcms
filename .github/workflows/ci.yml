@@ -65,7 +65,11 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7.0.1
-      - run: docker compose -f compose.dev.yml config --quiet
+      - name: Development compose (every profile)
+        run: |
+          docker compose -f compose.dev.yml config --quiet
+          docker compose -f compose.dev.yml --profile jobs --profile nginx \
+            --profile tunnel --profile tunnel-hooks config --quiet
       - name: Production compose (with placeholder env and secrets)
         env:
           PCMS_SECRETS_DIR: ./secrets
@@ -74,6 +78,35 @@ jobs:
           cp .env.example pcms.env
           mkdir -p secrets && touch secrets/db_password secrets/pgpass secrets/backup_recipient.txt
           docker compose -f compose.prod.yml --env-file pcms.env config --quiet
+          docker compose -f compose.prod.yml --env-file pcms.env --profile tunnel config --quiet
+
+  nginx:
+    name: nginx config is valid (HTTP and TLS)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      # nginx -t parses every listener, including the tunnel one on 8082 that
+      # is never published and so is not covered by the browser test.
+      - name: Check both configurations
+        run: |
+          set -eu
+          for conf in pcms.conf pcms-tls.conf; do
+            echo "== $conf"
+            docker run --rm \
+              -v "$PWD/nginx/snippets:/etc/nginx/snippets:ro" \
+              -v "$PWD/nginx/$conf:/etc/nginx/conf.d/pcms.conf:ro" \
+              nginx:1.30.6-alpine \
+              sh -c '
+                # pcms-tls.conf needs certificate files present to parse, and
+                # app-locations.conf needs the built frontend root to exist.
+                mkdir -p /etc/nginx/certs /usr/share/nginx/html
+                if [ ! -f /etc/nginx/certs/fullchain.pem ]; then
+                  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=ci \
+                    -keyout /etc/nginx/certs/privkey.pem \
+                    -out /etc/nginx/certs/fullchain.pem 2>/dev/null
+                fi
+                nginx -t'
+          done
 
   e2e:
     name: Browser test (phone and desktop)
