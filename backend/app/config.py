@@ -76,10 +76,24 @@ class Settings(BaseSettings):
     facilities_desk_phone: str | None = None  # shown in SMS fallback
 
     # Workflow timing
-    accept_timeout_minutes: int = 30
     dispute_window_days: int = 7
     verify_reminder_days: int = 2
     auto_close_days: int = 5
+    # Close resolved tickets the reporter never answered. Off by default: a
+    # pilot should watch the queue by hand before the scheduler starts closing
+    # tickets on its own.
+    auto_close_enabled: bool = False
+
+    # Retention. History is append-only, so these are the only way rows ever
+    # leave the database, and the prune runs inside a transaction that sets
+    # pcms.retention (see migration 0007). 0 disables that table's prune.
+    #
+    # The ticket row, its token and its rating are never pruned: only the
+    # timeline, messages and notification plumbing of long-closed tickets.
+    retention_audit_days: int = 1095        # 3 years of audit trail
+    retention_ticket_history_days: int = 1095  # timeline and messages after closure
+    retention_outbox_days: int = 90         # finished notification jobs
+    retention_provider_event_days: int = 90  # webhook dedup keys
 
     def check_production(self) -> list[str]:
         """Problems that must block a production start."""

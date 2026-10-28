@@ -13,8 +13,12 @@ TASKS = [
     (30, "scan", scheduler.scan_quarantine),
     (60, "stuck_outbox", outbox.recover_stuck),
     (3600, "verify_reminders", scheduler.verification_reminders),
+    (3600, "auto_close", scheduler.auto_close),
+    (3600, "update_due_chases", scheduler.update_due_chases),
     (3600, "hold_reviews", scheduler.hold_reviews),
     (3600, "housekeeping", scheduler.housekeeping),
+    # Retention deletes history, so it runs once a day rather than hourly.
+    (86400, "retention", scheduler.retention_prune),
 ]
 
 
