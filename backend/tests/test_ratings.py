@@ -204,3 +204,65 @@ async def test_faculty_lists_stay_private_and_have_no_worker_data(client):
         assert staff[0]["workerName"] == "Ramesh K"
     finally:
         await mc.aclose()
+
+
+async def test_rating_bumps_the_version_so_staff_see_it_as_updated(client):
+    """A rating is a change to the ticket, so it must reach the queue's
+    "recently updated" order. Before this, a rated ticket kept its old version
+    and updated_at and never resurfaced for staff."""
+    fac, mgr, mc, tid, detail, _ = await _closed_ticket(client)
+    try:
+        before = (await mgr.get(f"{API}/tickets/{tid}")).json()
+        rated = (await fac.post(f"{API}/tickets/{tid}/rating", json={"stars": 5})).json()
+        assert rated["version"] == before["version"] + 1
+        assert rated["updatedAt"] > before["updatedAt"]
+
+        # And it is visible in the staff list ordered by update time.
+        top = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "sort": "updated"})).json()["items"]
+        assert top[0]["id"] == tid and top[0]["version"] == rated["version"]
+    finally:
+        await mc.aclose()
+
+
+async def test_a_rated_ticket_cannot_be_disputed(client):
+    """One immutable rating per ticket means a rated repair is final: reopening
+    would leave the rating describing work that is no longer current, and the
+    reporter could never rate the second repair."""
+    fac, mgr, mc, tid, detail, _ = await _closed_ticket(client, stars=1, comment="Still broken")
+    try:
+        v = (await fac.get(f"{API}/tickets/{tid}")).json()["version"]
+        r = await fac.post(f"{API}/tickets/{tid}/transitions",
+                           json={"action": "dispute", "reason": "Broke again", "expectedVersion": v})
+        assert r.status_code == 409 and r.json()["code"] == "already_rated"
+        assert (await fac.get(f"{API}/tickets/{tid}")).json()["status"] == "Closed"
+    finally:
+        await mc.aclose()
+
+
+async def test_an_unrated_closed_ticket_can_still_be_disputed(client):
+    """The block is specifically about the rating, not about being Closed."""
+    fac, mgr, mc, tid, detail, _ = await _closed_ticket(client)
+    try:
+        v = (await fac.get(f"{API}/tickets/{tid}")).json()["version"]
+        r = await fac.post(f"{API}/tickets/{tid}/transitions",
+                           json={"action": "dispute", "reason": "Broke again", "expectedVersion": v})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "Triaged"
+    finally:
+        await mc.aclose()
+
+
+async def test_rating_appears_in_the_csv_export(client):
+    import csv
+    import io
+
+    fac, mgr, mc, tid, detail, _ = await _closed_ticket(client, stars=2, comment="Took three visits")
+    try:
+        r = await mgr.get(f"{API}/reports/tickets.csv")
+        rows = list(csv.DictReader(io.StringIO(r.text.lstrip("﻿"))))
+        row = next(x for x in rows if x["token"] == detail["token"])
+        assert row["rating_stars"] == "2"
+        assert row["rating_comment"] == "Took three visits"
+        assert row["worker_name"] == "Ramesh K"
+    finally:
+        await mc.aclose()

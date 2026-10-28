@@ -139,6 +139,9 @@ async def rate(ticket_id: uuid.UUID, body: RatingIn, p: Principal = Depends(curr
     except IntegrityError:
         await db.rollback()
         raise conflict("already_rated", "You already rated this repair.")
+    # A rating is a change to the ticket, so it belongs in the "updated" sort
+    # order staff page by; without this a newly rated ticket never surfaces.
+    svc.bump(t)
     svc.add_event(db, t, p.user, "Rating submitted", detail=f"{body.stars}/5", public=True)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.rated", entity_type="ticket",
                  entity_id=t.id, after={"stars": body.stars, "has_comment": bool(body.comment)})

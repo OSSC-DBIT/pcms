@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.errors import ApiError, forbidden, validation
 from app.models.catalog import Category
+from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket
 from app.models.worker import Assignment
 from app.schemas.ticket import TransitionIn
@@ -159,6 +160,15 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             if t.resolved_at is None or now() - t.resolved_at > timedelta(days=s.dispute_window_days):
                 raise ApiError(409, "dispute_window_closed",
                                f"Disputes are accepted within {s.dispute_window_days} days of resolution. Raise a new report or contact facilities.")
+            # A rating is one immutable row per ticket, about one finished
+            # repair. Reopening a rated ticket would leave that rating
+            # describing work that is no longer the current state, and the
+            # reporter could never rate the second repair (one per ticket).
+            # So a rated ticket is final: the next problem is a new report.
+            if await db.scalar(select(TicketRating.id).where(TicketRating.ticket_id == t.id)):
+                raise ApiError(409, "already_rated",
+                               "You already rated this repair, so this ticket is closed for good. "
+                               "Please raise a new report for the problem.")
             new, detail = "Triaged", reason
             t.verified_by_reporter = False
             t.closed_at = None
