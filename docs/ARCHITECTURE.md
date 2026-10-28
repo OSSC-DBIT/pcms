@@ -7,8 +7,12 @@ flowchart TB
     subgraph Campus["Campus network / VPN"]
         U["Phones and desktops<br/>(PWA in the browser)"]
     end
+    subgraph Remote["Off campus (optional)"]
+        RU["Phones and desktops"]
+        CF["Cloudflare edge<br/>TLS + Access SSO"]
+    end
     subgraph Host["College server (Docker Compose)"]
-        N["nginx<br/>:443 app + API<br/>:8081 tunnel-only"]
+        N["nginx<br/>:443 app + API (campus)<br/>:8082 app + API (tunnel)<br/>:8081 webhooks only"]
         A["api<br/>FastAPI, 4 workers"]
         W["worker<br/>sends outbox"]
         S["scheduler<br/>reminders, scans"]
@@ -24,6 +28,8 @@ flowchart TB
         SM["College SMTP relay"]
     end
     U -- HTTPS --> N
+    RU -- HTTPS --> CF -- "outbound-only<br/>tunnel" --> T
+    T -- ":8082 app" --> N
     N --> A
     A --> DB
     A --> MV
@@ -34,16 +40,24 @@ flowchart TB
     W --> TW
     W --> PS
     W --> SM
-    TW -- "signed webhooks,<br/>photo fetch" --> T --> N
+    TW -- "signed webhooks,<br/>photo fetch" --> CF
+    T -- ":8081 webhooks" --> N
     B --> DB
     B --- MV
 ```
 
 - The API, database, ClamAV and jobs sit on an internal Docker network with no internet route.
   Only `worker`, `clamav` (signature updates) and `tunnel` have egress.
-- The tunnel reaches nginx's port 8081 only. That listener serves exactly
-  `POST /webhooks/twilio`, `POST /webhooks/twilio/status` and `GET /media/public/<signed token>`.
-  Everything else there is 404.
+- The tunnel is optional and reaches two nginx listeners, neither of them published on the
+  host. Port **8081** serves exactly `POST /webhooks/twilio`, `POST /webhooks/twilio/status`
+  and `GET /media/public/<signed token>`; everything else there is 404. Port **8082** serves
+  the whole app and API for people off campus, and should sit behind Cloudflare Access, since
+  only the super admin has a second factor (see `docs/SECURITY.md`).
+- `cloudflared` dials out to Cloudflare, so publishing PCMS opens no inbound port. Cloudflare
+  terminates TLS and forwards plain HTTP to 8082, so nginx reads the real visitor address from
+  `CF-Connecting-IP` on that port only (`nginx/snippets/http.conf`). Otherwise every remote
+  user would share the cloudflared container's address, and one person's failed sign-ins would
+  throttle everyone.
 - Provider calls never happen inside a database transaction. A ticket change and its
   notification intent (outbox row) commit together; the worker sends afterwards.
 
@@ -73,7 +87,8 @@ erDiagram
 Rules the database enforces: valid statuses and roles, one active lead per ticket, one pending
 proposal per ticket, one decision per proposal version, one rating per ticket, non-negative money
 in integer paise, unique tokens and phone numbers. Timeline, comments, decisions, delivery
-attempts and the audit log cannot be updated or deleted (trigger). The `worker`, `worker_skill`
+attempts and the audit log can never be updated, and can only be deleted by the nightly retention
+prune, which opts in explicitly (see `docs/SECURITY.md`). The `worker`, `worker_skill`
 and `assignment` tables remain for history; the normal flow writes no new rows to them.
 
 ## Tokens

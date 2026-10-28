@@ -49,7 +49,7 @@ Before you say something works, run the tests above. Add a regression test for e
 - **Faculty see only their own tickets**, and never internal notes, costs, worker names or staff names. Return 404, not 403, for objects a user may not see.
 - **No free-form status changes.** State changes go through `services/lifecycle.py` or `services/workflow.py` with `expected_version`.
 - **Nobody approves their own spending** (`workflow.decide`).
-- **History is append-only** (triggers on `ticket_event`, `ticket_comment`, `decision`, `delivery_attempt`, `audit_event`). Every change writes `audit.record(...)`.
+- **History is append-only** (triggers on `ticket_event`, `ticket_comment`, `decision`, `delivery_attempt`, `audit_event`). Every change writes `audit.record(...)`. UPDATE is always refused; DELETE only inside the retention prune in `services/scheduler.py`, which sets `pcms.retention = 'on'`. Never set that anywhere else.
 - **Notifications go through the outbox** (`services/notify.py`) in the same transaction. Never call Twilio, SMTP or push from a request handler.
 - **Uploads** go through `services/media.py` (real type detection, re-encoding, quarantine). Never serve files from a public path.
 - **Money** is integer paise. **Times** are stored in UTC and shown in Asia/Kolkata.

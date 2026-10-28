@@ -5,8 +5,11 @@ The facility manager reviews it, contacts a worker directly (call, WhatsApp or i
 and records the state. Management approves any spending. The faculty member confirms the
 fix and rates the repair. Every step is recorded.
 
-It is an installable web app (PWA) that runs on the college server in Docker. Only two
-narrow routes face the internet: Twilio's webhooks and short-lived photo links.
+It is an installable web app (PWA) that runs on the college server in Docker. By default only
+two narrow routes face the internet: Twilio's webhooks and short-lived photo links. It can also
+be published off campus through an optional Cloudflare tunnel, which opens no inbound port on
+the server; put Cloudflare Access in front of it first
+(see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) and [docs/SECURITY.md](docs/SECURITY.md)).
 
 ```mermaid
 flowchart LR

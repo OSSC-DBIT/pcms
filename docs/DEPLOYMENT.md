@@ -13,7 +13,7 @@ flowchart LR
     B --> C[3 Secrets + settings]
     C --> D[4 Build or load images]
     D --> E[5 Start + first admin]
-    E --> F[6 Twilio + push]
+    E --> F[6 Push + tunnel]
     F --> G[7 Backups + restore drill]
     G --> H[Pilot]
 ```
@@ -31,11 +31,20 @@ flowchart LR
 
 ## 2. DNS and HTTPS
 
+HTTPS is required either way: the camera, install, offline support and notifications do not
+work over plain HTTP. There are two ways to get it, and you can use both at once.
+
+**Certificates on the server** (campus access, the default):
 - IT points an internal DNS name (for example `pcms.dbit.edu.in`) at the server.
 - Get a publicly trusted certificate, for example Let's Encrypt with the DNS-01 challenge, so the
   app itself does not have to be public. Copy `fullchain.pem` and `privkey.pem` to `/srv/pcms/certs/`.
 - Renewal must replace these files and then run `docker compose -f compose.prod.yml exec nginx nginx -s reload`.
-- HTTPS is required: the camera, install, offline support and notifications do not work over plain HTTP.
+
+**Cloudflare tunnel** (access from outside the campus, optional): Cloudflare terminates TLS at
+its edge, so the server needs no certificate files and no inbound port. Skip this section and
+set it up in section 6 instead. If PCMS is only ever reached off campus, the tunnel alone is
+enough; `nginx` still needs certificates present to start with `pcms-tls.conf`, so either keep
+a self-signed pair in `/srv/pcms/certs/` or build the image with `NGINX_CONF=pcms.conf`.
 
 ## 3. Secrets and settings
 
@@ -96,7 +105,7 @@ their own password.
 
 `migrate` runs `check-config` first, so the stack will not start with unsafe settings.
 
-## 6. Twilio (legacy) and web push
+## 6. Web push, the Cloudflare tunnel, and Twilio (legacy)
 
 **Push**
 ```sh
@@ -105,11 +114,60 @@ docker compose -f compose.prod.yml exec api python -m app.cli vapid-keys
 Put both values in `pcms.env`, set `PCMS_VAPID_SUBJECT=mailto:facilities@dbit.edu.in`, then `up -d`.
 Use `python -m app.cli push-test-all` to send one test to every enabled device.
 
-**Tunnel** (only Twilio's webhooks and photo links are public)
-1. IT creates a Cloudflare named tunnel with a public hostname (for example `pcms-hooks.dbit.edu.in`)
-   whose service is `http://nginx:8081`.
-2. Set `PCMS_TUNNEL_TOKEN` and `PCMS_PUBLIC_BASE_URL=https://pcms-hooks.dbit.edu.in`.
-3. Start with `--profile tunnel`.
+**Cloudflare tunnel**
+
+The tunnel gives PCMS a public HTTPS hostname with **no inbound port open on the college
+server**: `cloudflared` dials out to Cloudflare and traffic comes back down that connection.
+It replaces step 2 (DNS and certificates) if you use it for the app, because Cloudflare
+terminates TLS at its edge, so no certificate files are needed on the server.
+
+It serves two separate hostnames, and you can publish either or both:
+
+| Hostname | Service | Serves |
+|---|---|---|
+| `pcms.dbit.edu.in` | `http://nginx:8082` | The whole app and API |
+| `pcms-hooks.dbit.edu.in` | `http://nginx:8081` | Twilio webhooks and signed photo links only (legacy) |
+
+Port 8082 is an app listener that exists only for the tunnel. It is never published on the
+host, so only the `cloudflared` container can reach it. It is separate from 8080 because in
+production 8080 answers with a redirect to HTTPS, which would bounce the edge straight back
+into the tunnel.
+
+1. IT creates the tunnel: Cloudflare dashboard, **Zero Trust, Networks, Tunnels, Create a
+   tunnel**, choose **cloudflared**, name it (for example `pcms`), save, and copy the token.
+2. On the tunnel's **Public Hostname** tab add one entry per row of the table above. Service
+   Type is **HTTP** (not HTTPS: this hop is inside the Docker network). The DNS record is
+   created for you.
+3. Put the token in `pcms.env` as `PCMS_TUNNEL_TOKEN`, set `PCMS_PUBLIC_APP_URL` to the app
+   hostname and `PCMS_PUBLIC_BASE_URL` to the hooks hostname, then start the stack:
+   ```sh
+   docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env --profile tunnel up -d
+   ```
+4. Verify:
+   ```sh
+   docker compose -f compose.prod.yml ps tunnel          # healthy
+   curl -fsS https://pcms.dbit.edu.in/api/v1/health/ready
+   ```
+   If it is unhealthy, `docker compose logs tunnel`: an expired or revoked token is the usual
+   cause. A 403 "Just a moment" page means a Cloudflare bot-fight or challenge rule is
+   intercepting the hostname; exempt it.
+
+**Protect the app hostname with Cloudflare Access.** Publishing the app puts the sign-in page
+on the open internet, and only the super admin uses a second factor
+(see [SECURITY.md](SECURITY.md)). Under **Zero Trust, Access, Applications** add a
+self-hosted application for `pcms.dbit.edu.in` with a policy allowing the `@dbit.edu.in`
+email domain. Staff then pass the college SSO before PCMS's own login, which restores the
+"campus-only" assumption the security model relies on. Do **not** put Access in front of
+`pcms-hooks.dbit.edu.in`: Twilio cannot sign in, and that listener already verifies request
+signatures and serves nothing else.
+
+The firewall on the host stays closed; the tunnel needs outbound 443 only:
+
+```sh
+sudo ufw default deny incoming
+sudo ufw allow OpenSSH
+sudo ufw enable
+```
 
 **Twilio (legacy)**
 Worker dispatch is retired. PCMS no longer queues new worker messages, so a new installation
@@ -144,6 +202,7 @@ The `backup` service runs nightly at `PCMS_BACKUP_AT` (Asia/Kolkata):
 docker compose -f compose.prod.yml stop api worker scheduler
 docker compose -f compose.prod.yml run --rm -v /path/to/pcms-backup-identity.txt:/run/identity.txt:ro \
   backup restore.sh /backups/pcms-YYYYmmdd-HHMM-Day.tar.age /run/identity.txt
+# add --profile tunnel if this installation publishes PCMS through the tunnel
 docker compose -f compose.prod.yml up -d
 ```
 
@@ -163,7 +222,11 @@ the dev database and media were restored into a scratch database and volume, and
 2. Run a manual backup: `docker compose -f compose.prod.yml exec backup backup.sh`.
 3. Deploy: `git pull` (or load the new images), then `docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env up -d --build`.
    `migrate` applies migrations before `api` starts.
-4. Smoke test: sign in, open the queue, raise a test ticket.
+   **Repeat every profile this installation uses, such as `--profile tunnel`, on each `up -d`.**
+   A missing profile is not an error: the service is simply not started. Leave it off and the
+   tunnel quietly goes down, so PCMS stops answering off campus until the next deploy.
+4. Smoke test: sign in, open the queue, raise a test ticket. If the tunnel is in use, do the
+   sign-in through the public hostname so the test covers that path too.
 
 Open browsers show "A new version is ready", so nobody loses a half-filled form.
 
