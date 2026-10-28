@@ -14,7 +14,7 @@ from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket, TicketComment
 from app.schemas.ticket import (
     AssessmentIn, CommentIn, DuplicateOut, ProposalIn, RatingIn, StatusName, TicketCreatedOut,
-    TicketCreateIn, TicketOut, TicketPage, TransitionIn,
+    TicketCreateIn, TicketOut, TicketPage, TicketUpdateIn, TransitionIn,
 )
 from app.security.deps import Principal, current_principal, require
 from app.services import audit, lifecycle, notify, tickets as svc, workflow
@@ -57,7 +57,8 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
     if search:
         like = _like(search)
         stmt = stmt.where(or_(Ticket.title.ilike(like, escape="\\"), Ticket.token.ilike(like, escape="\\"),
-                              Ticket.room.ilike(like, escape="\\")))
+                              Ticket.room.ilike(like, escape="\\"),
+                              Ticket.custom_location.ilike(like, escape="\\")))
     if category:
         cid = await db.scalar(select(Category.id).where(Category.code == category))
         if cid is None:
@@ -91,7 +92,7 @@ async def duplicates(category: str = Query(..., max_length=40), building: str = 
                      p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> list[DuplicateOut]:
     """Open reports for the same place and type. Only token, title and status: no identities or notes."""
     cat_id = await db.scalar(select(Category.id).where(Category.code == category))
-    if cat_id is None or (not outdoors and not (building and room.strip())):
+    if cat_id is None or (not outdoors and not (building and room.strip())) or building == svc.CUSTOM_BUILDING:
         return []
     stmt = select(Ticket).where(Ticket.category_id == cat_id, Ticket.status.not_in(TERMINAL))
     if outdoors:
@@ -118,6 +119,16 @@ async def create(body: TicketCreateIn, response: Response, p: Principal = Depend
 async def get_ticket(ticket_id: uuid.UUID, p: Principal = Depends(current_principal),
                      db: AsyncSession = Depends(get_session)) -> TicketOut:
     t = await svc.get_visible(db, p, ticket_id)
+    return await svc.ticket_out(db, p, t)
+
+
+@router.patch("/{ticket_id}", response_model=TicketOut)
+async def edit_ticket(ticket_id: uuid.UUID, body: TicketUpdateIn, p: Principal = Depends(current_principal),
+                      db: AsyncSession = Depends(get_session)) -> TicketOut:
+    """The reporter can correct their request until facilities start work."""
+    t = await svc.get_visible(db, p, ticket_id, lock=True)
+    await svc.update_ticket(db, p, t, body)
+    await db.commit()
     return await svc.ticket_out(db, p, t)
 
 

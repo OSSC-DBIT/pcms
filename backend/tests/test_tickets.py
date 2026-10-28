@@ -1,13 +1,21 @@
 import asyncio
 import re
 import uuid
+from types import SimpleNamespace
 
 from sqlalchemy import func, select
 
 from app.db import sessionmaker
 from app.models import Outbox, Ticket
+from app.services import tickets as ticket_service
 from app.services.tickets import format_token, ist_year
 from tests.factories import API, make_user, new_client, sign_in, ticket_body
+
+
+def test_other_subtype_detection_is_not_substring_based():
+    cat = SimpleNamespace(code="it_services")
+    assert ticket_service._is_other_issue(cat, "Motherboard") is False
+    assert ticket_service._is_other_issue(cat, "Other IT Issue") is True
 
 
 async def _faculty(client, emp="faculty@dbit.edu"):
@@ -22,7 +30,7 @@ async def test_create_returns_token_and_replays(client):
     assert r.status_code == 201, r.text
     created = r.json()
     yy = ist_year() % 100
-    assert created["token"] == f"C{yy:02d}-0001"
+    assert created["token"] == f"V{yy:02d}-0001"
     assert created["status"] == "Submitted" and created["version"] == 1 and created["attachmentUploadAllowed"]
 
     again = await s.post(f"{API}/tickets", json=body)
@@ -41,11 +49,12 @@ async def test_validation_errors(client):
     r = await s.post(f"{API}/tickets", json=ticket_body(title="no", categoryCode="nope"))
     assert r.status_code == 400
     assert {"title", "categoryCode"} <= set(r.json()["field_errors"])
-    r = await s.post(f"{API}/tickets", json=ticket_body(location={"building": "CSE", "floor": "99", "room": "1"}))
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={"building": "BLOCK_A", "floor": "99", "room": "1"}))
     assert r.status_code == 400 and "location" in r.json()["field_errors"]
     r = await s.post(f"{API}/tickets", json=ticket_body(location={"outdoors": True}))
     assert r.status_code == 400
-    r = await s.post(f"{API}/tickets", json=ticket_body(location={"outdoors": True, "landmark": "Main gate"}))
+    r = await s.post(f"{API}/tickets", json=ticket_body(
+        location={"building": "BLOCK_A", "outdoors": True, "landmark": "Main gate"}))
     assert r.status_code == 201
 
 
@@ -95,7 +104,7 @@ async def test_faculty_cannot_see_other_reporters_tickets(client):
         assert (await s2.get(f"{API}/tickets?scope=mine")).json()["total"] == 0
         assert (await s2.get(f"{API}/tickets?scope=queue")).status_code == 403
         # Duplicate hints show token and title only.
-        d = (await s2.get(f"{API}/tickets/duplicates", params={"category": "carpentry", "building": "CSE", "room": "203"})).json()
+        d = (await s2.get(f"{API}/tickets/duplicates", params={"category": "civil", "building": "BLOCK_A", "room": "203"})).json()
         assert d == [{"token": created["token"], "title": "Broken chair in lecture room", "status": "Submitted"}]
 
 
@@ -120,14 +129,38 @@ def test_token_starts_with_type_letter_and_grows_past_9999():
 
 async def test_other_needs_a_description(client):
     s = await _faculty(client)
-    r = await s.post(f"{API}/tickets", json=ticket_body(subtype="Other"))
+    r = await s.post(f"{API}/tickets", json=ticket_body(subtype="Other Civil Issue"))
     assert r.status_code == 400 and "otherDetail" in r.json()["field_errors"]
-    r = await s.post(f"{API}/tickets", json=ticket_body(subtype="Other", otherDetail="Bench"))
+    r = await s.post(f"{API}/tickets", json=ticket_body(subtype="Other Civil Issue", otherDetail="Bench"))
     assert r.status_code == 201
     t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
-    assert t["subtype"] == "Other: Bench"
+    assert t["subtype"] == "Other Civil Issue: Bench"
     r = await s.post(f"{API}/tickets", json=ticket_body(categoryCode="other", subtype=None, otherDetail="Water cooler"))
-    assert r.status_code == 201 and r.json()["token"].startswith("O")
+    assert r.status_code == 400 and "categoryCode" in r.json()["field_errors"]
+
+
+async def test_custom_location_and_area_validation(client):
+    s = await _faculty(client)
+    custom = ticket_body(location={"building": "CUSTOM", "customLocation": "Workshop near the back gate",
+                                   "floor": "Ground", "room": "Tool room"})
+    r = await s.post(f"{API}/tickets", json=custom)
+    assert r.status_code == 201, r.text
+    t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
+    assert t["location"] == {"building": "", "customLocation": "Workshop near the back gate", "floor": "Ground",
+                             "room": "Tool room", "outdoors": False, "landmark": None}
+
+    missing = ticket_body(location={"building": "CUSTOM", "floor": "Ground", "room": "Tool room"})
+    r = await s.post(f"{API}/tickets", json=missing)
+    assert r.status_code == 400 and "location" in r.json()["field_errors"]
+
+    wrong = ticket_body(location={"building": "BLOCK_A", "customLocation": "Somewhere else",
+                                  "floor": "2", "room": "203"})
+    r = await s.post(f"{API}/tickets", json=wrong)
+    assert r.status_code == 400 and "location" in r.json()["field_errors"]
+
+    area = ticket_body(location={"building": "ADMIN_BLOCK", "floor": "Principal's Office"})
+    r = await s.post(f"{API}/tickets", json=area)
+    assert r.status_code == 400 and "location" in r.json()["field_errors"]
 
 
 

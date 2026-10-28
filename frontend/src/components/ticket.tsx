@@ -26,12 +26,17 @@ export function ago(iso: string): string {
   return d < 30 ? `${d} d ago` : fmtDate(iso)
 }
 
+export function floorLabel(floor: string): string {
+  if (floor === 'Ground') return 'Ground floor'
+  return /^\d+$/.test(floor) ? `Floor ${floor}` : floor
+}
+
 export function placeText(t: Pick<TicketSummary, 'location'>, lang: 'en' | 'hi' = 'en'): string {
   const l = t.location
-  if (l.outdoors) return l.landmark ? `Outdoors, ${l.landmark}` : 'Outdoors'
+  if (l.outdoors) return ['Outdoors', l.customLocation, l.landmark].filter(Boolean).join(', ')
   const b = building(l.building)
-  const name = b ? (lang === 'hi' ? b.nameHi : b.nameEn) : l.building
-  const floor = l.floor ? (l.floor === 'Ground' ? ', Ground floor' : `, Floor ${l.floor}`) : ''
+  const name = l.customLocation ? l.customLocation : b ? (lang === 'hi' ? b.nameHi : b.nameEn) : l.building
+  const floor = l.floor ? `, ${floorLabel(l.floor)}` : ''
   return `${name}${floor}, ${l.room}`
 }
 

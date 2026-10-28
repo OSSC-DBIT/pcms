@@ -4,13 +4,12 @@
  * are synchronous.
  *
  * Two caches, on purpose:
- *   - the active list, which is what the report form and every lookup use, so a
- *     retired type can never be picked for a new report;
- *   - the full list, loaded only by the administration screens so a retired row
- *     stays visible and can be restored instead of silently disappearing.
+ *   - the active list, which is what the report form offers, so a retired type
+ *     can never be picked for a new report;
+ *   - the full list, so old tickets keep their retired type or place name instead
+ *     of showing a raw code. Administration screens also use it to restore rows.
  *
- * Old tickets keep rendering either way: `category()` falls back to a placeholder
- * for a code that is not in the active list.
+ * `category()` falls back to a placeholder only when even the full list is missing.
  */
 import { request } from './http'
 import type { Building, Category } from './types'
@@ -25,19 +24,13 @@ async function fetchCatalogs(includeInactive: boolean): Promise<Catalogs> {
   return request<Catalogs>('GET', includeInactive ? '/catalogs?includeInactive=true' : '/catalogs')
 }
 
-/** Load the active list. Called once after sign-in and after a catalog change. */
+/** Load the active list and the full list. Called once after sign-in and after a catalog change. */
 export async function loadCatalogs(force = false): Promise<void> {
   if (loaded && !force) return
-  active = await fetchCatalogs(false)
+  const [nextActive, nextAll] = await Promise.all([fetchCatalogs(false), fetchCatalogs(true)])
+  active = nextActive
+  all = nextAll
   loaded = true
-  // The active list changed, so anything derived from the full list is stale too.
-  all = null
-}
-
-/** Load the full list including retired rows. Administration screens only. */
-export async function loadAllCatalogs(force = false): Promise<void> {
-  if (all !== null && !force) return
-  all = await fetchCatalogs(true)
 }
 
 export function resetCatalogs() {

@@ -101,6 +101,7 @@ function AppRoutes() {
       <Route path="/home" element={<Gate faculty><Home /></Gate>} />
       <Route path="/report" element={<Gate cap="ticket.create"><Report /></Gate>} />
       <Route path="/tickets" element={<Gate><Tickets /></Gate>} />
+      <Route path="/t/:id/edit" element={<Gate cap="ticket.create"><Report /></Gate>} />
       <Route path="/t/:id" element={<Gate><TicketView /></Gate>} />
       <Route path="/receipt/:id" element={<Gate><Receipt /></Gate>} />
       <Route path="/settings" element={<Gate><Settings /></Gate>} />

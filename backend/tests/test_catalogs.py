@@ -8,10 +8,7 @@ from app.models import AuditEvent, Category
 from app.seed import seed_all
 from tests.conftest import run_alembic
 
-EXPECTED_LETTERS = {
-    "carpentry": "C", "plumbing": "P", "internet": "I", "phone": "T", "projector": "R",
-    "flooring": "F", "toilets": "W", "electrical": "E", "other": "O",
-}
+EXPECTED_LETTERS = {"it_services": "S", "civil": "V", "mechanical": "M"}
 
 
 async def test_catalogs_shape_matches_frontend(client):
@@ -20,11 +17,11 @@ async def test_catalogs_shape_matches_frontend(client):
     body = r.json()
     cats = {c["code"]: c for c in body["categories"]}
     assert {k: v["letter"] for k, v in cats.items()} == EXPECTED_LETTERS
-    assert set(cats["carpentry"]) == {"code", "letter", "nameEn", "nameHi", "subtypesEn", "subtypesHi", "active"}
-    assert cats["carpentry"]["subtypesEn"][0] == "Chair"
-    assert cats["carpentry"]["nameHi"] == "बढ़गीरी"
+    assert set(cats["it_services"]) == {"code", "letter", "nameEn", "nameHi", "subtypesEn", "subtypesHi", "active"}
+    assert cats["it_services"]["subtypesEn"][0] == "Computer / Laptop"
+    assert cats["it_services"]["nameHi"]
     codes = [b["code"] for b in body["buildings"]]
-    assert codes[0] == "ADMIN" and {"CSE", "ISE", "ECE", "EEE", "LIB", "HOSTEL"} <= set(codes)
+    assert codes[0] == "BLOCK_A" and {"BLOCK_B", "MBA", "PU", "HOSTEL", "ADMIN_BLOCK"} <= set(codes)
     # Buildings carry active too, so the Places screen can show and restore a retired one.
     assert set(body["buildings"][0]) == {"code", "nameEn", "nameHi", "floors", "active"}
     assert all(b["active"] for b in body["buildings"])
@@ -33,11 +30,11 @@ async def test_catalogs_shape_matches_frontend(client):
 async def test_catalogs_include_inactive_is_for_admin_screens(client):
     """The default list stays active-only, so a retired type cannot be reported."""
     async with sessionmaker()() as s:
-        await s.execute(text("UPDATE category SET active = false WHERE code = 'phone'"))
+        await s.execute(text("UPDATE category SET active = false WHERE code = 'civil'"))
         await s.commit()
-    assert "phone" not in {c["code"] for c in (await client.get("/api/v1/catalogs")).json()["categories"]}
+    assert "civil" not in {c["code"] for c in (await client.get("/api/v1/catalogs")).json()["categories"]}
     full = (await client.get("/api/v1/catalogs", params={"includeInactive": True})).json()["categories"]
-    assert next(c for c in full if c["code"] == "phone")["active"] is False
+    assert next(c for c in full if c["code"] == "civil")["active"] is False
 
 
 async def test_seed_is_idempotent_and_keeps_admin_edits():
@@ -48,16 +45,16 @@ async def test_seed_is_idempotent_and_keeps_admin_edits():
     await seed_all()
     await seed_all()
     async with sessionmaker()() as s:
-        assert await s.scalar(select(func.count()).select_from(Category)) == 9
+        assert await s.scalar(select(func.count()).select_from(Category)) == 12
         assert (await s.scalar(select(Category).where(Category.code == "other"))).name_en == "Miscellaneous"
 
 
 async def test_inactive_category_hidden(client):
     async with sessionmaker()() as s:
-        await s.execute(text("UPDATE category SET active = false WHERE code = 'phone'"))
+        await s.execute(text("UPDATE category SET active = false WHERE code = 'civil'"))
         await s.commit()
     r = await client.get("/api/v1/catalogs")
-    assert "phone" not in {c["code"] for c in r.json()["categories"]}
+    assert "civil" not in {c["code"] for c in r.json()["categories"]}
 
 
 async def test_duplicate_letter_rejected():
@@ -109,4 +106,4 @@ async def test_migrations_downgrade_and_upgrade():
     await run_alembic(command.upgrade, "head")
     await seed_all()
     async with sessionmaker()() as s:
-        assert await s.scalar(select(func.count()).select_from(Category)) == 9
+        assert await s.scalar(select(func.count()).select_from(Category)) == 12

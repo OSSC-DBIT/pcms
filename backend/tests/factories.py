@@ -74,8 +74,8 @@ def ticket_body(**over) -> dict:
     import uuid as _uuid
 
     body = {
-        "clientRequestId": str(_uuid.uuid4()), "categoryCode": "carpentry", "subtype": "Chair",
-        "location": {"building": "CSE", "floor": "2", "room": "203"},
+        "clientRequestId": str(_uuid.uuid4()), "categoryCode": "civil", "subtype": "Desk / Chair / Furniture",
+        "location": {"building": "BLOCK_A", "floor": "2", "room": "203"},
         "title": "Broken chair in lecture room", "description": "Two chairs have broken backs.",
         "impact": "class_interrupted",
     }

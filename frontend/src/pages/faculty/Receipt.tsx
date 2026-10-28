@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CheckCircle2, Printer } from 'lucide-react'
+import { CheckCircle2, Pencil, Printer } from 'lucide-react'
+import { useAuth } from '../../App'
 import { placeText, typeText } from '../../components/ticket'
 import { Button, Card, Spinner } from '../../components/ui'
 import { api } from '../../lib/api'
@@ -9,12 +10,15 @@ import type { Ticket } from '../../lib/types'
 
 export default function Receipt() {
   const { id } = useParams()
+  const { user } = useAuth()
   const { t, lang } = useT()
   const [ticket, setTicket] = useState<Ticket | null | undefined>(undefined)
   useEffect(() => { if (id) api.getTicket(id).then(setTicket).catch(() => setTicket(null)) }, [id])
 
   if (ticket === undefined) return <Spinner />
   if (ticket === null) return <p className="text-muted">{t('ticket.notFound')}</p>
+  const mine = ticket.reporterId === user?.id
+  const editable = mine && (ticket.status === 'Submitted' || ticket.status === 'Triaged')
   return (
     <div className="mx-auto max-w-md">
       <Card className="text-center">
@@ -27,9 +31,11 @@ export default function Receipt() {
         <p className="mt-4 text-[14px] text-muted">{t('receipt.body')}</p>
         <div className="mt-6 flex flex-col gap-2">
           <Link to={`/t/${ticket.id}`}><Button full>{t('receipt.view')}</Button></Link>
+          {editable && <Link to={`/t/${ticket.id}/edit`}><Button variant="secondary" full><Pencil size={16} /> {t('ticket.edit')}</Button></Link>}
           <Button variant="secondary" full onClick={() => window.print()}><Printer size={16} /> {t('receipt.print')}</Button>
           <Link to="/home" className="mt-1 text-[14px] text-accent">{t('receipt.home')}</Link>
         </div>
+        {mine && !editable && <p className="mt-3 text-[13px] text-muted">{t('ticket.editUnavailable')}</p>}
       </Card>
     </div>
   )

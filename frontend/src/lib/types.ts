@@ -39,6 +39,8 @@ export type Channel = 'whatsapp' | 'sms' | 'call' | 'card'
 
 export interface Location {
   building: string
+  /** Free text only when building is the CUSTOM sentinel. */
+  customLocation?: string
   floor: string
   room: string
   outdoors?: boolean

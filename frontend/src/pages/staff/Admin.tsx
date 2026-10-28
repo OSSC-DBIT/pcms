@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Download, FileSpreadsheet, KeyRound, Pencil, Power, RefreshCw, Upload, UserPlus } from 'lucide-react'
+import { ArrowDown, ArrowUp, Download, FileSpreadsheet, KeyRound, Pencil, Plus, Power, RefreshCw, Trash2, Upload, UserPlus } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog } from '../../components/ActionDialog'
 import { Pager } from '../../components/Pager'
 import { Alert, Badge, Button, Card, Dialog, EmptyState, Field, Input, PageHeader, Select, Skeleton, Stack, Tabs, errorMessage } from '../../components/ui'
 import { api } from '../../lib/api'
-import { allBuildings, allCategories, loadAllCatalogs, loadCatalogs } from '../../lib/catalog'
+import { allBuildings, allCategories, loadCatalogs } from '../../lib/catalog'
 import { request, saveBlob } from '../../lib/http'
 import type { AdminUser, Credential, Role } from '../../lib/types'
 
@@ -29,7 +29,7 @@ export default function Admin() {
   const [tab, setTab] = useState(tabs[0].value)
   const [ready, setReady] = useState(false)
   // The admin screens need retired rows too, so they hold their own copy of the list.
-  useEffect(() => { void loadAllCatalogs().then(() => setReady(true)).catch(() => setReady(true)) }, [])
+  useEffect(() => { void loadCatalogs().then(() => setReady(true)).catch(() => setReady(true)) }, [])
   return (
     <Stack>
       <PageHeader title="Administration" />
@@ -280,7 +280,6 @@ function Types({ ready }: { ready: boolean }) {
 
   async function refresh() {
     await loadCatalogs(true)
-    await loadAllCatalogs(true)
   }
 
   return (
@@ -419,7 +418,6 @@ function Places({ ready }: { ready: boolean }) {
 
   async function refresh() {
     await loadCatalogs(true)
-    await loadAllCatalogs(true)
   }
 
   return (
@@ -475,16 +473,27 @@ function EditBuildingDialog({ code, onClose, onSaved, onError }: { code: string;
   const b = allBuildings().find((x) => x.code === code)
   const [nameEn, setNameEn] = useState(b?.nameEn ?? '')
   const [nameHi, setNameHi] = useState(b?.nameHi ?? '')
-  const [floors, setFloors] = useState((b?.floors ?? []).join(', '))
+  const [areas, setAreas] = useState<string[]>(b?.floors ?? [])
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const floorList = floors.split(',').map((s) => s.trim()).filter(Boolean)
+  const cleanAreas = areas.map((s) => s.trim()).filter(Boolean)
+  const adminAreas = b?.code === 'ADMIN_BLOCK'
+
+  function move(index: number, delta: number) {
+    setAreas((cur) => {
+      const next = [...cur]
+      const to = index + delta
+      if (to < 0 || to >= next.length) return cur
+      ;[next[index], next[to]] = [next[to], next[index]]
+      return next
+    })
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true); setError(null)
     try {
-      await api.editBuilding(code, { nameEn: nameEn.trim(), nameHi: nameHi.trim(), floors: floorList })
+      await api.editBuilding(code, { nameEn: nameEn.trim(), nameHi: nameHi.trim(), floors: cleanAreas })
       onSaved(`${nameEn.trim()} updated.`)
     } catch (err) { onError(errorMessage(err)) } finally { setBusy(false) }
   }
@@ -496,13 +505,31 @@ function EditBuildingDialog({ code, onClose, onSaved, onError }: { code: string;
         <p className="token text-[13px] text-muted">Code {b.code} stays the same, so existing tickets keep their place.</p>
         <Field label="Name (English)">{(id) => <Input id={id} value={nameEn} onChange={(e) => setNameEn(e.target.value)} maxLength={80} required />}</Field>
         <Field label="Name (Hindi)">{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
-        <Field label="Floors" hint="Comma separated, e.g. Ground, 1, 2">
-          {(id, d) => <Input id={id} aria-describedby={d} value={floors} onChange={(e) => setFloors(e.target.value)} maxLength={400} required />}
+        <Field label={adminAreas ? 'Administrator Block areas' : 'Floors and areas'}
+          hint={adminAreas ? 'These are the choices reporters see after choosing Administrator Block. Use the arrows to reorder.' : 'Reporter picks one of these floors. Use the arrows to reorder.'}>
+          {() => (
+            <div className="space-y-2">
+              {areas.map((area, index) => (
+                <div key={index} className="flex items-center gap-1">
+                  <Input value={area} maxLength={80} aria-label={`Area ${index + 1}`} className="flex-1"
+                    onChange={(e) => setAreas((cur) => cur.map((x, i) => i === index ? e.target.value : x))} />
+                  <Button type="button" size="sm" variant="ghost" aria-label="Move up" disabled={index === 0}
+                    onClick={() => move(index, -1)}><ArrowUp size={15} /></Button>
+                  <Button type="button" size="sm" variant="ghost" aria-label="Move down" disabled={index === areas.length - 1}
+                    onClick={() => move(index, 1)}><ArrowDown size={15} /></Button>
+                  <Button type="button" size="sm" variant="ghost" aria-label="Remove" disabled={areas.length <= 1}
+                    onClick={() => setAreas((cur) => cur.filter((_, i) => i !== index))}><Trash2 size={15} /></Button>
+                </div>
+              ))}
+              <Button type="button" size="sm" variant="secondary" disabled={areas.length >= 30}
+                onClick={() => setAreas((cur) => [...cur, ''])}><Plus size={15} /> Add area</Button>
+            </div>
+          )}
         </Field>
         {error && <Alert tone="bad">{error}</Alert>}
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" loading={busy} disabled={!nameEn.trim() || !nameHi.trim() || !floorList.length}>Save</Button>
+          <Button type="submit" loading={busy} disabled={!nameEn.trim() || !nameHi.trim() || !cleanAreas.length}>Save</Button>
         </div>
       </form>
     </Dialog>

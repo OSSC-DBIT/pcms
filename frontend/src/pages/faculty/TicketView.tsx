@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Star } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Pencil, Star } from 'lucide-react'
 import { useAuth } from '../../App'
 import { Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, fmtTime } from '../../components/ticket'
 import { Alert, Button, Card, Field, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
@@ -26,6 +26,7 @@ export default function TicketView() {
   if (ticket === undefined) return <Spinner />
   if (ticket === null) return <p className="text-muted">{t('ticket.notFound')}</p>
   const mine = ticket.reporterId === user?.id
+  const editable = mine && (ticket.status === 'Submitted' || ticket.status === 'Triaged')
 
   async function act(fn: () => Promise<Ticket>) {
     setBusy(true); setError(null)
@@ -49,6 +50,12 @@ export default function TicketView() {
         {ticket.nextUpdateDue && !TERMINAL.includes(ticket.status) && ticket.status !== 'Resolved' && (
           <p className="mt-2 text-[13px] text-muted">{t('ticket.nextUpdate')} {fmtTime(ticket.nextUpdateDue)}</p>
         )}
+        {editable && (
+          <div className="mt-3">
+            <Link to={`/t/${ticket.id}/edit`}><Button variant="secondary" size="sm"><Pencil size={15} /> {t('ticket.edit')}</Button></Link>
+          </div>
+        )}
+        {mine && !editable && <p className="mt-3 text-[13px] text-muted">{t('ticket.editUnavailable')} Contact the facility manager if a correction is needed.</p>}
       </TicketSummaryCard>
 
       {error && <Alert tone="bad">{error}</Alert>}

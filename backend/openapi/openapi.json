@@ -1582,6 +1582,58 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "Edit Ticket",
+        "description": "The reporter can correct their request until facilities start work.",
+        "operationId": "edit_ticket_api_v1_tickets__ticket_id__patch",
+        "parameters": [
+          {
+            "name": "ticket_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ticket Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/tickets/{ticket_id}/rating": {
@@ -3077,6 +3129,18 @@
             "title": "Building",
             "default": ""
           },
+          "customLocation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customlocation"
+          },
           "floor": {
             "type": "string",
             "maxLength": 20,
@@ -3115,6 +3179,17 @@
           "building": {
             "type": "string",
             "title": "Building"
+          },
+          "customLocation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customlocation"
           },
           "floor": {
             "type": "string",
@@ -3988,11 +4063,6 @@
       },
       "TicketCreateIn": {
         "properties": {
-          "clientRequestId": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Clientrequestid"
-          },
           "categoryCode": {
             "type": "string",
             "maxLength": 40,
@@ -4003,7 +4073,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 80
+                "maxLength": 160
               },
               {
                 "type": "null"
@@ -4015,7 +4085,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 70
+                "maxLength": 120
               },
               {
                 "type": "null"
@@ -4070,15 +4140,20 @@
               }
             ],
             "title": "Altcontact"
+          },
+          "clientRequestId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Clientrequestid"
           }
         },
         "type": "object",
         "required": [
-          "clientRequestId",
           "categoryCode",
           "location",
           "title",
-          "impact"
+          "impact",
+          "clientRequestId"
         ],
         "title": "TicketCreateIn"
       },
@@ -4655,6 +4730,102 @@
           "updatedAt"
         ],
         "title": "TicketSummaryOut"
+      },
+      "TicketUpdateIn": {
+        "properties": {
+          "categoryCode": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Categorycode"
+          },
+          "subtype": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtype"
+          },
+          "otherDetail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Otherdetail"
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationIn"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "impact": {
+            "type": "string",
+            "enum": [
+              "safety",
+              "class_interrupted",
+              "multiple_areas",
+              "routine"
+            ],
+            "title": "Impact"
+          },
+          "accessNote": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accessnote"
+          },
+          "altContact": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altcontact"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categoryCode",
+          "location",
+          "title",
+          "impact",
+          "expectedVersion"
+        ],
+        "title": "TicketUpdateIn"
       },
       "TotpEnrolment": {
         "properties": {

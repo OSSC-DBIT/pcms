@@ -61,13 +61,17 @@ async def test_search_matches_title_token_and_room(client):
     fac = await _faculty(client)
     await fac.post(f"{API}/tickets", json=ticket_body(title="Broken chair in lecture room"))
     await fac.post(f"{API}/tickets", json=ticket_body(title="Leaking tap",
-                                                       location={"building": "CSE", "floor": "1", "room": "101"}))
+                                                       location={"building": "BLOCK_A", "floor": "1", "room": "101"}))
     await fac.post(f"{API}/tickets", json=ticket_body(title="Flickering light",
-                                                       location={"building": "ECE", "floor": "3", "room": "305"}))
+                                                       location={"building": "BLOCK_B", "floor": "3", "room": "305"}))
+    await fac.post(f"{API}/tickets", json=ticket_body(
+        title="Loose cable", location={"building": "CUSTOM", "customLocation": "Workshop annex",
+                                       "floor": "Ground", "room": "Store"}))
 
     r = (await fac.get(f"{API}/tickets", params={"scope": "mine", "search": "leaking"})).json()
     assert r["total"] == 1 and r["items"][0]["title"] == "Leaking tap"
     assert (await fac.get(f"{API}/tickets", params={"scope": "mine", "search": "101"})).json()["total"] == 1
+    assert (await fac.get(f"{API}/tickets", params={"scope": "mine", "search": "annex"})).json()["total"] == 1
 
     everything = (await fac.get(f"{API}/tickets", params={"scope": "mine"})).json()["items"]
     by_token = (await fac.get(f"{API}/tickets", params={"scope": "mine", "search": everything[0]["token"]})).json()
@@ -86,23 +90,23 @@ async def test_search_wildcards_are_escaped_not_matched(client):
 async def test_building_and_category_filters(client):
     fac = await _faculty(client)
     a = (await fac.post(f"{API}/tickets", json=ticket_body(
-        title="Leaking tap", location={"building": "CSE", "floor": "1", "room": "101"}))).json()
+        title="Leaking tap", location={"building": "BLOCK_A", "floor": "1", "room": "101"}))).json()
     await fac.post(f"{API}/tickets", json=ticket_body(
-        title="Flickering light", categoryCode="electrical", subtype=None,
-        location={"building": "ECE", "floor": "3", "room": "305"}))
+        title="Flickering light", categoryCode="mechanical", subtype="Fan / Light / Electrical",
+        location={"building": "BLOCK_B", "floor": "3", "room": "305"}))
 
     mc = new_client()
     try:
         mgr = await _manager(mc)
-        by_building = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "building": "CSE"})).json()
+        by_building = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "building": "BLOCK_A"})).json()
         assert by_building["total"] == 1 and by_building["items"][0]["id"] == a["id"]
 
-        by_category = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "category": "electrical"})).json()
+        by_category = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "category": "mechanical"})).json()
         assert by_category["total"] == 1
 
         # Both filters together narrow, never widen.
-        both = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "building": "CSE",
-                                                        "category": "electrical"})).json()
+        both = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "building": "BLOCK_A",
+                                                        "category": "mechanical"})).json()
         assert both["total"] == 0
     finally:
         await mc.aclose()

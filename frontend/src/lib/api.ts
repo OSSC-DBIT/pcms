@@ -61,6 +61,20 @@ export type TransitionAction =
   | { action: 'cancel'; reason: string }
   | { action: 'close_unverified'; reason: string }
 
+function reportBody(draft: Draft) {
+  return {
+    categoryCode: draft.categoryCode,
+    subtype: draft.subtype || null,
+    otherDetail: draft.otherDetail?.trim() || null,
+    location: draft.location,
+    title: draft.title.trim(),
+    description: draft.description.trim(),
+    impact: draft.impact,
+    accessNote: draft.accessNote?.trim() || null,
+    altContact: draft.altContact?.trim() || null,
+  }
+}
+
 export const api = {
   // ---------- session ----------
   async signIn(email: string, password: string): Promise<StepResult> {
@@ -121,24 +135,16 @@ export const api = {
   },
   /** Open reports at the same place and category; no identities or private notes. */
   findDuplicates(location: Location, categoryCode: string): Promise<{ token: string; title: string; status: Status }[]> {
+    if (location.building === 'CUSTOM') return Promise.resolve([])
     return request('GET', `/tickets/duplicates${qs({ category: categoryCode, building: location.building, room: location.room, outdoors: location.outdoors })}`)
   },
   /** Idempotent: the same requestKey and body returns the original ticket. */
   createTicket(draft: Draft, requestKey: string): Promise<CreatedTicket> {
-    return request('POST', '/tickets', {
-      body: {
-        clientRequestId: requestKey,
-        categoryCode: draft.categoryCode,
-        subtype: draft.subtype || null,
-        otherDetail: draft.otherDetail?.trim() || null,
-        location: draft.location,
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        impact: draft.impact,
-        accessNote: draft.accessNote?.trim() || null,
-        altContact: draft.altContact?.trim() || null,
-      },
-    })
+    return request('POST', '/tickets', { body: { clientRequestId: requestKey, ...reportBody(draft) } })
+  },
+  /** The reporter corrects their request until facilities start work. */
+  updateTicket(ticket: Pick<Ticket, 'id' | 'version'>, draft: Draft): Promise<Ticket> {
+    return request('PATCH', `/tickets/${ticket.id}`, { body: { expectedVersion: ticket.version, ...reportBody(draft) } })
   },
   transition(ticket: Pick<Ticket, 'id' | 'version'>, action: TransitionAction): Promise<Ticket> {
     return request('POST', `/tickets/${ticket.id}/transitions`, { body: { ...action, expectedVersion: ticket.version } })

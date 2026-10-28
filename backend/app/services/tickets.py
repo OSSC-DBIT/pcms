@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.errors import ApiError, conflict, not_found, validation
+from app.errors import ApiError, conflict, forbidden, not_found, validation
 from app.models.attachment import Attachment
 from app.models.catalog import Building, Category
 from app.models.proposal import Decision, Proposal, ProposalLine
@@ -30,7 +30,7 @@ from app.models.ticket import TERMINAL, Ticket, TicketComment, TicketEvent, Toke
 from app.models.user import User
 from app.schemas.ticket import (
     AttachmentOut, CommentOut, EventOut, LocationOut, ProposalLineIO, ProposalOut, RatingOut, TicketCreateIn,
-    TicketOut, TicketSummaryOut,
+    TicketOut, TicketRequestIn, TicketSummaryOut, TicketUpdateIn,
 )
 from app.security.deps import Principal
 from app.security.sessions import now
@@ -39,6 +39,11 @@ from app.services import audit, notify
 PRIORITY_FROM_IMPACT = {"safety": "P1", "class_interrupted": "P2", "multiple_areas": "P3", "routine": "P4"}
 # Gross next-update targets (plan 9.1). Service hours and holidays are a later refinement.
 NEXT_UPDATE = {"P1": timedelta(minutes=30), "P2": timedelta(hours=4), "P3": timedelta(days=2), "P4": timedelta(days=5)}
+
+# The building dropdown's last option. It is a sentinel, never a Building row.
+CUSTOM_BUILDING = "CUSTOM"
+# Reporters may correct their request until facilities start work.
+EDITABLE_STATUSES = ("Submitted", "Triaged")
 
 
 def ist_year() -> int:
@@ -105,7 +110,16 @@ def request_hash(body: TicketCreateIn) -> str:
     return hashlib.sha256(json.dumps(data, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
-async def _validate_create(db: AsyncSession, body: TicketCreateIn) -> tuple[Category, dict]:
+def _is_other_issue(cat: Category | None, subtype: str | None) -> bool:
+    if cat is not None and cat.code == "other" and not subtype:
+        return True
+    if not subtype:
+        return False
+    text = subtype.strip().lower()
+    return text == "other" or text.startswith("other ")
+
+
+async def _validate_request(db: AsyncSession, body: TicketRequestIn) -> tuple[Category, dict]:
     errors: dict[str, str] = {}
     cat = await db.scalar(select(Category).where(Category.code == body.category_code, Category.active))
     if cat is None:
@@ -116,30 +130,62 @@ async def _validate_create(db: AsyncSession, body: TicketCreateIn) -> tuple[Cate
     description = body.description.strip()
     if len(description) > 2000:
         errors["description"] = "Keep the details under 2000 characters."
-    if cat and body.subtype and body.subtype not in cat.subtypes_en:
-        errors["subtype"] = "Choose a part from the list."
+
     subtype = body.subtype
+    if cat is not None and cat.subtypes_en:
+        if subtype is None and cat.code != "other":
+            errors["subtype"] = "Choose an issue from the list."
+        elif subtype is not None and subtype not in cat.subtypes_en:
+            errors["subtype"] = "Choose an issue from the list."
+
     other = " ".join((body.other_detail or "").split())
-    if cat and (subtype == "Other" or (cat.code == "other" and not subtype)):
+    if _is_other_issue(cat, subtype):
         if len(other) < 3:
-            errors["otherDetail"] = "Say what it is (for example: water cooler, lift, notice board)."
-        subtype = f"Other: {other}"[:80]
+            errors["otherDetail"] = "Describe the issue briefly."
+        base = subtype or "Other"
+        subtype = f"{base}: {other}"[:160]
+
     loc = body.location
-    fields = {"outdoors": loc.outdoors, "landmark": (loc.landmark or "").strip() or None,
-              "building_code": None, "floor": None, "room": None}
-    if loc.outdoors:
-        if not fields["landmark"]:
-            errors["location"] = "Describe where outdoors (a nearby landmark)."
+    building = " ".join((loc.building or "").split())
+    custom = " ".join((loc.custom_location or "").split())
+    landmark = " ".join((loc.landmark or "").split()) or None
+    floor = " ".join((loc.floor or "").split())
+    room = " ".join((loc.room or "").split())
+    fields = {"outdoors": loc.outdoors, "landmark": landmark, "building_code": None,
+              "custom_location": None, "floor": None, "room": None}
+
+    if not building:
+        errors["location"] = "Choose a building from the list."
+    elif building == CUSTOM_BUILDING:
+        if len(custom) < 3:
+            errors["location"] = "Enter the building, block, or campus location."
+        if loc.outdoors:
+            if not landmark:
+                errors["location"] = "Describe where outdoors (a nearby landmark)."
+        else:
+            if not floor:
+                errors["location"] = "Give the floor or area."
+            elif not room:
+                errors["location"] = "Give the room or area."
+            fields.update(floor=floor[:20] or None, room=room[:60] or None)
+        fields["custom_location"] = custom[:120] or None
     else:
-        b = await db.scalar(select(Building).where(Building.code == loc.building, Building.active))
-        room = " ".join(loc.room.split())
+        b = await db.scalar(select(Building).where(Building.code == building, Building.active))
         if b is None:
             errors["location"] = "Choose a building from the list."
-        elif loc.floor not in b.floors:
+        elif custom:
+            errors["location"] = "Custom location is only used with Custom Location."
+        elif loc.outdoors:
+            if not landmark:
+                errors["location"] = "Describe where outdoors (a nearby landmark)."
+            fields["building_code"] = building
+        elif floor not in b.floors:
             errors["location"] = "Choose a floor of that building."
         elif not room:
             errors["location"] = "Give the room or area."
-        fields.update(building_code=loc.building, floor=loc.floor, room=room[:60])
+        else:
+            fields.update(building_code=building, floor=floor[:20], room=room[:60])
+
     if errors:
         raise validation("Some details need attention.", errors)
     return cat, {**fields, "title": title, "description": description, "subtype": subtype}
@@ -159,7 +205,7 @@ async def create_ticket(db: AsyncSession, p: Principal, body: TicketCreateIn) ->
             raise conflict("idempotency_conflict", "This request ID was already used for a different report.")
         return found, True
 
-    cat, fields = await _validate_create(db, body)
+    cat, fields = await _validate_request(db, body)
     priority = PRIORITY_FROM_IMPACT[body.impact]
     try:
         async with db.begin_nested():
@@ -188,6 +234,77 @@ async def create_ticket(db: AsyncSession, p: Principal, body: TicketCreateIn) ->
     await notify.notify_role(db, "facility_manager", t, template="new_ticket",
                              title=f"New {priority} report {t.token}", body=f"{cat.name_en}: {t.title}")
     return t, False
+
+
+# ---------- reporter edit ----------
+
+def _edit_unavailable_message(status: str) -> str:
+    if status in TERMINAL:
+        return ("This ticket can no longer be edited because the maintenance request has been closed. "
+                "Contact the facility manager if a correction is needed.")
+    return (f"This ticket can no longer be edited because work has started ({status}). "
+            "Contact the facility manager if a correction is needed.")
+
+
+def _edit_snapshot(t: Ticket, category_code: str | None) -> dict:
+    return {
+        "category": category_code,
+        "subtype": t.subtype,
+        "building": t.building_code,
+        "customLocation": t.custom_location,
+        "floor": t.floor,
+        "room": t.room,
+        "outdoors": t.outdoors,
+        "landmark": t.landmark,
+        "title": t.title,
+        "description": t.description,
+        "impact": t.impact,
+        "priority": t.priority,
+        "accessNote": t.access_note,
+        "altContact": t.alt_contact,
+    }
+
+
+async def update_ticket(db: AsyncSession, p: Principal, t: Ticket, body: TicketUpdateIn) -> Ticket:
+    """The reporter corrects their own request. The token and history never change."""
+    if t.reporter_id != p.user.id:
+        raise forbidden("Only the person who reported this can edit it.")
+    if t.status not in EDITABLE_STATUSES:
+        raise ApiError(409, "ticket_not_editable", _edit_unavailable_message(t.status))
+    check_version(t, body.expected_version)
+
+    cat, fields = await _validate_request(db, body)
+    old_cat = await db.get(Category, t.category_id)
+    before = _edit_snapshot(t, old_cat.code if old_cat else None)
+
+    t.category_id = cat.id
+    for key, value in fields.items():
+        setattr(t, key, value)
+    t.impact = body.impact
+    t.access_note = body.access_note
+    t.alt_contact = body.alt_contact
+    if t.status == "Submitted":
+        new_priority = PRIORITY_FROM_IMPACT[body.impact]
+        if new_priority != t.priority:
+            t.priority = new_priority
+            t.next_update_due = now() + NEXT_UPDATE[new_priority]
+
+    after = _edit_snapshot(t, cat.code)
+    changed = {key: (before[key], after[key]) for key in before if before[key] != after[key]}
+    if not changed:
+        return t
+
+    bump(t)
+    add_event(db, t, p.user, "Ticket details updated by the reporter",
+              detail="Changed: " + ", ".join(sorted(changed)), public=True)
+    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.updated_by_reporter",
+                 entity_type="ticket", entity_id=t.id,
+                 before={key: pair[0] for key, pair in changed.items()},
+                 after={key: pair[1] for key, pair in changed.items()})
+    await notify.notify_role(db, "facility_manager", t, template="reporter_edit",
+                             title=f"{t.token} updated by the reporter",
+                             body="The reporter corrected the ticket details.")
+    return t
 
 
 # ---------- serialisation ----------
@@ -251,8 +368,8 @@ def _summary_fields(t: Ticket, lk: Lookups, staff: bool) -> dict:
         id=t.id, token=t.token, reporter_id=t.reporter_id, reporter_name=lk.name(t.reporter_id),
         original_category_code=orig.code if orig else "", category_code=cat.code if cat else "",
         subtype=t.subtype,
-        location=LocationOut(building=t.building_code or "", floor=t.floor or "", room=t.room or "",
-                             outdoors=t.outdoors, landmark=t.landmark),
+        location=LocationOut(building=t.building_code or "", custom_location=t.custom_location,
+                             floor=t.floor or "", room=t.room or "", outdoors=t.outdoors, landmark=t.landmark),
         title=t.title, impact=t.impact, priority=t.priority, flag=t.flag, assessments=t.assessments,
         status=t.status, version=t.version, created_at=t.created_at, updated_at=t.updated_at,
         next_update_due=t.next_update_due if t.status not in TERMINAL else None,

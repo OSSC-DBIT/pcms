@@ -62,9 +62,12 @@ class Ticket(Base):
     reporter_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=False)
     original_category_id: Mapped[int] = mapped_column(Integer, ForeignKey("category.id"), nullable=False)
     category_id: Mapped[int] = mapped_column(Integer, ForeignKey("category.id"), nullable=False)
-    subtype: Mapped[str | None] = mapped_column(String(80))
+    subtype: Mapped[str | None] = mapped_column(String(160))
 
     building_code: Mapped[str | None] = mapped_column(String(20))
+    # Free text used only when the reporter chooses Custom Location. Kept apart
+    # from building_code so a custom place never becomes a permanent building.
+    custom_location: Mapped[str | None] = mapped_column(String(120))
     floor: Mapped[str | None] = mapped_column(String(20))
     room: Mapped[str | None] = mapped_column(String(60))
     outdoors: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

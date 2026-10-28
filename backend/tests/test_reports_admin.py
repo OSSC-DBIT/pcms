@@ -60,25 +60,25 @@ async def test_catalogs_hides_retired_but_admin_can_still_see_them(client):
     o = await sign_in(client, "admin@dbit.edu")
 
     active_before = (await client.get(f"{API}/catalogs")).json()
-    assert "phone" in {c["code"] for c in active_before["categories"]}
+    assert "civil" in {c["code"] for c in active_before["categories"]}
 
-    assert (await o.patch(f"{API}/admin/categories/phone", json={"active": False})).status_code == 204
+    assert (await o.patch(f"{API}/admin/categories/civil", json={"active": False})).status_code == 204
 
     active = (await client.get(f"{API}/catalogs")).json()
-    assert "phone" not in {c["code"] for c in active["categories"]}
+    assert "civil" not in {c["code"] for c in active["categories"]}
 
     # The admin view still shows it, flagged inactive, so it can be restored.
     for_admin = (await client.get(f"{API}/catalogs", params={"includeInactive": True})).json()
-    retired = next(c for c in for_admin["categories"] if c["code"] == "phone")
+    retired = next(c for c in for_admin["categories"] if c["code"] == "civil")
     assert retired["active"] is False
 
     # Every row now carries active, for both kinds.
     assert all("active" in c for c in active["categories"])
     assert all("active" in b for b in active["buildings"])
 
-    assert (await o.patch(f"{API}/admin/categories/phone", json={"active": True})).status_code == 204
+    assert (await o.patch(f"{API}/admin/categories/civil", json={"active": True})).status_code == 204
     back = (await client.get(f"{API}/catalogs")).json()
-    assert "phone" in {c["code"] for c in back["categories"]}
+    assert "civil" in {c["code"] for c in back["categories"]}
 
 
 async def test_last_active_category_cannot_be_retired(client):
@@ -89,23 +89,23 @@ async def test_last_active_category_cannot_be_retired(client):
     await make_user("admin@dbit.edu", "ossc", "Super Admin")
     o = await sign_in(client, "admin@dbit.edu")
     async with sessionmaker()() as s:
-        await s.execute(update(Category).values(active=False).where(Category.code != "carpentry"))
+        await s.execute(update(Category).values(active=False).where(Category.code != "civil"))
         await s.commit()
-    r = await o.patch(f"{API}/admin/categories/carpentry", json={"active": False})
+    r = await o.patch(f"{API}/admin/categories/civil", json={"active": False})
     assert r.status_code == 409 and r.json()["code"] == "last_category"
 
 
 async def test_building_rename_and_retire(client):
     await make_user("admin@dbit.edu", "ossc", "Super Admin")
     o = await sign_in(client, "admin@dbit.edu")
-    r = await o.patch(f"{API}/admin/buildings/CSE", json={"nameEn": "Computing Block", "nameHi": "कंप्यूटिंग ब्लॉक"})
+    r = await o.patch(f"{API}/admin/buildings/BLOCK_A", json={"nameEn": "Computing Block", "nameHi": "कंप्यूटिंग ब्लॉक"})
     assert r.status_code == 204
     buildings = (await client.get(f"{API}/catalogs")).json()["buildings"]
-    assert next(b for b in buildings if b["code"] == "CSE")["nameEn"] == "Computing Block"
+    assert next(b for b in buildings if b["code"] == "BLOCK_A")["nameEn"] == "Computing Block"
 
-    assert (await o.patch(f"{API}/admin/buildings/CSE", json={"active": False})).status_code == 204
-    assert "CSE" not in {b["code"] for b in (await client.get(f"{API}/catalogs")).json()["buildings"]}
-    assert "CSE" in {b["code"] for b in (await client.get(f"{API}/catalogs", params={"includeInactive": True})).json()["buildings"]}
+    assert (await o.patch(f"{API}/admin/buildings/BLOCK_A", json={"active": False})).status_code == 204
+    assert "BLOCK_A" not in {b["code"] for b in (await client.get(f"{API}/catalogs")).json()["buildings"]}
+    assert "BLOCK_A" in {b["code"] for b in (await client.get(f"{API}/catalogs", params={"includeInactive": True})).json()["buildings"]}
 
     assert (await o.patch(f"{API}/admin/buildings/nope", json={"nameEn": "Nothing"})).status_code == 404
 
@@ -136,8 +136,8 @@ async def test_report_shows_the_fields_the_dashboard_renders(client):
         assert r["days"] == 30 and r["generatedAt"]
 
         # Filters narrow the same numbers.
-        assert (await mgr.get(f"{API}/reports", params={"building": "ECE"})).json()["openByStatus"] == {}
-        assert (await mgr.get(f"{API}/reports", params={"category": "carpentry"})).json()["openByStatus"] == {"Triaged": 1}
+        assert (await mgr.get(f"{API}/reports", params={"building": "BLOCK_B"})).json()["openByStatus"] == {}
+        assert (await mgr.get(f"{API}/reports", params={"category": "civil"})).json()["openByStatus"] == {"Triaged": 1}
     finally:
         await mc.aclose()
 

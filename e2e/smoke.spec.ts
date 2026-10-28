@@ -18,7 +18,7 @@ async function pngFromCanvas(page: Page): Promise<Buffer> {
 async function signIn(page: Page, email: string) {
   await page.goto('/login')
   await page.getByLabel('College email').fill(email)
-  await page.getByLabel('Password').fill(PASSWORD)
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD)
   await page.getByRole('button', { name: 'Sign in' }).click()
 }
 
@@ -45,11 +45,11 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
   await shot('1-home')
 
   await page.goto('/report')
-  await page.getByRole('radio', { name: 'Carpentry' }).click()
-  await page.getByRole('radiogroup', { name: 'Which part?' }).getByRole('radio', { name: 'Other' }).click()
+  await page.getByRole('radio', { name: 'Civil' }).click()
+  await page.getByLabel('Which part?').selectOption('Other Civil Issue')
   await expect(page.getByLabel('What is it?')).toBeVisible()
   await page.getByLabel('What is it?').fill('Bench')
-  await page.getByLabel('Building').selectOption('CSE')
+  await page.getByLabel('Building').selectOption('BLOCK_A')
   await page.getByLabel('Floor').selectOption('2')
   await page.getByLabel('Room or area').fill('203')
   await page.getByLabel('Short title').fill('Broken bench near the window')
@@ -59,12 +59,12 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
   await page.getByRole('button', { name: 'Send report' }).click()
 
   const token = page.getByTestId('receipt-token')
-  await expect(token).toHaveText(/^C\d{2}-\d{4,}$/)
+  await expect(token).toHaveText(/^V\d{2}-\d{4,}$/)
   const tokenText = (await token.textContent())!.trim()
   await shot('3-receipt')
 
   await page.getByRole('link', { name: 'View ticket' }).click()
-  await expect(page.getByText('Other: Bench')).toBeVisible()
+  await expect(page.getByText('Other Civil Issue: Bench')).toBeVisible()
   await expectPhotoLoaded(page, 'bench.jpg')
   await shot('4-ticket-faculty')
   await signOut(page)
@@ -118,16 +118,16 @@ test('approved critical cost can be finished after the facility manager reloads'
   await signIn(page, 'smoke-faculty@dbit.edu')
   await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
   await page.goto('/report')
-  await page.getByRole('radio', { name: 'Carpentry' }).click()
-  await page.getByRole('radiogroup', { name: 'Which part?' }).getByRole('radio', { name: 'Other' }).click()
+  await page.getByRole('radio', { name: 'Civil' }).click()
+  await page.getByLabel('Which part?').selectOption('Other Civil Issue')
   await page.getByLabel('What is it?').fill('Desk')
-  await page.getByLabel('Building').selectOption('CSE')
+  await page.getByLabel('Building').selectOption('BLOCK_A')
   await page.getByLabel('Floor').selectOption('2')
   await page.getByLabel('Room or area').fill('204')
   await page.getByLabel('Short title').fill(title)
   await page.getByRole('button', { name: 'Send report' }).click()
   const token = page.getByTestId('receipt-token')
-  await expect(token).toHaveText(/^C\d{2}-\d{4,}$/)
+  await expect(token).toHaveText(/^V\d{2}-\d{4,}$/)
   const tokenText = (await token.textContent())!.trim()
   await signOut(page)
 
@@ -170,6 +170,35 @@ test('approved critical cost can be finished after the facility manager reloads'
   await page.getByRole('button', { name: 'Mark as fixed' }).click()
   await expect(page.getByText('Waiting for the reporter to check the work')).toBeVisible()
   await signOut(page)
+})
+
+test('faculty edits a submitted report before work starts', async ({ page }) => {
+  const title = `Noisy fan ${Date.now()}`
+  const updated = `${title} updated`
+
+  await signIn(page, 'smoke-faculty@dbit.edu')
+  await expect(page.getByRole('heading', { name: /Hello/ })).toBeVisible()
+  await page.goto('/report')
+  await page.getByRole('radio', { name: 'Mechanical' }).click()
+  await page.getByLabel('Which part?').selectOption('Fan / Light / Electrical')
+  await page.getByLabel('Building').selectOption('BLOCK_B')
+  await page.getByLabel('Floor').selectOption('1')
+  await page.getByLabel('Room or area').fill('101')
+  await page.getByLabel('Short title').fill(title)
+  await page.getByRole('button', { name: 'Send report' }).click()
+
+  const token = page.getByTestId('receipt-token')
+  await expect(token).toHaveText(/^M\d{2}-\d{4,}$/)
+  await page.getByRole('link', { name: 'View ticket' }).click()
+  await page.getByRole('link', { name: 'Edit report' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Edit report' })).toBeVisible()
+  await expect(page.getByLabel('Short title')).toHaveValue(title)
+  await page.getByLabel('Short title').fill(updated)
+  await page.getByRole('button', { name: 'Save changes' }).click()
+
+  await expect(page.getByText(updated).first()).toBeVisible()
+  await expect(page.getByText('Ticket details updated by the reporter').first()).toBeVisible()
 })
 
 test('landing page names DBIT and the club', async ({ page }) => {

@@ -337,10 +337,15 @@ async def edit_category(code: str, body: CategoryPatch, p: Principal = Depends(r
 
 @router.post("/admin/buildings", status_code=204)
 async def add_building(body: BuildingIn, p: Principal = Depends(require("admin.locations")), db: AsyncSession = Depends(get_session)) -> Response:
+    if body.code.upper() == "CUSTOM":
+        raise validation("CUSTOM is reserved for the Custom Location option.", {"code": "Reserved code"})
     if await db.scalar(select(Building.id).where(Building.code == body.code)):
         raise conflict("building_exists", "That building code is already used.")
+    floors = _clean_list(body.floors)
+    if not floors:
+        raise validation("Give at least one floor or area.", {"floors": "Required"})
     sort = (await db.scalar(select(func.max(Building.sort_order))) or 0) + 1
-    db.add(Building(code=body.code, name_en=body.name_en.strip(), name_hi=body.name_hi.strip(), floors=_clean_list(body.floors),
+    db.add(Building(code=body.code, name_en=body.name_en.strip(), name_hi=body.name_hi.strip(), floors=floors,
                     active=True, sort_order=sort))
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="building.created", entity_type="building",
                  entity_id=body.code, after={"name": body.name_en, "floors": body.floors})
@@ -351,6 +356,8 @@ async def add_building(body: BuildingIn, p: Principal = Depends(require("admin.l
 @router.patch("/admin/buildings/{code}", status_code=204)
 async def edit_building(code: str, body: BuildingPatch, p: Principal = Depends(require("admin.locations")),
                         db: AsyncSession = Depends(get_session)) -> Response:
+    if code.upper() == "CUSTOM":
+        raise not_found()
     b = await db.scalar(select(Building).where(Building.code == code).with_for_update())
     if b is None:
         raise not_found()
@@ -360,7 +367,10 @@ async def edit_building(code: str, body: BuildingPatch, p: Principal = Depends(r
         if v is not None:
             setattr(b, f, v.strip() if isinstance(v, str) else v)
     if body.floors is not None:
-        b.floors = _clean_list(body.floors)
+        floors = _clean_list(body.floors)
+        if not floors:
+            raise validation("Give at least one floor or area.", {"floors": "Required"})
+        b.floors = floors
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="building.updated", entity_type="building",
                  entity_id=code, before=before, after={"name_en": b.name_en, "floors": b.floors, "active": b.active})
     await db.commit()

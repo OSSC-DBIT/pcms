@@ -12,7 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from app.db import sessionmaker
 from app.models.catalog import Building, Category
 
-CATEGORIES = [
+LEGACY_CATEGORIES = [
     ("carpentry", "C", "Carpentry", "बढ़गीरी", ["Chair", "Desk", "Door", "Window", "Cupboard", "Other"], ["कुर्सी", "मेज़", "दरवाज़ा", "खिड़की", "अलमारी", "अन्य"]),
     ("plumbing", "P", "Plumbing", "प्लंबिंग", ["Tap", "Drain", "Leak", "Tank", "Other"], ["नल", "नाली", "लीक", "टैंक", "अन्य"]),
     ("internet", "I", "Internet", "इंटरनेट", ["Wi-Fi", "LAN port", "Router", "Other"], ["वाई-फ़ाई", "LAN पोर्ट", "राउटर", "अन्य"]),
@@ -29,7 +29,7 @@ CATEGORIES = [
 # and facilities but not a building/room register, so these places follow the
 # departments and facilities and their floors are provisional. Facilities
 # confirms the real list in the admin portal before the pilot (plan 2.1).
-BUILDINGS = [
+LEGACY_BUILDINGS = [
     ("ADMIN", "Main Block (Administration)", "मुख्य भवन (प्रशासन)", ["Ground", "1", "2", "3"]),
     ("CSE", "Computer Science & Engineering", "कंप्यूटर साइंस एवं इंजीनियरिंग", ["Ground", "1", "2", "3"]),
     ("ISE", "Information Science & Engineering", "इन्फ़ॉर्मेशन साइंस एवं इंजीनियरिंग", ["Ground", "1", "2", "3"]),
@@ -49,12 +49,67 @@ BUILDINGS = [
 ]
 
 
+CATEGORIES = [
+    ("it_services", "S", "IT Services", "आईटी सेवाएं", [
+        "Computer / Laptop", "Wi-Fi / Internet", "Projector", "Printer / Scanner",
+        "Smart Board / Display", "Software / Login Issue", "Network / LAN", "Other IT Issue",
+    ], [
+        "कंप्यूटर / लैपटॉप", "वाई-फाई / इंटरनेट", "प्रोजेक्टर", "प्रिंटर / स्कैनर",
+        "स्मार्ट बोर्ड / डिस्प्ले", "सॉफ्टवेयर / लॉगिन समस्या", "नेटवर्क / लैन", "अन्य आईटी समस्या",
+    ]),
+    ("civil", "V", "Civil", "सिविल", [
+        "Desk / Chair / Furniture", "Door / Window / Lock", "Wall / Ceiling / Floor",
+        "Plumbing / Water Leak", "Toilet / Washroom", "Roof / Waterproofing", "Other Civil Issue",
+    ], [
+        "डेस्क / कुर्सी / फर्नीचर", "दरवाजा / खिड़की / ताला", "दीवार / छत / फर्श",
+        "प्लंबिंग / पानी का रिसाव", "शौचालय / वॉशरूम", "छत / वॉटरप्रूफिंग", "अन्य सिविल समस्या",
+    ]),
+    ("mechanical", "M", "Mechanical", "मैकेनिकल", [
+        "Fan / Light / Electrical", "AC / Cooling", "Lab Equipment", "Machine / Tool",
+        "Other Mechanical Issue",
+    ], [
+        "पंखा / लाइट / बिजली", "एसी / कूलिंग", "लैब उपकरण", "मशीन / उपकरण",
+        "अन्य मैकेनिकल समस्या",
+    ]),
+]
+
+ADMIN_AREAS = [
+    "Ground Floor", "First Floor", "Second Floor", "Administration Office",
+    "Principal's Office", "Faculty Rooms", "Conference Room", "Other Areas",
+]
+
+BUILDINGS = [
+    ("BLOCK_A", "Block A", "ब्लॉक ए", ["Ground", "1", "2", "3"]),
+    ("BLOCK_B", "Block B", "ब्लॉक बी", ["Ground", "1", "2", "3"]),
+    ("MBA", "PG Block (MBA & Research)", "पीजी ब्लॉक (एमबीए और रिसर्च)", ["Ground", "1", "2"]),
+    ("PU", "PU Block", "पीयू ब्लॉक", ["Ground", "1", "2", "3"]),
+    ("HOSTEL", "Hostel", "हॉस्टल", ["Ground", "1", "2", "3"]),
+    ("ADMIN_BLOCK", "Administrator Block", "प्रशासक ब्लॉक", ADMIN_AREAS),
+]
+
+
 async def seed_catalogs(session) -> None:
+    for i, (code, letter, en, hi, sub_en, sub_hi) in enumerate(LEGACY_CATEGORIES):
+        await session.execute(
+            insert(Category)
+            .values(code=code, letter=letter, name_en=en, name_hi=hi,
+                    subtypes_en=sub_en, subtypes_hi=sub_hi, active=False, sort_order=100 + i)
+            .on_conflict_do_nothing(index_elements=["code"])
+        )
     for i, (code, letter, en, hi, sub_en, sub_hi) in enumerate(CATEGORIES):
         await session.execute(
             insert(Category)
             .values(code=code, letter=letter, name_en=en, name_hi=hi,
                     subtypes_en=sub_en, subtypes_hi=sub_hi, active=True, sort_order=i)
+            .on_conflict_do_nothing(index_elements=["code"])
+        )
+    active_codes = {row[0] for row in BUILDINGS}
+    for i, (code, en, hi, floors) in enumerate(LEGACY_BUILDINGS):
+        if code in active_codes:
+            continue
+        await session.execute(
+            insert(Building)
+            .values(code=code, name_en=en, name_hi=hi, floors=floors, active=False, sort_order=100 + i)
             .on_conflict_do_nothing(index_elements=["code"])
         )
     for i, (code, en, hi, floors) in enumerate(BUILDINGS):
