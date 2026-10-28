@@ -19,7 +19,7 @@ CAPABILITIES: Final = frozenset({
     "ticket.create", "ticket.track", "ticket.verify",
     "queue.view", "ticket.triage", "ticket.assign", "ticket.assess", "ticket.escalate", "ticket.close",
     "cost.approve",
-    "admin.users", "admin.catalogs", "admin.locations", "admin.settings", "admin.audit",
+    "admin.users", "admin.catalogs", "admin.locations", "admin.audit",
 })
 
 ROLE_CAPABILITIES: Final[dict[str, tuple[str, ...]]] = {

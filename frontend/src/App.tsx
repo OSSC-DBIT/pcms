@@ -1,6 +1,7 @@
 import { createContext, lazy, Suspense, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import AppShell from './components/AppShell'
+import ErrorBoundary from './components/ErrorBoundary'
 import ReloadPrompt from './components/ReloadPrompt'
 import { Button, Spinner } from './components/ui'
 import { api, clearLocalData } from './lib/api'
@@ -86,10 +87,19 @@ function AuthProvider({ children }: { children: ReactNode }) {
 /** UI gate only; the server checks every permission on every request. */
 function Gate({ children, cap, anyCap, faculty }: { children: ReactNode; cap?: Capability; anyCap?: Capability[]; faculty?: boolean }) {
   const { user, can } = useAuth()
+  const { pathname } = useLocation()
   if (!user) return <Navigate to="/login" replace />
   if (faculty && user.role !== 'faculty') return <Navigate to={homeFor(user)} replace />
   if ((cap && !can(cap)) || (anyCap && !anyCap.some(can))) return <Navigate to={homeFor(user)} replace />
-  return <AppShell><Suspense fallback={<Spinner />}>{children}</Suspense></AppShell>
+  // The boundary sits inside AppShell so a broken screen keeps the navigation
+  // usable, and resets on navigation so leaving the screen clears the error.
+  return (
+    <AppShell>
+      <ErrorBoundary key={pathname}>
+        <Suspense fallback={<Spinner />}>{children}</Suspense>
+      </ErrorBoundary>
+    </AppShell>
+  )
 }
 
 function AppRoutes() {
@@ -126,7 +136,11 @@ function LegacyTicket() {
 export default function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      {/* Outer boundary covers the ungated screens (landing, sign-in) and the
+          AppShell itself; Gate adds a per-screen one inside the shell. */}
+      <ErrorBoundary>
+        <AppRoutes />
+      </ErrorBoundary>
       <ReloadPrompt />
     </AuthProvider>
   )

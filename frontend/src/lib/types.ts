@@ -12,7 +12,7 @@ export type Capability =
   | 'ticket.create' | 'ticket.track' | 'ticket.verify'
   | 'queue.view' | 'ticket.triage' | 'ticket.assign' | 'ticket.assess' | 'ticket.escalate' | 'ticket.close'
   | 'cost.approve'
-  | 'admin.users' | 'admin.catalogs' | 'admin.locations' | 'admin.settings' | 'admin.audit'
+  | 'admin.users' | 'admin.catalogs' | 'admin.locations' | 'admin.audit'
 
 /** What the sign-in flow needs next. Protected screens work only once this is 'done'. */
 export type SignInStep = 'totp' | 'change_password' | 'enrol_totp' | 'done'
