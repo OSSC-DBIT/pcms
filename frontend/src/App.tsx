@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import AppShell from './components/AppShell'
 import ReloadPrompt from './components/ReloadPrompt'
 import { Button, Spinner } from './components/ui'
+import { useT } from './lib/i18n'
 import { api, clearLocalData } from './lib/api'
 import { loadCatalogs } from './lib/catalog'
 import type { Capability, User } from './lib/types'
@@ -44,6 +45,7 @@ export function homeFor(u: User): string {
 }
 
 function AuthProvider({ children }: { children: ReactNode }) {
+  const { t } = useT()
   const [status, setStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [user, setUser] = useState<User | null>(null)
 
@@ -74,9 +76,9 @@ function AuthProvider({ children }: { children: ReactNode }) {
   if (status === 'error') {
     return (
       <main className="flex min-h-dvh flex-col items-center justify-center gap-3 px-6 text-center">
-        <p className="text-[17px] font-semibold">PCMS is not reachable</p>
-        <p className="text-[14px] text-muted">Check that you are on the campus network, then try again.</p>
-        <Button onClick={() => void boot()}>Try again</Button>
+        <p className="text-[17px] font-semibold">{t('app.offlineTitle')}</p>
+        <p className="text-[14px] text-muted">{t('app.offlineBody')}</p>
+        <Button onClick={() => void boot()}>{t('action.retry')}</Button>
       </main>
     )
   }
@@ -101,6 +103,7 @@ function AppRoutes() {
       <Route path="/home" element={<Gate faculty><Home /></Gate>} />
       <Route path="/report" element={<Gate cap="ticket.create"><Report /></Gate>} />
       <Route path="/tickets" element={<Gate><Tickets /></Gate>} />
+      <Route path="/t/:id/edit" element={<Gate cap="ticket.create"><Report /></Gate>} />
       <Route path="/t/:id" element={<Gate><TicketView /></Gate>} />
       <Route path="/receipt/:id" element={<Gate><Receipt /></Gate>} />
       <Route path="/settings" element={<Gate><Settings /></Gate>} />

@@ -61,7 +61,7 @@ function Notifications() {
           <>
             <Button variant="secondary" loading={busy} onClick={() => run(disablePush)}>{t('settings.notif.disable')}</Button>
             <Button variant="secondary" onClick={async () => {
-              try { const r = await sendTestPush(); setMsg(r.sent ? 'Test sent. It should appear in a few seconds.' : 'The test could not be delivered.') } catch (e) { setMsg(errorMessage(e)) }
+              try { const r = await sendTestPush(); setMsg(r.sent ? t('settings.notif.testSent') : t('settings.notif.testFailed')) } catch (e) { setMsg(errorMessage(e)) }
             }}>{t('settings.notif.test')}</Button>
           </>
         )}

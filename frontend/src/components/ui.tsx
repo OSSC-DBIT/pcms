@@ -102,6 +102,7 @@ export function Input({ className, invalid, ...p }: InputHTMLAttributes<HTMLInpu
 }
 
 export function PasswordInput({ className, invalid, ...p }: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+  const { t } = useT()
   const [show, setShow] = useState(false)
   return (
     <div className="relative">
@@ -115,7 +116,7 @@ export function PasswordInput({ className, invalid, ...p }: InputHTMLAttributes<
         type="button"
         tabIndex={-1}
         onClick={() => setShow((v) => !v)}
-        aria-label={show ? 'Hide password' : 'Show password'}
+        aria-label={show ? t('login.hidePassword') : t('login.showPassword')}
         className="absolute right-0 top-0 flex h-11 w-11 items-center justify-center text-muted transition-colors hover:text-fg focus:outline-none"
       >
         {show ? <EyeOff size={18} aria-hidden /> : <Eye size={18} aria-hidden />}
@@ -218,8 +219,9 @@ export function Alert({ tone = 'info', title, children, action }: { tone?: Tone;
   )
 }
 
-export function Spinner({ label = 'Loading' }: { label?: string }) {
-  return <div role="status" className="flex items-center justify-center gap-2 py-10 text-[14px] text-muted"><Loader2 size={18} className="animate-spin" /> {label}...</div>
+export function Spinner({ label }: { label?: string }) {
+  const { t } = useT()
+  return <div role="status" className="flex items-center justify-center gap-2 py-10 text-[14px] text-muted"><Loader2 size={18} className="animate-spin" /> {label ?? t('common.loading')}...</div>
 }
 
 export function Skeleton({ className }: { className?: string }) {
@@ -264,6 +266,7 @@ export function Badge({ children, tone }: { children: ReactNode; tone?: Tone }) 
 
 /** Accessible modal built on <dialog>: focus is trapped and Escape closes it. */
 export function Dialog({ open, onClose, title, children, footer, wide }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  const { t } = useT()
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const d = ref.current
@@ -278,7 +281,7 @@ export function Dialog({ open, onClose, title, children, footer, wide }: { open:
         <div className="p-5">
           <div className="mb-3 flex items-start justify-between gap-3">
             <h2 className="text-[17px] font-semibold">{title}</h2>
-            <button type="button" onClick={onClose} aria-label="Close" className="-mr-2 -mt-1 flex h-9 w-9 items-center justify-center rounded-md hover:bg-subtle"><X size={18} /></button>
+            <button type="button" onClick={onClose} aria-label={t('action.close')} className="-mr-2 -mt-1 flex h-9 w-9 items-center justify-center rounded-md hover:bg-subtle"><X size={18} /></button>
           </div>
           {children}
           {footer && <div className="mt-5 flex flex-wrap justify-end gap-2">{footer}</div>}

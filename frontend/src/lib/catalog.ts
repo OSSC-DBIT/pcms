@@ -4,15 +4,15 @@
  * are synchronous.
  *
  * Two caches, on purpose:
- *   - the active list, which is what the report form and every lookup use, so a
- *     retired type can never be picked for a new report;
- *   - the full list, loaded only by the administration screens so a retired row
- *     stays visible and can be restored instead of silently disappearing.
+ *   - the active list, which is what the report form offers, so a retired type
+ *     can never be picked for a new report;
+ *   - the full list, so old tickets keep their retired type or place name instead
+ *     of showing a raw code. Administration screens also use it to restore rows.
  *
- * Old tickets keep rendering either way: `category()` falls back to a placeholder
- * for a code that is not in the active list.
+ * `category()` falls back to a placeholder only when even the full list is missing.
  */
 import { request } from './http'
+import type { Lang } from './i18n'
 import type { Building, Category } from './types'
 
 interface Catalogs { categories: Category[]; buildings: Building[] }
@@ -25,19 +25,13 @@ async function fetchCatalogs(includeInactive: boolean): Promise<Catalogs> {
   return request<Catalogs>('GET', includeInactive ? '/catalogs?includeInactive=true' : '/catalogs')
 }
 
-/** Load the active list. Called once after sign-in and after a catalog change. */
+/** Load the active list and the full list. Called once after sign-in and after a catalog change. */
 export async function loadCatalogs(force = false): Promise<void> {
   if (loaded && !force) return
-  active = await fetchCatalogs(false)
+  const [nextActive, nextAll] = await Promise.all([fetchCatalogs(false), fetchCatalogs(true)])
+  active = nextActive
+  all = nextAll
   loaded = true
-  // The active list changed, so anything derived from the full list is stale too.
-  all = null
-}
-
-/** Load the full list including retired rows. Administration screens only. */
-export async function loadAllCatalogs(force = false): Promise<void> {
-  if (all !== null && !force) return
-  all = await fetchCatalogs(true)
 }
 
 export function resetCatalogs() {
@@ -58,10 +52,40 @@ export const allBuildings = (): Building[] => all?.buildings ?? []
 export function category(code: string): Category {
   return active.categories.find((c) => c.code === code)
     ?? all?.categories.find((c) => c.code === code)
-    ?? { code, letter: '?', nameEn: code, nameHi: code, subtypesEn: [], subtypesHi: [], active: false }
+    ?? { code, letter: '?', nameEn: code, nameHi: code, nameKn: code, subtypesEn: [], subtypesHi: [], subtypesKn: [], active: false }
 }
 
 export function building(code: string): Building | undefined {
   return active.buildings.find((b) => b.code === code)
     ?? all?.buildings.find((b) => b.code === code)
+}
+
+/** Display name for a category, falling back to English when a translation is blank. */
+export function categoryName(c: Category, lang: Lang): string {
+  if (lang === 'hi') return c.nameHi || c.nameEn
+  if (lang === 'kn') return c.nameKn || c.nameEn
+  return c.nameEn
+}
+
+/** Display name for a building, falling back to English when a translation is blank. */
+export function buildingName(b: Building, lang: Lang): string {
+  if (lang === 'hi') return b.nameHi || b.nameEn
+  if (lang === 'kn') return b.nameKn || b.nameEn
+  return b.nameEn
+}
+
+/** A category's part labels, paired by index with the canonical English values. */
+export function categoryParts(c: Category, lang: Lang): { value: string; label: string }[] {
+  return c.subtypesEn.map((value, i) => ({
+    value,
+    label: lang === 'hi' ? c.subtypesHi[i] || value : lang === 'kn' ? c.subtypesKn[i] || value : value,
+  }))
+}
+
+/** A building's department or area labels, paired by index with the stored values. */
+export function buildingDepartments(b: Building, lang: Lang): { value: string; label: string }[] {
+  return b.departments.map((value, i) => ({
+    value,
+    label: lang === 'kn' ? b.departmentsKn[i] || value : value,
+  }))
 }

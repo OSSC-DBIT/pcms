@@ -777,6 +777,23 @@
             }
           },
           {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
             "name": "category",
             "in": "query",
             "required": false,
@@ -818,6 +835,110 @@
         }
       }
     },
+    "/api/v1/reports/annual": {
+      "get": {
+        "tags": [
+          "reports",
+          "admin"
+        ],
+        "summary": "Annual Report",
+        "description": "Monthly aggregates for one calendar year, computed in SQL, never in the browser.",
+        "operationId": "annual_report_api_v1_reports_annual_get",
+        "parameters": [
+          {
+            "name": "year",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 2100,
+                  "minimum": 2000
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Year"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AnnualOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/reports/tickets.csv": {
       "get": {
         "tags": [
@@ -837,6 +958,249 @@
               "minimum": 1,
               "default": 90,
               "title": "Days"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/export.xlsx": {
+      "get": {
+        "tags": [
+          "reports",
+          "admin"
+        ],
+        "summary": "Export Xlsx",
+        "description": "A styled multi-sheet workbook of the same filtered dataset as the CSV.",
+        "operationId": "export_xlsx_api_v1_reports_export_xlsx_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 731,
+              "minimum": 1,
+              "default": 90,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/export.pdf": {
+      "get": {
+        "tags": [
+          "reports",
+          "admin"
+        ],
+        "summary": "Export Pdf",
+        "description": "A management-ready sheet of the dashboard KPIs, the year's monthly chart and period breakdowns.",
+        "operationId": "export_pdf_api_v1_reports_export_pdf_get",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 731,
+              "minimum": 1,
+              "default": 90,
+              "title": "Days"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
             }
           }
         ],
@@ -1582,6 +1946,58 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "Edit Ticket",
+        "description": "The reporter can correct their request until facilities start work.",
+        "operationId": "edit_ticket_api_v1_tickets__ticket_id__patch",
+        "parameters": [
+          {
+            "name": "ticket_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ticket Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TicketUpdateIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TicketOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/tickets/{ticket_id}/rating": {
@@ -2094,6 +2510,51 @@
         ],
         "title": "AdminUserOut"
       },
+      "AnnualOut": {
+        "properties": {
+          "year": {
+            "type": "integer",
+            "title": "Year"
+          },
+          "months": {
+            "items": {
+              "$ref": "#/components/schemas/MonthPoint"
+            },
+            "type": "array",
+            "title": "Months"
+          },
+          "previousCreated": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Previouscreated"
+          },
+          "previousResolved": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Previousresolved"
+          },
+          "years": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Years"
+          }
+        },
+        "type": "object",
+        "required": [
+          "year",
+          "months",
+          "previousCreated",
+          "previousResolved",
+          "years"
+        ],
+        "title": "AnnualOut"
+      },
       "AssessmentIn": {
         "properties": {
           "assessments": {
@@ -2357,6 +2818,12 @@
             "minLength": 1,
             "title": "Namehi"
           },
+          "nameKn": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Namekn",
+            "default": ""
+          },
           "floors": {
             "items": {
               "type": "string"
@@ -2365,6 +2832,22 @@
             "maxItems": 30,
             "minItems": 1,
             "title": "Floors"
+          },
+          "departments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Departments"
+          },
+          "departmentsKn": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Departmentskn"
           }
         },
         "type": "object",
@@ -2390,12 +2873,30 @@
             "type": "string",
             "title": "Namehi"
           },
+          "nameKn": {
+            "type": "string",
+            "title": "Namekn"
+          },
           "floors": {
             "items": {
               "type": "string"
             },
             "type": "array",
             "title": "Floors"
+          },
+          "departments": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Departments"
+          },
+          "departmentsKn": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Departmentskn"
           },
           "active": {
             "type": "boolean",
@@ -2407,7 +2908,10 @@
           "code",
           "nameEn",
           "nameHi",
+          "nameKn",
           "floors",
+          "departments",
+          "departmentsKn",
           "active"
         ],
         "title": "BuildingOut"
@@ -2440,6 +2944,19 @@
             ],
             "title": "Namehi"
           },
+          "nameKn": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namekn"
+          },
           "floors": {
             "anyOf": [
               {
@@ -2455,6 +2972,36 @@
               }
             ],
             "title": "Floors"
+          },
+          "departments": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 30
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departments"
+          },
+          "departmentsKn": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 30
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Departmentskn"
           },
           "active": {
             "anyOf": [
@@ -2519,6 +3066,12 @@
             "minLength": 1,
             "title": "Namehi"
           },
+          "nameKn": {
+            "type": "string",
+            "maxLength": 80,
+            "title": "Namekn",
+            "default": ""
+          },
           "subtypesEn": {
             "items": {
               "type": "string"
@@ -2534,6 +3087,14 @@
             "type": "array",
             "maxItems": 30,
             "title": "Subtypeshi"
+          },
+          "subtypesKn": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 30,
+            "title": "Subtypeskn"
           }
         },
         "type": "object",
@@ -2563,6 +3124,10 @@
             "type": "string",
             "title": "Namehi"
           },
+          "nameKn": {
+            "type": "string",
+            "title": "Namekn"
+          },
           "subtypesEn": {
             "items": {
               "type": "string"
@@ -2577,6 +3142,13 @@
             "type": "array",
             "title": "Subtypeshi"
           },
+          "subtypesKn": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Subtypeskn"
+          },
           "active": {
             "type": "boolean",
             "title": "Active"
@@ -2588,8 +3160,10 @@
           "letter",
           "nameEn",
           "nameHi",
+          "nameKn",
           "subtypesEn",
           "subtypesHi",
+          "subtypesKn",
           "active"
         ],
         "title": "CategoryOut"
@@ -2622,6 +3196,19 @@
             ],
             "title": "Namehi"
           },
+          "nameKn": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Namekn"
+          },
           "subtypesEn": {
             "anyOf": [
               {
@@ -2651,6 +3238,21 @@
               }
             ],
             "title": "Subtypeshi"
+          },
+          "subtypesKn": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array",
+                "maxItems": 30
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtypeskn"
           },
           "active": {
             "anyOf": [
@@ -3077,6 +3679,30 @@
             "title": "Building",
             "default": ""
           },
+          "customLocation": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customlocation"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
           "floor": {
             "type": "string",
             "maxLength": 20,
@@ -3115,6 +3741,22 @@
           "building": {
             "type": "string",
             "title": "Building"
+          },
+          "customLocation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Customlocation"
+          },
+          "department": {
+            "type": "string",
+            "title": "Department",
+            "default": ""
           },
           "floor": {
             "type": "string",
@@ -3309,6 +3951,52 @@
           "csrfToken"
         ],
         "title": "MeWithCsrf"
+      },
+      "MonthPoint": {
+        "properties": {
+          "month": {
+            "type": "integer",
+            "title": "Month"
+          },
+          "created": {
+            "type": "integer",
+            "title": "Created"
+          },
+          "resolved": {
+            "type": "integer",
+            "title": "Resolved"
+          },
+          "pending": {
+            "type": "integer",
+            "title": "Pending"
+          },
+          "overdue": {
+            "type": "integer",
+            "title": "Overdue"
+          },
+          "avgResolutionHours": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avgresolutionhours"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "created",
+          "resolved",
+          "pending",
+          "overdue",
+          "avgResolutionHours"
+        ],
+        "title": "MonthPoint",
+        "description": "One calendar month of the annual overview. Buckets use Asia/Kolkata."
       },
       "NotificationOut": {
         "properties": {
@@ -3988,11 +4676,6 @@
       },
       "TicketCreateIn": {
         "properties": {
-          "clientRequestId": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Clientrequestid"
-          },
           "categoryCode": {
             "type": "string",
             "maxLength": 40,
@@ -4003,7 +4686,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 80
+                "maxLength": 160
               },
               {
                 "type": "null"
@@ -4015,7 +4698,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 70
+                "maxLength": 120
               },
               {
                 "type": "null"
@@ -4070,15 +4753,20 @@
               }
             ],
             "title": "Altcontact"
+          },
+          "clientRequestId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Clientrequestid"
           }
         },
         "type": "object",
         "required": [
-          "clientRequestId",
           "categoryCode",
           "location",
           "title",
-          "impact"
+          "impact",
+          "clientRequestId"
         ],
         "title": "TicketCreateIn"
       },
@@ -4655,6 +5343,102 @@
           "updatedAt"
         ],
         "title": "TicketSummaryOut"
+      },
+      "TicketUpdateIn": {
+        "properties": {
+          "categoryCode": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Categorycode"
+          },
+          "subtype": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 160
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subtype"
+          },
+          "otherDetail": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Otherdetail"
+          },
+          "location": {
+            "$ref": "#/components/schemas/LocationIn"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Title"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Description",
+            "default": ""
+          },
+          "impact": {
+            "type": "string",
+            "enum": [
+              "safety",
+              "class_interrupted",
+              "multiple_areas",
+              "routine"
+            ],
+            "title": "Impact"
+          },
+          "accessNote": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accessnote"
+          },
+          "altContact": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Altcontact"
+          },
+          "expectedVersion": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          }
+        },
+        "type": "object",
+        "required": [
+          "categoryCode",
+          "location",
+          "title",
+          "impact",
+          "expectedVersion"
+        ],
+        "title": "TicketUpdateIn"
       },
       "TotpEnrolment": {
         "properties": {

@@ -7,7 +7,7 @@ import { HttpError, qs, request, requestBlob, setCsrf } from './http'
 import { resetCatalogs } from './catalog'
 import { unsubscribeThisDevice } from './push'
 import type {
-  AdminUser, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Location, Page,
+  AdminUser, AnnualReport, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Location, Page,
   Priority, Proposal, Report, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag,
 } from './types'
 
@@ -60,6 +60,20 @@ export type TransitionAction =
   | { action: 'reject'; reason: string }
   | { action: 'cancel'; reason: string }
   | { action: 'close_unverified'; reason: string }
+
+function reportBody(draft: Draft) {
+  return {
+    categoryCode: draft.categoryCode,
+    subtype: draft.subtype || null,
+    otherDetail: draft.otherDetail?.trim() || null,
+    location: draft.location,
+    title: draft.title.trim(),
+    description: draft.description.trim(),
+    impact: draft.impact,
+    accessNote: draft.accessNote?.trim() || null,
+    altContact: draft.altContact?.trim() || null,
+  }
+}
 
 export const api = {
   // ---------- session ----------
@@ -121,24 +135,16 @@ export const api = {
   },
   /** Open reports at the same place and category; no identities or private notes. */
   findDuplicates(location: Location, categoryCode: string): Promise<{ token: string; title: string; status: Status }[]> {
+    if (location.building === 'CUSTOM') return Promise.resolve([])
     return request('GET', `/tickets/duplicates${qs({ category: categoryCode, building: location.building, room: location.room, outdoors: location.outdoors })}`)
   },
   /** Idempotent: the same requestKey and body returns the original ticket. */
   createTicket(draft: Draft, requestKey: string): Promise<CreatedTicket> {
-    return request('POST', '/tickets', {
-      body: {
-        clientRequestId: requestKey,
-        categoryCode: draft.categoryCode,
-        subtype: draft.subtype || null,
-        otherDetail: draft.otherDetail?.trim() || null,
-        location: draft.location,
-        title: draft.title.trim(),
-        description: draft.description.trim(),
-        impact: draft.impact,
-        accessNote: draft.accessNote?.trim() || null,
-        altContact: draft.altContact?.trim() || null,
-      },
-    })
+    return request('POST', '/tickets', { body: { clientRequestId: requestKey, ...reportBody(draft) } })
+  },
+  /** The reporter corrects their request until facilities start work. */
+  updateTicket(ticket: Pick<Ticket, 'id' | 'version'>, draft: Draft): Promise<Ticket> {
+    return request('PATCH', `/tickets/${ticket.id}`, { body: { expectedVersion: ticket.version, ...reportBody(draft) } })
   },
   transition(ticket: Pick<Ticket, 'id' | 'version'>, action: TransitionAction): Promise<Ticket> {
     return request('POST', `/tickets/${ticket.id}/transitions`, { body: { ...action, expectedVersion: ticket.version } })
@@ -227,12 +233,31 @@ export const api = {
   },
 
   // ---------- reports and export ----------
-  report(params: { days?: number; building?: string; category?: string } = {}): Promise<Report> {
-    return request('GET', `/reports${qs({ days: params.days, building: params.building, category: params.category })}`)
+  /** One shared filter set for the dashboard, the annual chart and every download. */
+  report(params: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<Report> {
+    return request('GET', `/reports${
+      qs({ days: params.days, building: params.building, department: params.department, category: params.category })}`)
   },
-  /** Audited on the server, so the download itself is recorded. */
-  exportTicketsCsv(days = 90): Promise<{ blob: Blob; filename: string }> {
-    return requestBlob('GET', `/reports/tickets.csv${qs({ days })}`, { accept: 'text/csv' })
+  /** Monthly activity for one calendar year, from actual ticket data. */
+  annualReport(params: { year?: number; building?: string; department?: string; category?: string } = {}): Promise<AnnualReport> {
+    return request('GET', `/reports/annual${
+      qs({ year: params.year, building: params.building, department: params.department, category: params.category })}`)
+  },
+  /** Every download is audited on the server. Filters are applied by the backend, never the browser. */
+  exportTicketsCsv(filters: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/tickets.csv${
+      qs({ days: filters.days, building: filters.building, department: filters.department, category: filters.category })}`,
+      { accept: 'text/csv' })
+  },
+  exportTicketsXlsx(filters: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/export.xlsx${
+      qs({ days: filters.days, building: filters.building, department: filters.department, category: filters.category })}`,
+      { accept: XLSX })
+  },
+  exportTicketsPdf(filters: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/export.pdf${
+      qs({ days: filters.days, building: filters.building, department: filters.department, category: filters.category })}`,
+      { accept: 'application/pdf' })
   },
 
   // ---------- audit ----------
@@ -242,10 +267,10 @@ export const api = {
   },
 
   // ---------- catalogs ----------
-  editCategory(code: string, patch: { nameEn?: string; nameHi?: string; subtypesEn?: string[]; subtypesHi?: string[]; active?: boolean }): Promise<void> {
+  editCategory(code: string, patch: { nameEn?: string; nameHi?: string; nameKn?: string; subtypesEn?: string[]; subtypesHi?: string[]; subtypesKn?: string[]; active?: boolean }): Promise<void> {
     return request('PATCH', `/admin/categories/${encodeURIComponent(code)}`, { body: patch })
   },
-  editBuilding(code: string, patch: { nameEn?: string; nameHi?: string; floors?: string[]; active?: boolean }): Promise<void> {
+  editBuilding(code: string, patch: { nameEn?: string; nameHi?: string; nameKn?: string; floors?: string[]; departments?: string[]; departmentsKn?: string[]; active?: boolean }): Promise<void> {
     return request('PATCH', `/admin/buildings/${encodeURIComponent(code)}`, { body: patch })
   },
 }

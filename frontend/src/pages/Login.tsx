@@ -12,6 +12,7 @@ import type { StepResult } from '../lib/types'
 type Stage = { kind: 'credentials' } | { kind: 'change_password' | 'enrol_totp' | 'totp' | 'recovery'; step: StepResult }
 
 export default function Login() {
+  const { t } = useT()
   const { signedIn } = useAuth()
   const nav = useNavigate()
   const [stage, setStage] = useState<Stage>({ kind: 'credentials' })
@@ -33,7 +34,7 @@ export default function Login() {
       <div className="flex flex-1 items-center justify-center px-4 py-10">
       <div className="w-full max-w-sm space-y-4">
         <div className="text-center">
-          <Link to="/"><img src="/pwa-192x192.png" alt="PCMS home" width={56} height={56} className="mx-auto rounded-xl" /></Link>
+          <Link to="/"><img src="/pwa-192x192.png" alt={t('login.homeAlt')} width={56} height={56} className="mx-auto rounded-xl" /></Link>
           <h1 className="mt-3 text-[24px] font-semibold">PCMS</h1>
           <p className="text-[14px] text-muted">{INSTITUTE}</p>
         </div>
@@ -122,7 +123,7 @@ function EnrolTotp({ step, onStep }: { step: StepResult; onStep: (s: StepResult)
   return (
     <form onSubmit={submit} className="space-y-4">
       <div><h2 className="text-[17px] font-semibold">{t('login.enrolTitle')}</h2><p className="mt-1 text-[14px] text-muted">{t('login.enrolHelp')}</p></div>
-      {qr && <img src={qr} alt="Authenticator setup code" width={200} height={200} className="mx-auto rounded-md bg-white p-2" />}
+      {qr && <img src={qr} alt={t('login.authQrAlt')} width={200} height={200} className="mx-auto rounded-md bg-white p-2" />}
       <div><p className="text-[13px] text-muted">{t('login.secretKey')}</p><p className="token select-all break-all rounded-md bg-subtle px-3 py-2 text-[13px]">{step.enrolment?.secret.match(/.{1,4}/g)?.join(' ')}</p></div>
       <CodeField value={code} onChange={setCode} />
       {error && <Alert tone="bad">{error}</Alert>}
@@ -140,7 +141,7 @@ function VerifyTotp({ onStep }: { onStep: (s: StepResult) => Promise<void> }) {
     <form onSubmit={submit} className="space-y-4">
       <div><h2 className="text-[17px] font-semibold">{t('login.totpTitle')}</h2><p className="mt-1 text-[14px] text-muted">{recovery ? t('login.recoveryEnter') : t('login.totpHelp')}</p></div>
       {recovery
-        ? <Field label="Recovery code">{(id) => <Input id={id} className="token" value={code} onChange={(e) => setCode(e.target.value.trim())} placeholder="xxxx-xxxx-xxxx" maxLength={20} autoComplete="off" />}</Field>
+        ? <Field label={t('login.recoveryCode')}>{(id) => <Input id={id} className="token" value={code} onChange={(e) => setCode(e.target.value.trim())} placeholder="xxxx-xxxx-xxxx" maxLength={20} autoComplete="off" />}</Field>
         : <CodeField value={code} onChange={setCode} />}
       {error && <Alert tone="bad">{error}</Alert>}
       <Button type="submit" full loading={busy} disabled={code.length < 6}>{t('action.confirm')}</Button>

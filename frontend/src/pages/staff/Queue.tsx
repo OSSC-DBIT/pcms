@@ -6,9 +6,10 @@ import { Pager } from '../../components/Pager'
 import { TicketList, TicketRow } from '../../components/ticket'
 import { Alert, Badge, Button, Card, EmptyState, Input, PageHeader, Select, Skeleton, Stack, Tabs } from '../../components/ui'
 import { api, type FailedNotification } from '../../lib/api'
-import { buildings, categories } from '../../lib/catalog'
+import { buildings, buildingName, categories, categoryName } from '../../lib/catalog'
+import { useT, type TKey } from '../../lib/i18n'
 import { useTickets, type UseTicketsOptions } from '../../lib/useTickets'
-import type { Priority, TicketSort, TicketSummary, WorkFlag } from '../../lib/types'
+import type { Priority, TicketSort, TicketSummary } from '../../lib/types'
 
 type View = 'action' | 'working' | 'all'
 
@@ -16,23 +17,15 @@ const needsAction = (x: TicketSummary, canTriage: boolean) =>
   ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status) ||
   (canTriage && x.status === 'InProgress' && x.proposal?.state === 'approved')
 
-const SORTS: { value: TicketSort; label: string }[] = [
-  { value: 'newest', label: 'Newest first' },
-  { value: 'oldest', label: 'Oldest first' },
-  { value: 'priority', label: 'Priority' },
-  { value: 'updated', label: 'Recently updated' },
-]
-
 export default function Queue() {
   const { can } = useAuth()
+  const { t, lang } = useT()
   const [view, setView] = useState<View>('action')
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
   const [priority, setPriority] = useState<Priority | ''>('')
   const [place, setPlace] = useState('')
   const [kind, setKind] = useState('')
-  const [flag, setFlag] = useState<WorkFlag | ''>('')
-  const [workerName, setWorkerName] = useState('')
   const [sort, setSort] = useState<TicketSort>('newest')
   const [counts, setCounts] = useState({ new: 0, assigned: 0, overdue: 0, approvals: 0 })
 
@@ -43,12 +36,16 @@ export default function Queue() {
     priority: priority || undefined,
     building: place || undefined,
     category: kind || undefined,
-    flag: flag || undefined,
-    worker: workerName.trim() || undefined,
     sort,
   }
   const { tickets, error, total, page, pageSize, pageCount, setPage, setPageSize, reload } = useTickets('queue', filters)
   const canTriage = can('ticket.triage')
+  const sorts: { value: TicketSort; label: string }[] = [
+    { value: 'newest', label: t('queue.newest') },
+    { value: 'oldest', label: t('queue.oldest') },
+    { value: 'priority', label: t('queue.priority') },
+    { value: 'updated', label: t('queue.recentlyUpdated') },
+  ]
 
   // The tiles must describe the whole open set, not the filtered page, so they come
   // from GET /reports rather than being counted from whatever rows are on screen.
@@ -65,86 +62,74 @@ export default function Queue() {
     [tickets, view, canTriage],
   )
 
-  const filtering = !!(applied || priority || place || kind || flag || workerName.trim())
+  const filtering = !!(applied || priority || place || kind)
   const clear = () => {
-    setSearch(''); setApplied(''); setPriority(''); setPlace(''); setKind(''); setFlag(''); setWorkerName('')
+    setSearch(''); setApplied(''); setPriority(''); setPlace(''); setKind('')
   }
 
   return (
     <Stack>
-      <PageHeader title="Queue" subtitle="Open tickets across campus" actions={<Button variant="secondary" size="sm" onClick={() => void reload()}>Refresh</Button>} />
+      <PageHeader title={t('queue.title')} subtitle={t('queue.subtitle')} actions={<Button variant="secondary" size="sm" onClick={() => void reload()}>{t('action.refresh')}</Button>} />
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="New" value={counts.new} />
-        <Stat label="Assigned" value={counts.assigned} />
-        <Stat label="Update overdue" value={counts.overdue} tone={counts.overdue ? 'bad' : undefined} />
-        <Stat label="Waiting approval" value={counts.approvals} />
+        <Stat label={t('queue.new')} value={counts.new} />
+        <Stat label={t('queue.assigned')} value={counts.assigned} />
+        <Stat label={t('queue.overdue')} value={counts.overdue} tone={counts.overdue ? 'bad' : undefined} />
+        <Stat label={t('queue.waitingApproval')} value={counts.approvals} />
       </div>
       {can('queue.view') && <FailedMessages />}
 
       <div className="flex flex-wrap items-center gap-3">
-        <Tabs label="Queue view" value={view} onChange={setView} tabs={[
-          { value: 'action', label: 'Needs action' }, { value: 'working', label: 'In progress' }, { value: 'all', label: 'All open' }]} />
+        <Tabs label={t('queue.view')} value={view} onChange={setView} tabs={[
+          { value: 'action', label: t('queue.needsAction') }, { value: 'working', label: t('queue.inProgress') }, { value: 'all', label: t('queue.allOpen') }]} />
       </div>
 
       <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); setApplied(search.trim()) }}>
-        <div className="w-full sm:w-64">
-          <label htmlFor="queue-search" className="mb-1.5 block text-[13px] font-medium">Search</label>
+        <div className="w-full sm:w-64 sm:flex-1 sm:min-w-56">
+          <label htmlFor="queue-search" className="mb-1.5 block text-[13px] font-medium">{t('action.search')}</label>
           <div className="relative">
             <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
             <Input id="queue-search" value={search} onChange={(e) => setSearch(e.target.value)}
-              placeholder="Title, token or room" className="pl-9" autoComplete="off" />
+              placeholder={t('queue.searchPlaceholder')} className="pl-9" autoComplete="off" />
           </div>
         </div>
-        <div className="w-32">
-          <label htmlFor="queue-priority" className="mb-1.5 block text-[13px] font-medium">Priority</label>
+        <div className="w-full sm:w-32">
+          <label htmlFor="queue-priority" className="mb-1.5 block text-[13px] font-medium">{t('queue.priority')}</label>
           <Select id="queue-priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority | '')}>
-            <option value="">Any</option>{(['P1', 'P2', 'P3', 'P4'] as const).map((p) => <option key={p}>{p}</option>)}
+            <option value="">{t('common.any')}</option>{(['P1', 'P2', 'P3', 'P4'] as const).map((p) => <option key={p}>{p}</option>)}
           </Select>
         </div>
-        <div className="w-44">
-          <label htmlFor="queue-building" className="mb-1.5 block text-[13px] font-medium">Building</label>
+        <div className="w-full sm:w-44">
+          <label htmlFor="queue-building" className="mb-1.5 block text-[13px] font-medium">{t('queue.building')}</label>
           <Select id="queue-building" value={place} onChange={(e) => setPlace(e.target.value)}>
-            <option value="">All</option>{buildings().map((b) => <option key={b.code} value={b.code}>{b.nameEn}</option>)}
+            <option value="">{t('common.all')}</option>{buildings().map((b) => <option key={b.code} value={b.code}>{buildingName(b, lang)}</option>)}
           </Select>
         </div>
-        <div className="w-44">
-          <label htmlFor="queue-type" className="mb-1.5 block text-[13px] font-medium">Type</label>
+        <div className="w-full sm:w-44">
+          <label htmlFor="queue-type" className="mb-1.5 block text-[13px] font-medium">{t('queue.type')}</label>
           <Select id="queue-type" value={kind} onChange={(e) => setKind(e.target.value)}>
-            <option value="">All</option>{categories().map((c) => <option key={c.code} value={c.code}>{c.nameEn}</option>)}
+            <option value="">{t('common.all')}</option>{categories().map((c) => <option key={c.code} value={c.code}>{categoryName(c, lang)}</option>)}
           </Select>
         </div>
-        <div className="w-36">
-          <label htmlFor="queue-flag" className="mb-1.5 block text-[13px] font-medium">Flag</label>
-          <Select id="queue-flag" value={flag} onChange={(e) => setFlag(e.target.value as WorkFlag | '')}>
-            <option value="">Any</option>
-            <option value="I">I Immediate</option><option value="C">C Critical</option><option value="P">P Postpone</option>
-          </Select>
-        </div>
-        <div className="w-44">
-          <label htmlFor="queue-worker" className="mb-1.5 block text-[13px] font-medium">Worker name</label>
-          <Input id="queue-worker" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
-            placeholder="Anyone" autoComplete="off" />
-        </div>
-        <div className="w-44">
-          <label htmlFor="queue-sort" className="mb-1.5 block text-[13px] font-medium">Sort</label>
+        <div className="w-full sm:w-44">
+          <label htmlFor="queue-sort" className="mb-1.5 block text-[13px] font-medium">{t('queue.sort')}</label>
           <Select id="queue-sort" value={sort} onChange={(e) => setSort(e.target.value as TicketSort)}>
-            {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            {sorts.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </Select>
         </div>
-        <Button type="submit">Search</Button>
-        {filtering && <Button type="button" variant="ghost" onClick={clear}><X size={16} /> Clear</Button>}
+        <Button type="submit">{t('action.search')}</Button>
+        {filtering && <Button type="button" variant="ghost" onClick={clear}><X size={16} /> {t('action.clear')}</Button>}
       </form>
 
       {error && <Alert tone="bad">{error}</Alert>}
       {tickets === null ? <Skeleton className="h-60" /> : shown.length === 0 ? (
-        <EmptyState title="Nothing here" body={filtering ? 'No open tickets match these filters.' : 'No tickets match this view.'}
-          action={filtering ? <Button variant="secondary" onClick={clear}>Clear filters</Button> : undefined} />
+        <EmptyState title={t('queue.nothing')} body={filtering ? t('queue.noFilter') : t('queue.noView')}
+          action={filtering ? <Button variant="secondary" onClick={clear}>{t('queue.clearFilters')}</Button> : undefined} />
       ) : (
         <>
           <TicketList>
             {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
-              extra={<><Badge>{x.priority}</Badge>{x.flag && <Badge>{x.flag}</Badge>}
-                {x.status === 'InProgress' && x.proposal?.state === 'approved' && <Badge tone="ok">Approved</Badge>}</>} />)}
+              extra={<><Badge>{x.priority}</Badge>
+                {x.status === 'InProgress' && x.proposal?.state === 'approved' && <Badge tone="ok">{t('queue.approved')}</Badge>}</>} />)}
           </TicketList>
           <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
         </>
@@ -164,23 +149,24 @@ function Stat({ label, value, tone }: { label: string; value: number; tone?: 'ba
 
 function FailedMessages() {
   const { can } = useAuth()
+  const { t } = useT()
   const [items, setItems] = useState<FailedNotification[]>([])
   useEffect(() => { api.listFailedNotifications().then(setItems).catch(() => setItems([])) }, [])
   if (!items.length) return null
   const act = async (id: number, op: 'retry' | 'dismiss') => { await api.actOnNotification(id, op); setItems((xs) => xs.filter((x) => x.id !== id)) }
   return (
-    <Card title={<span className="inline-flex items-center gap-2 text-warn"><AlertTriangle size={17} /> {items.length} message(s) need you</span>}>
+    <Card title={<span className="inline-flex items-center gap-2 text-warn"><AlertTriangle size={17} /> {t('queue.messagesNeed', { count: items.length })}</span>}>
       <ul className="divide-y divide-line">
         {items.slice(0, 6).map((n) => (
           <li key={n.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[14px]">
             <span className="min-w-0">
-              {n.ticketId ? <Link to={`/staff/t/${n.ticketId}`} className="token font-semibold text-accent">{n.ticketToken}</Link> : '-'} · {n.channel} to {n.recipient}
-              <span className="block text-[13px] text-muted">{n.lastError ?? 'Delivery failed'}</span>
+              {n.ticketId ? <Link to={`/staff/t/${n.ticketId}`} className="token font-semibold text-accent">{n.ticketToken}</Link> : '-'} · {t('queue.messageTo', { channel: t(`channel.${n.channel}` as TKey), recipient: n.recipient })}
+              <span className="block text-[13px] text-muted">{n.lastError ?? t('queue.deliveryFailed')}</span>
             </span>
             {can('ticket.assign') && (
               <span className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => act(n.id, 'retry')}>Retry</Button>
-                <Button size="sm" variant="ghost" onClick={() => act(n.id, 'dismiss')}>Handled by call</Button>
+                <Button size="sm" variant="secondary" onClick={() => act(n.id, 'retry')}>{t('queue.retry')}</Button>
+                <Button size="sm" variant="ghost" onClick={() => act(n.id, 'dismiss')}>{t('queue.handledCall')}</Button>
               </span>
             )}
           </li>

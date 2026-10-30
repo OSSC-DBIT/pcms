@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { useT } from '../lib/i18n'
 import { Alert, Button, Dialog, Field, Input, Select, Textarea, errorMessage } from './ui'
 
 export interface FormField {
@@ -18,6 +19,7 @@ export interface FormField {
 export function ActionDialog({ open, onClose, title, description, fields = [], initial = {}, confirmLabel, danger, onSubmit }:
   { open: boolean; onClose: () => void; title: string; description?: ReactNode; fields?: FormField[]; initial?: Record<string, string>; confirmLabel: string; danger?: boolean
     onSubmit: (values: Record<string, string>) => Promise<unknown> }) {
+  const { t } = useT()
   const [values, setValues] = useState<Record<string, string>>(initial)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +50,7 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
           <Field key={f.name} label={f.label} hint={f.hint} optional={!f.required}>
             {(id, d) => f.type === 'select'
               ? <Select id={id} aria-describedby={d} value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}>
-                  <option value="">Choose...</option>
+                  <option value="">{t('action.choose')}</option>
                   {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </Select>
               : f.type === 'textarea'
@@ -60,7 +62,7 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
         ))}
         {error && <Alert tone="bad">{error}</Alert>}
         <div className="flex flex-wrap justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={close}>Cancel</Button>
+          <Button variant="secondary" onClick={close}>{t('action.cancel')}</Button>
           <Button type="submit" variant={danger ? 'danger' : 'primary'} loading={busy} disabled={missing}>{confirmLabel}</Button>
         </div>
       </form>

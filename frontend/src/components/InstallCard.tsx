@@ -26,7 +26,7 @@ export default function InstallCard({ dismissible = false }: { dismissible?: boo
         {state === 'available' && <Button size="sm" className="mt-3" onClick={install}><Download size={15} /> {t('install.button')}</Button>}
       </div>
       {dismissible && (
-        <button type="button" aria-label="Dismiss" onClick={() => { localStorage.setItem(DISMISS_KEY, '1'); setHidden(true) }}
+        <button type="button" aria-label={t('install.dismiss')} onClick={() => { localStorage.setItem(DISMISS_KEY, '1'); setHidden(true) }}
           className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-surface"><X size={16} /></button>
       )}
     </div>

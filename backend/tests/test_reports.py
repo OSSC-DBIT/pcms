@@ -58,8 +58,11 @@ async def test_category_letters_never_recycled_and_buildings_editable(client):
     r = await o.post(f"{API}/admin/categories", json={"code": "glass", "letter": "G", "nameEn": "Glass", "nameHi": "काँच",
                                                        "subtypesEn": ["Window pane"], "subtypesHi": ["खिड़की का शीशा"]})
     assert r.status_code == 204
-    assert (await o.post(f"{API}/admin/buildings", json={"code": "INC", "nameEn": "Incubation Centre", "nameHi": "इनक्यूबेशन केंद्र", "floors": ["Ground"]})).status_code == 204
+    assert (await o.post(f"{API}/admin/buildings", json={
+        "code": "INC", "nameEn": "Incubation Centre", "nameHi": "इनक्यूबेशन केंद्र", "floors": ["Ground"],
+        "departments": ["Startup Lab", "Mentor Room"]})).status_code == 204
     cats = (await client.get(f"{API}/catalogs")).json()
     codes = {c["code"] for c in cats["categories"]}
     assert "glass" in codes and "phone" not in codes
-    assert "INC" in {b["code"] for b in cats["buildings"]}
+    inc = next(b for b in cats["buildings"] if b["code"] == "INC")
+    assert inc["departments"] == ["Startup Lab", "Mentor Room"]

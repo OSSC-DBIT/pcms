@@ -39,6 +39,10 @@ export type Channel = 'whatsapp' | 'sms' | 'call' | 'card'
 
 export interface Location {
   building: string
+  /** Free text only when building is the CUSTOM sentinel. */
+  customLocation?: string
+  /** A configured department/area, or free text for Custom Location. */
+  department?: string
   floor: string
   room: string
   outdoors?: boolean
@@ -151,8 +155,8 @@ export interface LowRating {
   room?: string | null
 }
 
-export interface Category { code: string; letter: string; nameEn: string; nameHi: string; subtypesEn: string[]; subtypesHi: string[]; active: boolean }
-export interface Building { code: string; nameEn: string; nameHi: string; floors: string[]; active: boolean }
+export interface Category { code: string; letter: string; nameEn: string; nameHi: string; nameKn: string; subtypesEn: string[]; subtypesHi: string[]; subtypesKn: string[]; active: boolean }
+export interface Building { code: string; nameEn: string; nameHi: string; nameKn: string; floors: string[]; departments: string[]; departmentsKn: string[]; active: boolean }
 
 export interface Draft {
   key: string
@@ -190,6 +194,24 @@ export interface Page<T> { items: T[]; total: number; page: number; pageSize: nu
 // ---------- reports ----------
 
 export interface Percentiles { count: number; medianHours: number | null; p90Hours: number | null }
+
+/** One calendar month of the annual overview. Buckets use Asia/Kolkata. */
+export interface MonthPoint {
+  month: number
+  created: number
+  resolved: number
+  pending: number
+  overdue: number
+  avgResolutionHours: number | null
+}
+
+export interface AnnualReport {
+  year: number
+  months: MonthPoint[]
+  previousCreated: number[]
+  previousResolved: number[]
+  years: number[]
+}
 
 export interface Report {
   generatedAt: string

@@ -16,7 +16,7 @@ export default function Tickets() {
   return (
     <Stack>
       <PageHeader title={t('nav.tickets')} />
-      <Tabs label="Ticket filter" value={tab} onChange={setTab}
+      <Tabs label={t('tickets.filter')} value={tab} onChange={setTab}
         tabs={[{ value: 'open', label: t('tickets.open') }, { value: 'closed', label: t('tickets.closed') }]} />
       {error && <Alert tone="bad">{error}</Alert>}
       {tickets === null ? <Skeleton className="h-40" />

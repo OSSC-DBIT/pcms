@@ -25,6 +25,10 @@ def _clean(v: str | None) -> str | None:
 
 class LocationIn(CamelModel):
     building: str = Field(default="", max_length=20)
+    # Only used when building is the CUSTOM sentinel. It never becomes a Building row.
+    custom_location: str | None = Field(default=None, max_length=120)
+    # A configured department/area for a building, or free text for Custom Location.
+    department: str | None = Field(default=None, max_length=120)
     floor: str = Field(default="", max_length=20)
     room: str = Field(default="", max_length=60)
     outdoors: bool = False
@@ -33,18 +37,21 @@ class LocationIn(CamelModel):
 
 class LocationOut(CamelModel):
     building: str
+    custom_location: str | None = None
+    department: str = ""
     floor: str
     room: str
     outdoors: bool
     landmark: str | None = None
 
 
-class TicketCreateIn(CamelModel):
-    client_request_id: uuid.UUID
+class TicketRequestIn(CamelModel):
+    """Fields the reporter supplies, shared by create and edit."""
+
     category_code: str = Field(min_length=1, max_length=40)
-    subtype: str | None = Field(default=None, max_length=80)
-    # Required when subtype is "Other" (or for the Other category): what the thing is.
-    other_detail: str | None = Field(default=None, max_length=70)
+    subtype: str | None = Field(default=None, max_length=160)
+    # Required when the chosen issue contains "Other": what the thing is.
+    other_detail: str | None = Field(default=None, max_length=120)
     location: LocationIn
     title: str = Field(max_length=200)
     description: str = Field(default="", max_length=4000)
@@ -53,6 +60,14 @@ class TicketCreateIn(CamelModel):
     alt_contact: str | None = Field(default=None, max_length=120)
 
     _c = field_validator("subtype", "access_note", "alt_contact", mode="after")(lambda v: _clean(v))
+
+
+class TicketCreateIn(TicketRequestIn):
+    client_request_id: uuid.UUID
+
+
+class TicketUpdateIn(TicketRequestIn):
+    expected_version: int = Field(ge=1)
 
 
 class TicketCreatedOut(CamelModel):
