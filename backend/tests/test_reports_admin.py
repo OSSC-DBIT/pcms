@@ -103,6 +103,11 @@ async def test_building_rename_and_retire(client):
     buildings = (await client.get(f"{API}/catalogs")).json()["buildings"]
     assert next(b for b in buildings if b["code"] == "BLOCK_A")["nameEn"] == "Computing Block"
 
+    r = await o.patch(f"{API}/admin/buildings/BLOCK_A", json={"departments": ["Computing", "Library"]})
+    assert r.status_code == 204
+    buildings = (await client.get(f"{API}/catalogs")).json()["buildings"]
+    assert next(b for b in buildings if b["code"] == "BLOCK_A")["departments"] == ["Computing", "Library"]
+
     assert (await o.patch(f"{API}/admin/buildings/BLOCK_A", json={"active": False})).status_code == 204
     assert "BLOCK_A" not in {b["code"] for b in (await client.get(f"{API}/catalogs")).json()["buildings"]}
     assert "BLOCK_A" in {b["code"] for b in (await client.get(f"{API}/catalogs", params={"includeInactive": True})).json()["buildings"]}

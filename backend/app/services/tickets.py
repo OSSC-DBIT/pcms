@@ -148,11 +148,12 @@ async def _validate_request(db: AsyncSession, body: TicketRequestIn) -> tuple[Ca
     loc = body.location
     building = " ".join((loc.building or "").split())
     custom = " ".join((loc.custom_location or "").split())
+    department = " ".join((loc.department or "").split())
     landmark = " ".join((loc.landmark or "").split()) or None
     floor = " ".join((loc.floor or "").split())
     room = " ".join((loc.room or "").split())
     fields = {"outdoors": loc.outdoors, "landmark": landmark, "building_code": None,
-              "custom_location": None, "floor": None, "room": None}
+              "custom_location": None, "department": None, "floor": None, "room": None}
 
     if not building:
         errors["location"] = "Choose a building from the list."
@@ -163,28 +164,41 @@ async def _validate_request(db: AsyncSession, body: TicketRequestIn) -> tuple[Ca
             if not landmark:
                 errors["location"] = "Describe where outdoors (a nearby landmark)."
         else:
-            if not floor:
+            if len(department) < 2:
+                errors["location"] = "Give the department or area."
+            elif not floor:
                 errors["location"] = "Give the floor or area."
             elif not room:
                 errors["location"] = "Give the room or area."
             fields.update(floor=floor[:20] or None, room=room[:60] or None)
         fields["custom_location"] = custom[:120] or None
+        fields["department"] = department[:120] or None
     else:
         b = await db.scalar(select(Building).where(Building.code == building, Building.active))
         if b is None:
             errors["location"] = "Choose a building from the list."
         elif custom:
             errors["location"] = "Custom location is only used with Custom Location."
-        elif loc.outdoors:
-            if not landmark:
-                errors["location"] = "Describe where outdoors (a nearby landmark)."
-            fields["building_code"] = building
-        elif floor not in b.floors:
-            errors["location"] = "Choose a floor of that building."
-        elif not room:
-            errors["location"] = "Give the room or area."
+        elif b.departments and not department:
+            errors["location"] = "Choose the department or area of that building."
+        elif b.departments and department not in b.departments:
+            errors["location"] = "Choose a department or area of that building."
         else:
-            fields.update(building_code=building, floor=floor[:20], room=room[:60])
+            # Sports Department and other whole-building locations have no
+            # subdivision, so ignore any stale department sent by the client.
+            if not b.departments:
+                department = ""
+            if loc.outdoors:
+                if not landmark:
+                    errors["location"] = "Describe where outdoors (a nearby landmark)."
+                fields.update(building_code=building, department=department[:120] or None)
+            elif floor not in b.floors:
+                errors["location"] = "Choose a floor of that building."
+            elif not room:
+                errors["location"] = "Give the room or area."
+            else:
+                fields.update(building_code=building, department=department[:120] or None,
+                              floor=floor[:20], room=room[:60])
 
     if errors:
         raise validation("Some details need attention.", errors)
@@ -252,6 +266,7 @@ def _edit_snapshot(t: Ticket, category_code: str | None) -> dict:
         "subtype": t.subtype,
         "building": t.building_code,
         "customLocation": t.custom_location,
+        "department": t.department,
         "floor": t.floor,
         "room": t.room,
         "outdoors": t.outdoors,
@@ -369,7 +384,8 @@ def _summary_fields(t: Ticket, lk: Lookups, staff: bool) -> dict:
         original_category_code=orig.code if orig else "", category_code=cat.code if cat else "",
         subtype=t.subtype,
         location=LocationOut(building=t.building_code or "", custom_location=t.custom_location,
-                             floor=t.floor or "", room=t.room or "", outdoors=t.outdoors, landmark=t.landmark),
+                             department=t.department or "", floor=t.floor or "", room=t.room or "",
+                             outdoors=t.outdoors, landmark=t.landmark),
         title=t.title, impact=t.impact, priority=t.priority, flag=t.flag, assessments=t.assessments,
         status=t.status, version=t.version, created_at=t.created_at, updated_at=t.updated_at,
         next_update_due=t.next_update_due if t.status not in TERMINAL else None,

@@ -18,7 +18,7 @@ export default function Home() {
 
   return (
     <Stack className="space-y-6">
-      <PageHeader title={`Hello, ${user?.name.split(' ')[0] ?? ''}`} subtitle={t('home.subtitle')}
+      <PageHeader title={t('home.greeting', { name: user?.name.split(' ')[0] ?? '' })} subtitle={t('home.subtitle')}
         actions={<Link to="/report"><Button><Plus size={18} /> {t('home.report')}</Button></Link>} />
       <InstallCard dismissible />
       {error && <Alert tone="bad">{error}</Alert>}

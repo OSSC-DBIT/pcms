@@ -23,8 +23,10 @@ class Category(Base):
     letter: Mapped[str] = mapped_column(String(1), unique=True, nullable=False)
     name_en: Mapped[str] = mapped_column(String(80), nullable=False)
     name_hi: Mapped[str] = mapped_column(String(80), nullable=False)
+    name_kn: Mapped[str] = mapped_column(String(80), nullable=False)
     subtypes_en: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     subtypes_hi: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    subtypes_kn: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
@@ -36,6 +38,11 @@ class Building(Base):
     code: Mapped[str] = mapped_column(String(20), unique=True, nullable=False)
     name_en: Mapped[str] = mapped_column(String(80), nullable=False)
     name_hi: Mapped[str] = mapped_column(String(80), nullable=False)
+    name_kn: Mapped[str] = mapped_column(String(80), nullable=False)
     floors: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list)
+    # Departments or areas inside this building. Empty means the building has
+    # no second choice; the reporter only gives the room or area.
+    departments: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    departments_kn: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
     active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

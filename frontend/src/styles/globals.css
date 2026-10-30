@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Geist Variable", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Geist Variable", "Noto Sans Devanagari Variable", "Noto Sans Kannada Variable", ui-sans-serif, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-mono: "Geist Mono Variable", ui-monospace, "SF Mono", Menlo, monospace;
 
   --color-bg: var(--c-bg);

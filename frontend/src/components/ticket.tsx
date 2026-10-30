@@ -1,64 +1,107 @@
 /** Ticket building blocks shared by the faculty and staff screens. */
 import { clsx } from 'clsx'
-import { ChevronRight, ImageOff, Loader2, MapPin, Play, Plus, Star } from 'lucide-react'
+import { ChevronRight, ImageOff, Loader2, Play, Plus, Star } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
-import { building, category } from '../lib/catalog'
+import { building, buildingDepartments, buildingName, category, categoryName, categoryParts } from '../lib/catalog'
 import { PrepareError, checkVideo, preparePhoto } from '../lib/images'
-import { useT } from '../lib/i18n'
+import { LOCALE, useT, type Lang, type TFunc } from '../lib/i18n'
 import type { Attachment, Comment, Ticket, TicketSummary, TimelineEvent } from '../lib/types'
 import { Alert, Badge, Button, Dialog, StatusBadge, Textarea, errorMessage } from './ui'
 
 const IST_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }
 const IST_TIME: Intl.DateTimeFormatOptions = { ...IST_DATE, hour: 'numeric', minute: '2-digit' }
 
-export const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-IN', IST_DATE)
-export const fmtTime = (iso: string) => new Date(iso).toLocaleString('en-IN', IST_TIME)
+export const fmtDate = (iso: string, lang: Lang = 'en') => new Date(iso).toLocaleDateString(LOCALE[lang], IST_DATE)
+export const fmtTime = (iso: string, lang: Lang = 'en') => new Date(iso).toLocaleString(LOCALE[lang], IST_TIME)
 
-export function ago(iso: string): string {
+export function ago(iso: string, t: TFunc, lang: Lang = 'en'): string {
   const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000))
-  if (m < 1) return 'just now'
-  if (m < 60) return `${m} min ago`
+  if (m < 1) return t('time.justNow')
+  if (m < 60) return t('time.minutesAgo', { count: m })
   const h = Math.round(m / 60)
-  if (h < 24) return `${h} h ago`
+  if (h < 24) return t('time.hoursAgo', { count: h })
   const d = Math.round(h / 24)
-  return d < 30 ? `${d} d ago` : fmtDate(iso)
+  return d < 30 ? t('time.daysAgo', { count: d }) : fmtDate(iso, lang)
 }
 
-export function floorLabel(floor: string): string {
-  if (floor === 'Ground') return 'Ground floor'
-  return /^\d+$/.test(floor) ? `Floor ${floor}` : floor
+export function floorLabel(floor: string, t: TFunc): string {
+  if (floor === 'Ground') return t('time.groundFloor')
+  return /^\d+$/.test(floor) ? t('time.floor', { floor }) : floor
 }
 
-export function placeText(t: Pick<TicketSummary, 'location'>, lang: 'en' | 'hi' = 'en'): string {
-  const l = t.location
-  if (l.outdoors) return ['Outdoors', l.customLocation, l.landmark].filter(Boolean).join(', ')
+function departmentLabel(value: string, b: ReturnType<typeof building>, lang: Lang): string {
+  if (!b) return value
+  return buildingDepartments(b, lang).find((d) => d.value === value)?.label ?? value
+}
+
+export function placeText(ticket: Pick<TicketSummary, 'location'>, lang: Lang, t: TFunc): string {
+  const l = ticket.location
   const b = building(l.building)
-  const name = l.customLocation ? l.customLocation : b ? (lang === 'hi' ? b.nameHi : b.nameEn) : l.building
-  const floor = l.floor ? `, ${floorLabel(l.floor)}` : ''
-  return `${name}${floor}, ${l.room}`
+  if (l.outdoors) return [t('ticket.outdoors'), l.customLocation, departmentLabel(l.department ?? '', b, lang), l.landmark].filter(Boolean).join(', ')
+  const name = l.customLocation ? l.customLocation : b ? buildingName(b, lang) : l.building
+  const department = l.department ? `, ${departmentLabel(l.department, b, lang)}` : ''
+  const floor = l.floor ? `, ${floorLabel(l.floor, t)}` : ''
+  return `${name}${department}${floor}, ${l.room}`
 }
 
-export function typeText(t: Pick<TicketSummary, 'categoryCode' | 'subtype'>, lang: 'en' | 'hi' = 'en'): string {
-  const c = category(t.categoryCode)
-  return `${lang === 'hi' ? c.nameHi : c.nameEn}${t.subtype ? ` · ${t.subtype}` : ''}`
+function LocationDetails({ ticket, lang }: { ticket: Pick<TicketSummary, 'location'>; lang: Lang }) {
+  const { t } = useT()
+  const l = ticket.location
+  const b = building(l.building)
+  const place = l.customLocation ? l.customLocation : b ? buildingName(b, lang) : l.building
+  const rows = [
+    [l.customLocation ? t('ticket.buildingLocation') : t('ticket.building'), place],
+    [b?.code === 'HOSTEL' ? t('ticket.hostelSection') : t('ticket.departmentArea'), departmentLabel(l.department ?? '', b, lang)],
+    [t('ticket.floor'), l.floor ? floorLabel(l.floor, t) : ''],
+    [t('ticket.roomArea'), l.room],
+    [t('ticket.landmark'), l.landmark],
+    [t('ticket.outdoors'), l.outdoors ? t('ticket.yes') : ''],
+  ].filter(([, value]) => value)
+  if (!rows.length) return null
+  return (
+    <div className="mt-3 rounded-md border border-line bg-subtle px-3.5 py-3">
+      <p className="text-[13px] font-semibold uppercase tracking-wide text-muted">{t('ticket.location')}</p>
+      <dl className="mt-1.5 grid gap-x-4 gap-y-1 text-[14px] sm:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex min-w-0 gap-1.5">
+            <dt className="shrink-0 text-muted">{label}:</dt>
+            <dd className="min-w-0 break-words">{value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  )
+}
+
+function subtypeText(c: ReturnType<typeof category>, subtype: string | null | undefined, lang: Lang): string {
+  if (!subtype) return ''
+  const base = c.subtypesEn.find((s) => subtype === s || subtype.startsWith(`${s}: `))
+  if (!base) return subtype
+  const label = categoryParts(c, lang).find((p) => p.value === base)?.label ?? base
+  return subtype === base ? label : `${label}: ${subtype.slice(base.length + 2)}`
+}
+
+export function typeText(ticket: Pick<TicketSummary, 'categoryCode' | 'subtype'>, lang: Lang): string {
+  const c = category(ticket.categoryCode)
+  return `${categoryName(c, lang)}${ticket.subtype ? ` · ${subtypeText(c, ticket.subtype, lang)}` : ''}`
 }
 
 /** One ticket in a list. */
 export function TicketRow({ ticket, to, extra }: { ticket: TicketSummary; to: string; extra?: React.ReactNode }) {
-  const { lang } = useT()
+  const { lang, t } = useT()
   return (
     <Link to={to} className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 hover:bg-subtle">
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <span className="token text-[13px] font-semibold">{ticket.token}</span>
           <StatusBadge status={ticket.status} />
-          {ticket.impact === 'safety' && <Badge tone="bad">Safety</Badge>}
+          {ticket.impact === 'safety' && <Badge tone="bad">{t('impact.safety')}</Badge>}
           {extra}
         </div>
         <p className="mt-1 truncate text-[15px] font-medium">{ticket.title}</p>
-        <p className="mt-0.5 truncate text-[13px] text-muted">{typeText(ticket, lang)} · {placeText(ticket, lang)} · {ago(ticket.createdAt)}</p>
+        <p className="mt-0.5 truncate text-[13px] text-muted">{typeText(ticket, lang)} · {placeText(ticket, lang, t)} · {ago(ticket.createdAt, t, lang)}</p>
       </div>
       <ChevronRight size={18} className="shrink-0 text-muted" aria-hidden />
     </Link>
@@ -77,13 +120,13 @@ export function TicketSummaryCard({ ticket, children }: { ticket: Ticket; childr
       <div className="flex flex-wrap items-center gap-2">
         <span className="token rounded-md bg-subtle px-2.5 py-1 text-[18px] font-bold md:text-[20px]">{ticket.token}</span>
         <StatusBadge status={ticket.status} />
-        {ticket.impact === 'safety' && <Badge tone="bad">Safety</Badge>}
+        {ticket.impact === 'safety' && <Badge tone="bad">{t('impact.safety')}</Badge>}
       </div>
       <h1 className="mt-3 text-[20px] font-semibold leading-snug md:text-[22px]">{ticket.title}</h1>
-      <p className="mt-1.5 flex items-start gap-1.5 text-[14px] text-muted"><MapPin size={15} className="mt-0.5 shrink-0" /> {placeText(ticket, lang)}</p>
+      <LocationDetails ticket={ticket} lang={lang} />
       <p className="mt-1 text-[14px] text-muted">{typeText(ticket, lang)}</p>
       {ticket.description && <p className="mt-3 whitespace-pre-line text-[15px] leading-6">{ticket.description}</p>}
-      <p className="mt-3 text-[13px] text-muted">{t('ticket.reportedBy')} {ticket.reporterName} · {fmtTime(ticket.createdAt)}</p>
+      <p className="mt-3 text-[13px] text-muted">{t('ticket.reportedBy')} {ticket.reporterName} · {fmtTime(ticket.createdAt, lang)}</p>
       {children}
     </section>
   )
@@ -91,21 +134,23 @@ export function TicketSummaryCard({ ticket, children }: { ticket: Ticket; childr
 
 /** Five stars with the optional comment, shared by the faculty and staff views. */
 export function RatingSummary({ stars, comment, createdAt }: { stars: number; comment?: string | null; createdAt?: string }) {
+  const { lang, t } = useT()
   return (
     <div>
-      <div className="flex items-center gap-1" aria-label={`${stars} out of 5 stars`}>
+      <div className="flex items-center gap-1" aria-label={t('ticket.starsOutOf5', { stars })}>
         {[1, 2, 3, 4, 5].map((n) => (
           <Star key={n} size={18} className={n <= stars ? 'fill-current text-warn' : 'text-line'} aria-hidden />
         ))}
-        <span className="ml-2 text-[14px] text-muted">{stars} of 5</span>
+        <span className="ml-2 text-[14px] text-muted">{t('common.of5', { value: stars })}</span>
       </div>
       {comment && <p className="mt-2 whitespace-pre-line text-[14.5px]">{comment}</p>}
-      {createdAt && <p className="mt-1 text-[12.5px] text-muted">{fmtDate(createdAt)}</p>}
+      {createdAt && <p className="mt-1 text-[12.5px] text-muted">{fmtDate(createdAt, lang)}</p>}
     </div>
   )
 }
 
 export function Timeline({ events }: { events: TimelineEvent[] }) {
+  const { lang } = useT()
   return (
     <ol className="space-y-4">
       {[...events].reverse().map((e, i) => (
@@ -114,7 +159,7 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
           <div className="min-w-0">
             <p className="text-[14.5px] font-medium">{e.action}</p>
             <p className="text-[13px] text-muted">
-              {fmtTime(e.at)} · {e.actor}{e.delegatedWorker ? ` (for ${e.delegatedWorker})` : ''}
+              {fmtTime(e.at, lang)} · {e.actor}{e.delegatedWorker ? ` (for ${e.delegatedWorker})` : ''}
             </p>
             {e.detail && <p className="mt-0.5 text-[13.5px]">{e.detail}</p>}
           </div>
@@ -161,13 +206,13 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
         {items.map((a) => (
           <button key={a.id} type="button" onClick={() => a.state === 'available' && setOpen(a)}
-            className="relative aspect-square overflow-hidden rounded-md border border-line bg-subtle" aria-label={`Open ${a.name}`}>
+            className="relative aspect-square overflow-hidden rounded-md border border-line bg-subtle" aria-label={t('ticket.openPhoto', { name: a.name })}>
             {a.state === 'available' && a.url && a.kind === 'photo' && <img src={a.url} alt={a.name} loading="lazy" className="h-full w-full object-cover" />}
             {a.state === 'available' && a.kind === 'video' && <span className="flex h-full items-center justify-center"><Play size={26} /></span>}
             {a.state !== 'available' && (
               <span className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center text-[11.5px] text-muted">
                 {a.state === 'failed' ? <ImageOff size={18} /> : <Loader2 size={18} className="animate-spin" />}
-                {a.state === 'failed' ? (a.failureReason ?? 'Not accepted') : 'Checking'}
+                {a.state === 'failed' ? (a.failureReason ?? t('form.notAccepted')) : t('form.checking')}
               </span>
             )}
           </button>
@@ -192,7 +237,7 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
 
 /** Message thread. Staff can choose internal (never shown to faculty) or public. */
 export function Messages({ comments, staff, onSend }: { comments: Comment[]; staff?: boolean; onSend: (body: string, internal: boolean) => Promise<void> }) {
-  const { t } = useT()
+  const { lang, t } = useT()
   const [body, setBody] = useState('')
   const [internal, setInternal] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -207,21 +252,21 @@ export function Messages({ comments, staff, onSend }: { comments: Comment[]; sta
 
   return (
     <div className="space-y-3">
-      {comments.length === 0 && <p className="text-[14px] text-muted">No messages yet.</p>}
+      {comments.length === 0 && <p className="text-[14px] text-muted">{t('ticket.noMessages')}</p>}
       {comments.map((c) => (
         <div key={c.id} className={clsx('rounded-md border px-3.5 py-2.5', c.internal ? 'border-warn/30 bg-warn-soft' : 'border-line bg-subtle')}>
           <p className="whitespace-pre-line text-[14.5px]">{c.body}</p>
-          <p className="mt-1 text-[12.5px] text-muted">{c.internal ? 'Internal note · ' : ''}{c.actor} · {fmtTime(c.at)}</p>
+          <p className="mt-1 text-[12.5px] text-muted">{c.internal ? t('ticket.internalNotePrefix') : ''}{c.actor} · {fmtTime(c.at, lang)}</p>
         </div>
       ))}
       <form onSubmit={send} className="space-y-2">
-        <Textarea rows={2} maxLength={2000} value={body} onChange={(e) => setBody(e.target.value)} aria-label="Message"
-          placeholder={staff ? (internal ? 'Internal note (staff only)' : 'Message to the reporter') : t('ticket.commentPlaceholder')} />
+        <Textarea rows={2} maxLength={2000} value={body} onChange={(e) => setBody(e.target.value)} aria-label={t('ticket.message')}
+          placeholder={staff ? (internal ? t('ticket.internalNoteShort') : t('ticket.messageReporter')) : t('ticket.commentPlaceholder')} />
         <div className="flex flex-wrap items-center justify-between gap-2">
           {staff ? (
             <label className="flex items-center gap-2 text-[14px]">
               <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
-              Internal note (not shown to the reporter)
+              {t('ticket.internalNote')}
             </label>
           ) : <span />}
           <Button type="submit" size="sm" loading={busy} disabled={!body.trim()}>{t('ticket.send')}</Button>

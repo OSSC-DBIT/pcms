@@ -27,6 +27,8 @@ class LocationIn(CamelModel):
     building: str = Field(default="", max_length=20)
     # Only used when building is the CUSTOM sentinel. It never becomes a Building row.
     custom_location: str | None = Field(default=None, max_length=120)
+    # A configured department/area for a building, or free text for Custom Location.
+    department: str | None = Field(default=None, max_length=120)
     floor: str = Field(default="", max_length=20)
     room: str = Field(default="", max_length=60)
     outdoors: bool = False
@@ -36,6 +38,7 @@ class LocationIn(CamelModel):
 class LocationOut(CamelModel):
     building: str
     custom_location: str | None = None
+    department: str = ""
     floor: str
     room: str
     outdoors: bool

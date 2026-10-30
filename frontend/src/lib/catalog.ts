@@ -12,6 +12,7 @@
  * `category()` falls back to a placeholder only when even the full list is missing.
  */
 import { request } from './http'
+import type { Lang } from './i18n'
 import type { Building, Category } from './types'
 
 interface Catalogs { categories: Category[]; buildings: Building[] }
@@ -51,10 +52,40 @@ export const allBuildings = (): Building[] => all?.buildings ?? []
 export function category(code: string): Category {
   return active.categories.find((c) => c.code === code)
     ?? all?.categories.find((c) => c.code === code)
-    ?? { code, letter: '?', nameEn: code, nameHi: code, subtypesEn: [], subtypesHi: [], active: false }
+    ?? { code, letter: '?', nameEn: code, nameHi: code, nameKn: code, subtypesEn: [], subtypesHi: [], subtypesKn: [], active: false }
 }
 
 export function building(code: string): Building | undefined {
   return active.buildings.find((b) => b.code === code)
     ?? all?.buildings.find((b) => b.code === code)
+}
+
+/** Display name for a category, falling back to English when a translation is blank. */
+export function categoryName(c: Category, lang: Lang): string {
+  if (lang === 'hi') return c.nameHi || c.nameEn
+  if (lang === 'kn') return c.nameKn || c.nameEn
+  return c.nameEn
+}
+
+/** Display name for a building, falling back to English when a translation is blank. */
+export function buildingName(b: Building, lang: Lang): string {
+  if (lang === 'hi') return b.nameHi || b.nameEn
+  if (lang === 'kn') return b.nameKn || b.nameEn
+  return b.nameEn
+}
+
+/** A category's part labels, paired by index with the canonical English values. */
+export function categoryParts(c: Category, lang: Lang): { value: string; label: string }[] {
+  return c.subtypesEn.map((value, i) => ({
+    value,
+    label: lang === 'hi' ? c.subtypesHi[i] || value : lang === 'kn' ? c.subtypesKn[i] || value : value,
+  }))
+}
+
+/** A building's department or area labels, paired by index with the stored values. */
+export function buildingDepartments(b: Building, lang: Lang): { value: string; label: string }[] {
+  return b.departments.map((value, i) => ({
+    value,
+    label: lang === 'kn' ? b.departmentsKn[i] || value : value,
+  }))
 }

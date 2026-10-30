@@ -68,6 +68,8 @@ class Ticket(Base):
     # Free text used only when the reporter chooses Custom Location. Kept apart
     # from building_code so a custom place never becomes a permanent building.
     custom_location: Mapped[str | None] = mapped_column(String(120))
+    # Configured department/area chosen for a building, or free text for Custom Location.
+    department: Mapped[str | None] = mapped_column(String(120))
     floor: Mapped[str | None] = mapped_column(String(20))
     room: Mapped[str | None] = mapped_column(String(60))
     outdoors: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

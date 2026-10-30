@@ -11,7 +11,7 @@ import { TERMINAL, type Ticket } from '../../lib/types'
 export default function TicketView() {
   const { id } = useParams()
   const { user } = useAuth()
-  const { t } = useT()
+  const { t, lang } = useT()
   const [ticket, setTicket] = useState<Ticket | null | undefined>(undefined)
   const [disputing, setDisputing] = useState(false)
   const [reason, setReason] = useState('')
@@ -48,14 +48,14 @@ export default function TicketView() {
       <Link to="/tickets" className="inline-flex items-center gap-1 text-[14px] text-accent"><ArrowLeft size={16} /> {t('nav.tickets')}</Link>
       <TicketSummaryCard ticket={ticket}>
         {ticket.nextUpdateDue && !TERMINAL.includes(ticket.status) && ticket.status !== 'Resolved' && (
-          <p className="mt-2 text-[13px] text-muted">{t('ticket.nextUpdate')} {fmtTime(ticket.nextUpdateDue)}</p>
+          <p className="mt-2 text-[13px] text-muted">{t('ticket.nextUpdate')} {fmtTime(ticket.nextUpdateDue, lang)}</p>
         )}
         {editable && (
           <div className="mt-3">
             <Link to={`/t/${ticket.id}/edit`}><Button variant="secondary" size="sm"><Pencil size={15} /> {t('ticket.edit')}</Button></Link>
           </div>
         )}
-        {mine && !editable && <p className="mt-3 text-[13px] text-muted">{t('ticket.editUnavailable')} Contact the facility manager if a correction is needed.</p>}
+        {mine && !editable && <p className="mt-3 text-[13px] text-muted">{t('ticket.editUnavailable')} {t('ticket.contactFacilities')}</p>}
       </TicketSummaryCard>
 
       {error && <Alert tone="bad">{error}</Alert>}
@@ -89,12 +89,12 @@ export default function TicketView() {
             <div role="radiogroup" aria-label={t('ticket.rateStars')} className="flex flex-wrap items-center gap-2">
               {[1, 2, 3, 4, 5].map((n) => (
                 <button key={n} type="button" role="radio" aria-checked={stars === n}
-                  aria-label={`${n} star${n === 1 ? '' : 's'}`} onClick={() => setStars(n)}
+                  aria-label={t(n === 1 ? 'time.starCount' : 'time.starCountPlural', { count: n })} onClick={() => setStars(n)}
                   className={`flex h-11 w-11 items-center justify-center rounded-md border ${stars === n ? 'border-accent bg-accent-soft' : 'border-line hover:bg-subtle'}`}>
                   <Star size={24} className={n <= stars ? 'fill-current text-warn' : 'text-muted'} aria-hidden />
                 </button>
               ))}
-              <span className="ml-1 text-[14px] text-muted">{stars ? `${stars} of 5` : ''}</span>
+              <span className="ml-1 text-[14px] text-muted">{stars ? t('common.of5', { value: stars }) : ''}</span>
             </div>
             <Field label={t('ticket.rateComment')}>
               {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={ratingComment} onChange={(e) => setRatingComment(e.target.value)} />}

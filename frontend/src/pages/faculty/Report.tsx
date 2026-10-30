@@ -5,7 +5,7 @@ import { useAuth } from '../../App'
 import { Gallery, floorLabel } from '../../components/ticket'
 import { Alert, Button, Card, Checkbox, Field, Input, PageHeader, RadioList, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, HttpError } from '../../lib/api'
-import { buildings, categories, category } from '../../lib/catalog'
+import { buildingDepartments, buildingName, buildings, categories, category, categoryName, categoryParts } from '../../lib/catalog'
 import { PrepareError, checkVideo, preparePhoto } from '../../lib/images'
 import { useT } from '../../lib/i18n'
 import { TERMINAL, type Draft, type Impact, type Status, type Ticket } from '../../lib/types'
@@ -23,13 +23,16 @@ interface Media { id: string; file: File; kind: 'photo' | 'video'; preview?: str
 
 const emptyDraft = (): Draft => ({
   key: uuid(), savedAt: new Date().toISOString(), title: '', description: '', categoryCode: '',
-  location: { building: '', floor: '', room: '' }, impact: 'routine',
+  location: { building: '', department: '', floor: '', room: '' }, impact: 'routine',
 })
 
 function loadDraft(): Draft {
   try {
     const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? '[]') as Draft[]
-    return d[0]?.key ? { ...emptyDraft(), ...d[0] } : emptyDraft()
+    const saved = d[0]
+    if (!saved?.key) return emptyDraft()
+    const empty = emptyDraft()
+    return { ...empty, ...saved, location: { ...empty.location, ...saved.location } }
   } catch { return emptyDraft() }
 }
 
@@ -58,6 +61,7 @@ function draftFromTicket(t: Ticket): Draft {
     location: {
       building: t.location.building || CUSTOM_BUILDING,
       customLocation: t.location.customLocation ?? '',
+      department: t.location.department ?? '',
       floor: t.location.floor,
       room: t.location.room,
       outdoors: t.location.outdoors,
@@ -69,13 +73,9 @@ function draftFromTicket(t: Ticket): Draft {
   }
 }
 
-function editProblem(t: Ticket): string | null {
-  if (TERMINAL.includes(t.status)) {
-    return 'This report can no longer be edited because the maintenance request is closed. Contact the facility manager if a correction is needed.'
-  }
-  if (!EDITABLE.includes(t.status)) {
-    return `This report can no longer be edited because work has started (${t.status}). Contact the facility manager if a correction is needed.`
-  }
+function editProblem(ticket: Ticket, t: ReturnType<typeof useT>['t']): string | null {
+  if (TERMINAL.includes(ticket.status)) return t('form.editClosed')
+  if (!EDITABLE.includes(ticket.status)) return t('form.editStarted', { status: t(`status.${ticket.status}`) })
   return null
 }
 
@@ -104,6 +104,8 @@ export default function Report() {
   const cat = d.categoryCode ? category(d.categoryCode) : null
   const b = buildings().find((x) => x.code === d.location.building)
   const isCustom = d.location.building === CUSTOM_BUILDING
+  const departmentOptions = b ? buildingDepartments(b, lang) : []
+  const departmentLabel = b?.code === 'HOSTEL' ? t('form.hostelSection') : t('form.department')
   const sub = (d.subtype ?? '').toLowerCase()
   const needsOther = !!cat && (sub === 'other' || sub.startsWith('other ') || (cat.code === 'other' && !d.subtype))
 
@@ -112,18 +114,18 @@ export default function Report() {
     let alive = true
     setLoading(true)
     setUnavailable(null)
-    api.getTicket(id).then((t) => {
+    api.getTicket(id).then((ticket) => {
       if (!alive) return
-      if (!t) {
-        setUnavailable('This report was not found.')
+      if (!ticket) {
+        setUnavailable(t('form.notFound'))
         setLoading(false)
         return
       }
-      setEditTicket(t)
-      setD(draftFromTicket(t))
-      setMore(!!(t.accessNote || t.altContact))
-      if (t.reporterId !== user?.id) setUnavailable('Only the person who reported this can edit it.')
-      else setUnavailable(editProblem(t))
+      setEditTicket(ticket)
+      setD(draftFromTicket(ticket))
+      setMore(!!(ticket.accessNote || ticket.altContact))
+      if (ticket.reporterId !== user?.id) setUnavailable(t('form.onlyReporter'))
+      else setUnavailable(editProblem(ticket, t))
       setLoading(false)
     }).catch((e) => {
       if (!alive) return
@@ -131,7 +133,7 @@ export default function Report() {
       setLoading(false)
     })
     return () => { alive = false }
-  }, [id, user?.id])
+  }, [id, user?.id, t])
 
   // Text-only draft on this device until it is sent (plan section 6).
   const set = (patch: Partial<Draft>) => setD((cur) => {
@@ -156,8 +158,8 @@ export default function Report() {
     for (const f of Array.from(files)) {
       const kind = f.type.startsWith('video/') ? 'video' as const : 'photo' as const
       const ok = mediaRef.current.filter((m) => !m.error)
-      if (kind === 'photo' && ok.filter((m) => m.kind === 'photo').length >= MAX_PHOTOS) { setError('You can add up to 3 photos.'); continue }
-      if (kind === 'video' && ok.filter((m) => m.kind === 'video').length >= MAX_VIDEOS) { setError('You can add 1 video.'); continue }
+      if (kind === 'photo' && ok.filter((m) => m.kind === 'photo').length >= MAX_PHOTOS) { setError(t('form.tooManyPhotos')); continue }
+      if (kind === 'video' && ok.filter((m) => m.kind === 'video').length >= MAX_VIDEOS) { setError(t('form.oneVideo')); continue }
       const id = uuid()
       if (kind === 'video') {
         const bad = checkVideo(f)
@@ -169,7 +171,7 @@ export default function Report() {
         const prepared = await preparePhoto(f)
         setMedia((m) => m.map((x) => x.id === id ? { ...x, file: prepared, preview: URL.createObjectURL(prepared), state: 'ready' } : x))
       } catch (e) {
-        setMedia((m) => m.map((x) => x.id === id ? { ...x, error: e instanceof PrepareError ? e.message : 'Could not read this photo.', state: 'ready' } : x))
+        setMedia((m) => m.map((x) => x.id === id ? { ...x, error: e instanceof PrepareError ? e.message : t('form.photoReadError'), state: 'ready' } : x))
       }
     }
   }
@@ -184,21 +186,27 @@ export default function Report() {
 
   function validate(): boolean {
     const e: Record<string, string> = {}
-    if (!d.categoryCode) e.categoryCode = 'Choose what needs fixing.'
+    if (!d.categoryCode) e.categoryCode = t('form.chooseCategory')
     else if (cat && cat.subtypesEn.length > 0 && !d.subtype && cat.code !== 'other') e.subtype = t('form.chooseIssue')
     if (needsOther && (d.otherDetail ?? '').trim().length < 3) e.otherDetail = t('form.otherHint')
+    const department = (d.location.department ?? '').trim()
     if (!d.location.building) {
       e.location = t('form.chooseBuilding')
     } else if (isCustom) {
       if ((d.location.customLocation ?? '').trim().length < 3) e.location = t('form.customLocationHint')
-      else if (d.location.outdoors) { if (!d.location.landmark?.trim()) e.location = 'Give a nearby landmark.' }
-      else if (!d.location.floor.trim() || !d.location.room.trim()) e.location = 'Give the floor and the room or area.'
+      else if (!d.location.outdoors && department.length < 2) e.location = t('form.departmentRequired')
+      else if (d.location.outdoors) { if (!d.location.landmark?.trim()) e.location = t('form.landmarkRequired') }
+      else if (!d.location.floor.trim() || !d.location.room.trim()) e.location = t('form.floorRoomRequired')
+    } else if (!b) {
+      e.location = t('form.chooseBuilding')
+    } else if (departmentOptions.length > 0 && !department) {
+      e.location = t('form.chooseDepartmentBuilding')
     } else if (d.location.outdoors) {
-      if (!d.location.landmark?.trim()) e.location = 'Give a nearby landmark.'
+      if (!d.location.landmark?.trim()) e.location = t('form.landmarkRequired')
     } else if (!d.location.floor || !d.location.room.trim()) {
-      e.location = 'Choose the floor and give the room or area.'
+      e.location = t('form.chooseFloorRoom')
     }
-    if (d.title.trim().length < 4) e.title = 'Write a short title (at least 4 letters).'
+    if (d.title.trim().length < 4) e.title = t('form.titleRequired')
     setErrors(e)
     return Object.keys(e).length === 0
   }
@@ -207,8 +215,8 @@ export default function Report() {
     ev.preventDefault()
     setError(null)
     if (unavailable) return
-    if (!validate()) { setError('Please fix the highlighted fields.'); return }
-    if (media.some((m) => m.state === 'preparing')) { setError('Wait for the photos to finish preparing.'); return }
+    if (!validate()) { setError(t('form.fixFields')); return }
+    if (media.some((m) => m.state === 'preparing')) { setError(t('form.waitPreparing')); return }
     setBusy(true)
     try {
       if (editing) {
@@ -235,18 +243,18 @@ export default function Report() {
           setMedia((ms) => ms.map((x) => x.id === m.id ? { ...x, state: 'failed', error: errorMessage(e) } : x))
         }
       }
-      if (failed) { setError(`Your report was sent, but ${failed} file(s) did not upload. Retry, or continue without them.`); return }
+      if (failed) { setError(t('form.uploadFailed', { count: failed })); return }
       nav(`/receipt/${id}`, { replace: true })
     } catch (e) {
       if (e instanceof HttpError && e.fieldErrors) setErrors(e.fieldErrors)
       if (e instanceof HttpError && e.code === 'stale_version') {
-        setError('This report was changed elsewhere. Reload the page and try again.')
+        setError(t('form.stale'))
       } else if (e instanceof HttpError && e.code === 'ticket_not_editable') {
         setUnavailable(errorMessage(e))
       } else {
         setError(e instanceof HttpError && e.code === 'idempotency_conflict'
-          ? 'This draft was already sent with different details. Check My tickets.'
-          : `${errorMessage(e)} ${editing ? '' : 'Your draft is kept on this device.'}`)
+          ? t('form.idempotency')
+          : `${errorMessage(e)} ${editing ? '' : t('form.draftKept')}`)
       }
     } finally {
       setBusy(false)
@@ -261,9 +269,9 @@ export default function Report() {
     return (
       <Stack className="mx-auto max-w-2xl">
         <PageHeader title={t('form.editPage')} subtitle={editTicket?.token} />
-        <Alert tone="warn" title="Editing unavailable">{unavailable}</Alert>
+        <Alert tone="warn" title={t('form.editingUnavailable')}>{unavailable}</Alert>
         <Button variant="secondary" className="self-start" onClick={() => nav(id ? `/t/${id}` : '/tickets')}>
-          <ArrowLeft size={16} /> Back to report
+          <ArrowLeft size={16} /> {t('form.backToReport')}
         </Button>
       </Stack>
     )
@@ -273,7 +281,7 @@ export default function Report() {
     <form onSubmit={submit} noValidate>
       <Stack className="mx-auto max-w-2xl">
         <PageHeader title={editing ? t('form.editPage') : t('form.page')} subtitle={editing ? editTicket?.token : t('home.subtitle')} />
-        {ticketId && <Alert tone="ok">Report saved. Finish uploading the photos below, or continue.</Alert>}
+        {ticketId && <Alert tone="ok">{t('form.reportSaved')}</Alert>}
 
         <Card title={t('form.type')}>
           <Stack>
@@ -288,8 +296,8 @@ export default function Report() {
                     <span className={`flex h-9 w-9 items-center justify-center rounded-md ${selected ? 'bg-accent text-accent-fg' : 'bg-subtle text-accent'}`}>
                       <Icon size={19} aria-hidden />
                     </span>
-                    <span className="text-[15px] font-semibold">{lang === 'hi' ? c.nameHi : c.nameEn}</span>
-                    <span className="text-[12.5px] text-muted">{c.subtypesEn.length} options</span>
+                    <span className="text-[15px] font-semibold">{categoryName(c, lang)}</span>
+                    <span className="text-[12.5px] text-muted">{t('form.optionsCount', { count: c.subtypesEn.length })}</span>
                   </button>
                 )
               })}
@@ -305,7 +313,7 @@ export default function Report() {
                       set({ subtype: s, otherDetail: other ? d.otherDetail : undefined })
                     }}>
                     <option value="">{t('form.chooseIssue')}</option>
-                    {cat.subtypesEn.map((s, i) => <option key={s} value={s}>{lang === 'hi' ? cat.subtypesHi[i] ?? s : s}</option>)}
+                    {categoryParts(cat, lang).map((part) => <option key={part.value} value={part.value}>{part.label}</option>)}
                   </Select>
                 )}
               </Field>
@@ -325,35 +333,56 @@ export default function Report() {
             <Field label={t('form.building')}>
               {(fieldId) => (
                 <Select id={fieldId} value={d.location.building} invalid={!!errors.location && !d.location.building}
-                  onChange={(e) => setLoc({ building: e.target.value, floor: '', room: '', customLocation: '' })}>
+                  onChange={(e) => setLoc({ building: e.target.value, department: '', floor: '', room: '', customLocation: '' })}>
                   <option value="">{t('form.chooseBuilding')}</option>
-                  {buildings().map((x) => <option key={x.code} value={x.code}>{lang === 'hi' ? x.nameHi : x.nameEn}</option>)}
+                  {buildings().map((x) => <option key={x.code} value={x.code}>{buildingName(x, lang)}</option>)}
                   <option value={CUSTOM_BUILDING}>{t('form.customLocation')}</option>
                 </Select>
               )}
             </Field>
+            {!isCustom && b && (
+              departmentOptions.length > 0 ? (
+                <Field label={departmentLabel}>
+                  {(fieldId) => (
+                    <Select id={fieldId} value={d.location.department ?? ''} invalid={!!errors.location && !d.location.department}
+                      onChange={(e) => setLoc({ department: e.target.value })}>
+                      <option value="">{t('form.chooseDepartment')}</option>
+                      {departmentOptions.map((department) => <option key={department.value} value={department.value}>{department.label}</option>)}
+                    </Select>
+                  )}
+                </Field>
+              ) : (
+                <p className="text-[13px] text-muted">{t('form.noDepartments')}</p>
+              )
+            )}
             {isCustom && (
-              <Field label={t('form.customLocation')} hint={t('form.customLocationHint')} error={errors.location}>
-                {(fieldId, desc) => <Input id={fieldId} aria-describedby={desc} value={d.location.customLocation ?? ''} maxLength={120}
-                  placeholder={t('form.customLocationHint')} invalid={!!errors.location} onChange={(e) => setLoc({ customLocation: e.target.value })} />}
-              </Field>
+              <>
+                <Field label={t('form.customBuilding')} hint={t('form.customLocationHint')}>
+                  {(fieldId, desc) => <Input id={fieldId} aria-describedby={desc} value={d.location.customLocation ?? ''} maxLength={120}
+                    placeholder={t('form.customLocationHint')} invalid={!!errors.location} onChange={(e) => setLoc({ customLocation: e.target.value })} />}
+                </Field>
+                <Field label={t('form.department')} optional={!!d.location.outdoors} hint={t('form.departmentHint')}>
+                  {(fieldId, desc) => <Input id={fieldId} aria-describedby={desc} value={d.location.department ?? ''} maxLength={120}
+                    placeholder={t('form.departmentHint')} onChange={(e) => setLoc({ department: e.target.value })} />}
+                </Field>
+              </>
             )}
             {!d.location.outdoors ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label={t('form.floor')}>
                   {(fieldId) => isCustom ? (
-                    <Input id={fieldId} value={d.location.floor} maxLength={20} placeholder="e.g. Ground, 2"
+                    <Input id={fieldId} value={d.location.floor} maxLength={20} placeholder={t('form.floorPlaceholder')}
                       invalid={!!errors.location && !d.location.floor.trim()} onChange={(e) => setLoc({ floor: e.target.value })} />
                   ) : (
                     <Select id={fieldId} value={d.location.floor} disabled={!b} invalid={!!errors.location && !d.location.floor}
                       onChange={(e) => setLoc({ floor: e.target.value })}>
                       <option value="">{t('form.chooseFloor')}</option>
-                      {b?.floors.map((f) => <option key={f} value={f}>{floorLabel(f)}</option>)}
+                      {b?.floors.map((f) => <option key={f} value={f}>{floorLabel(f, t)}</option>)}
                     </Select>
                   )}
                 </Field>
                 <Field label={t('form.room')}>
-                  {(fieldId) => <Input id={fieldId} value={d.location.room} maxLength={60} placeholder="e.g. 203, Lab 2, Staff room"
+                  {(fieldId) => <Input id={fieldId} value={d.location.room} maxLength={60} placeholder={t('form.roomPlaceholder')}
                     invalid={!!errors.location && !d.location.room.trim()} onChange={(e) => setLoc({ room: e.target.value })} />}
                 </Field>
                 <Field label={t('form.landmark')} optional>
@@ -362,7 +391,7 @@ export default function Report() {
               </div>
             ) : (
               <Field label={t('form.landmark')}>
-                {(fieldId) => <Input id={fieldId} value={d.location.landmark ?? ''} maxLength={120} placeholder="e.g. Near the main gate"
+                {(fieldId) => <Input id={fieldId} value={d.location.landmark ?? ''} maxLength={120} placeholder={t('form.landmarkPlaceholder')}
                   invalid={!!errors.location} onChange={(e) => setLoc({ landmark: e.target.value })} />}
               </Field>
             )}
@@ -377,11 +406,11 @@ export default function Report() {
           </Alert>
         )}
 
-        <Card title="What is wrong?">
+        <Card title={t('form.whatWrong')}>
           <Stack>
             <Field label={t('form.titleLabel')} error={errors.title} hint={`${d.title.length}/120`}>
               {(fieldId, desc) => <Input id={fieldId} aria-describedby={desc} invalid={!!errors.title} maxLength={120} value={d.title}
-                placeholder="e.g. Ceiling fan not working" onChange={(e) => set({ title: e.target.value })} />}
+                placeholder={t('form.titlePlaceholder')} onChange={(e) => set({ title: e.target.value })} />}
             </Field>
             <Field label={t('form.details')} optional hint={t('form.detailsHint')}>
               {(fieldId, desc) => <Textarea id={fieldId} aria-describedby={desc} rows={4} maxLength={2000} value={d.description}
@@ -397,10 +426,10 @@ export default function Report() {
               : (
                 <div className="grid gap-4 sm:grid-cols-2">
                   <Field label={t('form.access')} optional>
-                    {(fieldId) => <Input id={fieldId} maxLength={200} value={d.accessNote ?? ''} placeholder="e.g. After 4 pm" onChange={(e) => set({ accessNote: e.target.value })} />}
+                    {(fieldId) => <Input id={fieldId} maxLength={200} value={d.accessNote ?? ''} placeholder={t('form.accessPlaceholder')} onChange={(e) => set({ accessNote: e.target.value })} />}
                   </Field>
                   <Field label={t('form.altContact')} optional>
-                    {(fieldId) => <Input id={fieldId} maxLength={120} value={d.altContact ?? ''} placeholder="e.g. Lab assistant, ext 214" onChange={(e) => set({ altContact: e.target.value })} />}
+                    {(fieldId) => <Input id={fieldId} maxLength={120} value={d.altContact ?? ''} placeholder={t('form.altContactPlaceholder')} onChange={(e) => set({ altContact: e.target.value })} />}
                   </Field>
                 </div>
               )}
@@ -431,10 +460,13 @@ export default function Report() {
                     {m.preview ? <img src={m.preview} alt="" className="aspect-square w-full object-cover" />
                       : <div className="flex aspect-square items-center justify-center p-2 text-center text-[12px] text-muted">{m.file.name}</div>}
                     <p className={`px-2 py-1 text-[12px] ${m.error ? 'text-bad' : 'text-muted'}`}>
-                      {m.error ?? { ready: 'Ready', preparing: 'Preparing...', uploading: 'Uploading...', sent: 'Sent', failed: 'Failed' }[m.state]}
+                      {m.error ?? {
+                        ready: t('form.photoReady'), preparing: t('form.photoPreparing'), uploading: t('form.photoUploading'),
+                        sent: t('form.photoSent'), failed: t('form.photoFailed'),
+                      }[m.state]}
                     </p>
                     {m.state !== 'uploading' && m.state !== 'sent' && (
-                      <button type="button" aria-label="Remove" onClick={() => removeMedia(m.id)}
+                      <button type="button" aria-label={t('action.remove')} onClick={() => removeMedia(m.id)}
                         className="absolute right-1 top-1 flex h-8 w-8 items-center justify-center rounded-full bg-black/60 text-white"><X size={16} /></button>
                     )}
                   </li>
@@ -453,8 +485,8 @@ export default function Report() {
             </>
           ) : (
             <>
-              {ticketId && <Button variant="secondary" onClick={() => nav(`/receipt/${ticketId}`, { replace: true })}>Continue without files</Button>}
-              <Button type="submit" loading={busy} className="sm:min-w-48">{ticketId ? 'Retry uploads' : t('form.submit')}</Button>
+              {ticketId && <Button variant="secondary" onClick={() => nav(`/receipt/${ticketId}`, { replace: true })}>{t('action.continueNoFiles')}</Button>}
+              <Button type="submit" loading={busy} className="sm:min-w-48">{ticketId ? t('action.retryUploads') : t('form.submit')}</Button>
             </>
           )}
         </div>

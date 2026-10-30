@@ -49,12 +49,15 @@ async def test_validation_errors(client):
     r = await s.post(f"{API}/tickets", json=ticket_body(title="no", categoryCode="nope"))
     assert r.status_code == 400
     assert {"title", "categoryCode"} <= set(r.json()["field_errors"])
-    r = await s.post(f"{API}/tickets", json=ticket_body(location={"building": "BLOCK_A", "floor": "99", "room": "1"}))
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={
+        "building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)",
+        "floor": "99", "room": "1"}))
     assert r.status_code == 400 and "location" in r.json()["field_errors"]
     r = await s.post(f"{API}/tickets", json=ticket_body(location={"outdoors": True}))
     assert r.status_code == 400
     r = await s.post(f"{API}/tickets", json=ticket_body(
-        location={"building": "BLOCK_A", "outdoors": True, "landmark": "Main gate"}))
+        location={"building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)",
+                  "outdoors": True, "landmark": "Main gate"}))
     assert r.status_code == 201
 
 
@@ -142,25 +145,66 @@ async def test_other_needs_a_description(client):
 async def test_custom_location_and_area_validation(client):
     s = await _faculty(client)
     custom = ticket_body(location={"building": "CUSTOM", "customLocation": "Workshop near the back gate",
-                                   "floor": "Ground", "room": "Tool room"})
+                                   "department": "Mechanical Workshop", "floor": "Ground", "room": "Tool room"})
     r = await s.post(f"{API}/tickets", json=custom)
     assert r.status_code == 201, r.text
     t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
-    assert t["location"] == {"building": "", "customLocation": "Workshop near the back gate", "floor": "Ground",
+    assert t["location"] == {"building": "", "customLocation": "Workshop near the back gate",
+                             "department": "Mechanical Workshop", "floor": "Ground",
                              "room": "Tool room", "outdoors": False, "landmark": None}
 
     missing = ticket_body(location={"building": "CUSTOM", "floor": "Ground", "room": "Tool room"})
     r = await s.post(f"{API}/tickets", json=missing)
     assert r.status_code == 400 and "location" in r.json()["field_errors"]
 
+    no_department = ticket_body(location={"building": "CUSTOM", "customLocation": "Workshop annex",
+                                          "floor": "Ground", "room": "Tool room"})
+    r = await s.post(f"{API}/tickets", json=no_department)
+    assert r.status_code == 400 and "location" in r.json()["field_errors"]
+
     wrong = ticket_body(location={"building": "BLOCK_A", "customLocation": "Somewhere else",
+                                  "department": "Computer Science and Engineering (CSE)",
                                   "floor": "2", "room": "203"})
     r = await s.post(f"{API}/tickets", json=wrong)
     assert r.status_code == 400 and "location" in r.json()["field_errors"]
 
-    area = ticket_body(location={"building": "ADMIN_BLOCK", "floor": "Principal's Office"})
+    area = ticket_body(location={"building": "ADMIN_BLOCK", "department": "Principal's Office",
+                                 "floor": "1", "room": "Cabin"})
     r = await s.post(f"{API}/tickets", json=area)
+    assert r.status_code == 201, r.text
+    t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
+    assert t["location"]["department"] == "Principal's Office"
+
+
+async def test_department_must_belong_to_the_chosen_building(client):
+    s = await _faculty(client)
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={
+        "building": "BLOCK_A", "floor": "2", "room": "203"}))
     assert r.status_code == 400 and "location" in r.json()["field_errors"]
+
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={
+        "building": "BLOCK_A", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
+        "floor": "2", "room": "203"}))
+    assert r.status_code == 400 and "location" in r.json()["field_errors"]
+
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={
+        "building": "BLOCK_A", "department": "Information Science and Engineering (ISE)",
+        "floor": "2", "room": "203"}))
+    assert r.status_code == 201, r.text
+    t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
+    assert t["location"]["department"] == "Information Science and Engineering (ISE)"
+
+
+async def test_sports_department_has_no_subdivision(client):
+    s = await _faculty(client)
+    r = await s.post(f"{API}/tickets", json=ticket_body(location={
+        "building": "SPORTS", "department": "Physics", "floor": "Ground", "room": "Main ground"}))
+    assert r.status_code == 201, r.text
+    t = (await s.get(f"{API}/tickets/{r.json()['id']}")).json()
+    assert t["location"]["building"] == "SPORTS"
+    assert t["location"]["department"] == ""
+    assert t["location"]["floor"] == "Ground"
+    assert t["location"]["room"] == "Main ground"
 
 
 

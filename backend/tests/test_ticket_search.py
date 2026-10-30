@@ -61,12 +61,14 @@ async def test_search_matches_title_token_and_room(client):
     fac = await _faculty(client)
     await fac.post(f"{API}/tickets", json=ticket_body(title="Broken chair in lecture room"))
     await fac.post(f"{API}/tickets", json=ticket_body(title="Leaking tap",
-                                                       location={"building": "BLOCK_A", "floor": "1", "room": "101"}))
+                                                       location={"building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)",
+                             "floor": "1", "room": "101"}))
     await fac.post(f"{API}/tickets", json=ticket_body(title="Flickering light",
-                                                       location={"building": "BLOCK_B", "floor": "3", "room": "305"}))
+                                                       location={"building": "BLOCK_B", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
+                             "floor": "3", "room": "305"}))
     await fac.post(f"{API}/tickets", json=ticket_body(
         title="Loose cable", location={"building": "CUSTOM", "customLocation": "Workshop annex",
-                                       "floor": "Ground", "room": "Store"}))
+                                       "department": "Workshop", "floor": "Ground", "room": "Store"}))
 
     r = (await fac.get(f"{API}/tickets", params={"scope": "mine", "search": "leaking"})).json()
     assert r["total"] == 1 and r["items"][0]["title"] == "Leaking tap"
@@ -90,10 +92,12 @@ async def test_search_wildcards_are_escaped_not_matched(client):
 async def test_building_and_category_filters(client):
     fac = await _faculty(client)
     a = (await fac.post(f"{API}/tickets", json=ticket_body(
-        title="Leaking tap", location={"building": "BLOCK_A", "floor": "1", "room": "101"}))).json()
+        title="Leaking tap", location={"building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)",
+                             "floor": "1", "room": "101"}))).json()
     await fac.post(f"{API}/tickets", json=ticket_body(
         title="Flickering light", categoryCode="mechanical", subtype="Fan / Light / Electrical",
-        location={"building": "BLOCK_B", "floor": "3", "room": "305"}))
+        location={"building": "BLOCK_B", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
+                             "floor": "3", "room": "305"}))
 
     mc = new_client()
     try:

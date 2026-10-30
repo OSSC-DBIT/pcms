@@ -165,6 +165,30 @@ def _save(wb: Workbook) -> bytes:
     return buf.getvalue()
 
 
+def build_report_workbook(sheets: list[tuple[str, tuple[str, ...], list[list[str]], tuple[int, ...]]],
+                          *, cover: dict[str, str] = {}) -> bytes:
+    """A maintenance report workbook.
+
+    Every sheet has styled headers, sized columns and freeze panes. Every value is
+    written as text so ticket data can never turn into a formula.
+    """
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheets[0][0][:31]
+    for name, headers, rows, widths in sheets:
+        ws = wb.create_sheet(name[:31]) if name != sheets[0][0] else ws
+        _style_header(ws, headers, widths)
+        for r, row in enumerate(rows, start=2):
+            for c, value in enumerate(row, start=1):
+                write_text_cell(ws, r, c, value)
+    if cover:
+        note = wb.create_sheet("Read me")
+        note.column_dimensions["A"].width = 110
+        for i, line in enumerate(cover.get("lines", []), start=1):
+            write_text_cell(note, i, 1, line)
+    return _save(wb)
+
+
 def ist_stamp(value: datetime | None) -> str:
     if value is None:
         return ""

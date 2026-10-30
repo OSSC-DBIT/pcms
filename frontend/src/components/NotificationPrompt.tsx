@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Bell, X } from 'lucide-react'
 import { enablePush, syncPushOnOpen, type PushState } from '../lib/push'
+import { useT } from '../lib/i18n'
 import { Button } from './ui'
 
 const ASKED_KEY = 'pcms.push.asked'
@@ -12,6 +13,7 @@ const ASKED_KEY = 'pcms.push.asked'
  * a button rather than calling the dialog unprompted.
  */
 export default function NotificationPrompt() {
+  const { t } = useT()
   const [state, setState] = useState<PushState | null>(null)
   const [busy, setBusy] = useState(false)
   const [hidden, setHidden] = useState(() => sessionStorage.getItem(ASKED_KEY) === '1')
@@ -22,21 +24,21 @@ export default function NotificationPrompt() {
   const dismiss = () => { sessionStorage.setItem(ASKED_KEY, '1'); setHidden(true) }
 
   return (
-    <div role="dialog" aria-label="Turn on notifications"
+    <div role="dialog" aria-label={t('notify.promptLabel')}
       className="fixed inset-x-3 top-3 z-50 mx-auto flex max-w-md items-start gap-3 rounded-lg border border-accent/30 bg-surface p-4 shadow-lg md:top-6">
       <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-soft text-accent"><Bell size={18} /></span>
       <div className="min-w-0 flex-1">
-        <p className="text-[15px] font-medium">Get updates on your tickets</p>
-        <p className="mt-0.5 text-[13.5px] text-muted">Allow notifications to hear when a report is assigned, fixed or needs you.</p>
+        <p className="text-[15px] font-medium">{t('notify.promptTitle')}</p>
+        <p className="mt-0.5 text-[13.5px] text-muted">{t('notify.promptBody')}</p>
         <div className="mt-3 flex gap-2">
           <Button size="sm" loading={busy} onClick={async () => {
             setBusy(true)
             try { setState(await enablePush()) } catch { /* the banner stays; Settings has details */ } finally { setBusy(false); dismiss() }
-          }}>Allow</Button>
-          <Button size="sm" variant="ghost" onClick={dismiss}>Not now</Button>
+          }}>{t('notify.allow')}</Button>
+          <Button size="sm" variant="ghost" onClick={dismiss}>{t('notify.notNow')}</Button>
         </div>
       </div>
-      <button type="button" aria-label="Close" onClick={dismiss} className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-subtle"><X size={16} /></button>
+      <button type="button" aria-label={t('action.close')} onClick={dismiss} className="-mr-1 -mt-1 flex h-8 w-8 items-center justify-center rounded-md text-muted hover:bg-subtle"><X size={16} /></button>
     </div>
   )
 }

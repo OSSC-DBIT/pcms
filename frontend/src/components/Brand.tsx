@@ -1,5 +1,6 @@
 /** Institution branding shown on every page: Don Bosco Institute of Technology and OSSC DBIT. */
 import { clsx } from 'clsx'
+import { useT } from '../lib/i18n'
 
 export const INSTITUTE = 'Don Bosco Institute of Technology, Bengaluru'
 export const INSTITUTE_SHORT = 'DBIT Bengaluru'
@@ -19,14 +20,15 @@ export function InstituteMark({ className }: { className?: string }) {
 }
 
 export function Footer({ className }: { className?: string }) {
+  const { t } = useT()
   return (
     <footer className={clsx('border-t border-line px-4 py-5 text-center text-[12.5px] leading-5 text-muted', className)}>
       <p>
         <a href={INSTITUTE_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-fg hover:text-accent">{INSTITUTE}</a>
         {' · '}Mysuru Road, Kumbalagodu, Bengaluru 560074
       </p>
-      <p className="mt-1">Maintained and regulated by the {CLUB}.</p>
-      <p className="mt-1">© {new Date().getFullYear()} {INSTITUTE} and {CLUB}. All rights reserved.</p>
+      <p className="mt-1">{t('footer.maintained', { club: CLUB })}</p>
+      <p className="mt-1">{t('footer.rights', { year: new Date().getFullYear(), institute: INSTITUTE, club: CLUB })}</p>
     </footer>
   )
 }

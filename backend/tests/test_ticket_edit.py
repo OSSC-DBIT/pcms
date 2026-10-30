@@ -39,7 +39,8 @@ async def test_reporter_edits_their_ticket_and_history_is_kept(client):
     body = _edit_body(
         categoryCode="it_services", subtype="Computer / Laptop", title="Laptop will not start",
         description="The lab laptop shows no power light.", impact="safety",
-        location={"building": "BLOCK_B", "floor": "1", "room": "Lab 2"},
+        location={"building": "BLOCK_B", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
+                  "floor": "1", "room": "Lab 2"},
     )
     r = await fac.patch(f"{API}/tickets/{created['id']}", json=body)
     assert r.status_code == 200, r.text

@@ -24,10 +24,10 @@ export default function Receipt() {
       <Card className="text-center">
         <CheckCircle2 size={44} className="mx-auto text-ok" aria-hidden />
         <h1 className="mt-3 text-[20px] font-semibold">{t('receipt.title')}</h1>
-        <p className="mt-4 text-[13px] font-medium uppercase tracking-wide text-muted">Token</p>
+        <p className="mt-4 text-[13px] font-medium uppercase tracking-wide text-muted">{t('receipt.token')}</p>
         <p className="token mt-1 text-[38px] font-bold" data-testid="receipt-token">{ticket.token}</p>
         <p className="mt-2 text-[14.5px]">{ticket.title}</p>
-        <p className="mt-1 text-[13.5px] text-muted">{typeText(ticket, lang)} · {placeText(ticket, lang)}</p>
+        <p className="mt-1 text-[13.5px] text-muted">{typeText(ticket, lang)} · {placeText(ticket, lang, t)}</p>
         <p className="mt-4 text-[14px] text-muted">{t('receipt.body')}</p>
         <div className="mt-6 flex flex-col gap-2">
           <Link to={`/t/${ticket.id}`}><Button full>{t('receipt.view')}</Button></Link>
