@@ -31,7 +31,10 @@ export default defineConfig({
         background_color: '#0a0a0a',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
+        // The installed app opens sign-in (or, when already signed in, the person's home
+        // screen; /login redirects). The landing page is for the browser only.
+        // id stays '/' so existing installs update instead of becoming a second app.
+        start_url: '/login',
         scope: '/',
         icons: [
           { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },

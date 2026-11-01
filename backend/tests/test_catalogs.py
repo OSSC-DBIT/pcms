@@ -48,6 +48,25 @@ async def test_catalogs_include_inactive_is_for_admin_screens(client):
     assert next(c for c in full if c["code"] == "civil")["active"] is False
 
 
+async def test_startup_seed_and_migrations_add_no_people_or_tickets():
+    """A fresh install has reference data only: no demo accounts, tickets or workers.
+
+    The API container runs `alembic upgrade head && python -m app.cli seed` on every start,
+    so neither step may ever create sample rows.
+    """
+    async with sessionmaker()() as s:
+        await s.execute(text("DROP SCHEMA public CASCADE"))
+        await s.execute(text("CREATE SCHEMA public"))
+        await s.commit()
+    await run_alembic(command.upgrade, "head")
+    await seed_all()
+    async with sessionmaker()() as s:
+        for table in ("app_user", "ticket", "worker", "assignment", "proposal", "attachment",
+                      "ticket_event", "ticket_comment", "ticket_rating", "outbox", "push_subscription"):
+            assert await s.scalar(text(f'SELECT count(*) FROM "{table}"')) == 0, table
+        assert await s.scalar(select(func.count()).select_from(Category)) == 12
+
+
 async def test_seed_is_idempotent_and_keeps_admin_edits():
     async with sessionmaker()() as s:
         cat = await s.scalar(select(Category).where(Category.code == "other"))

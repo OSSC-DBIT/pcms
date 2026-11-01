@@ -34,7 +34,7 @@ from app.schemas.ticket import (
 )
 from app.security.deps import Principal
 from app.security.sessions import now
-from app.services import audit, notify
+from app.services import audit, notify, translate
 
 # The reporter's severity sets the internal reminder clock. Nobody sets a priority by hand.
 PRIORITY_FROM_IMPACT = {"red": "P1", "orange": "P2", "green": "P4"}
@@ -398,6 +398,23 @@ def summary_out(t: Ticket, lk: Lookups, staff: bool) -> TicketSummaryOut:
     return TicketSummaryOut(**_summary_fields(t, lk, staff))
 
 
+def wants_translations(p: Principal) -> bool:
+    """Typed text is machine-translated for the facility manager only (DBIT, 2026-11-01).
+    Everyone else reads it as written, and nothing is sent to a translator on their behalf."""
+    return p.user.role == "facility_manager"
+
+
+async def summaries_out(db: AsyncSession, p: Principal, rows: list[Ticket], lk: Lookups,
+                        staff: bool) -> list[TicketSummaryOut]:
+    items = [summary_out(t, lk, staff) for t in rows]
+    if not wants_translations(p):
+        return items
+    found = await translate.lookup(db, [i.title for i in items])
+    for i in items:
+        i.translations = {i.title: found[i.title]} if i.title in found else {}
+    return items
+
+
 async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
     staff = is_staff(p)
     lk = await Lookups.load(db, [t], staff)
@@ -417,12 +434,18 @@ async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
     if missing:
         lk.users.update({u.id: u for u in (await db.scalars(select(User).where(User.id.in_(missing)))).all()})
 
+    # Documents the facility manager adds are for the approvers (DBIT, 2026-11-01).
+    atts = [a for a in atts if a.kind != "document" or document_visible(p, a, lk.users.get(a.uploaded_by))]
+    hidden_doc_events = {e.id for e in events if e.action == DOCUMENT_EVENT and e.actor_id != p.user.id
+                         and not _fm_document_reader(p) and await _is_facility_manager(db, lk, e.actor_id)}
+    events = [e for e in events if e.id not in hidden_doc_events]
+
     def uploader(a: Attachment) -> str:
         # Faculty see their own name, and the team rather than individual staff names.
         return lk.name(a.uploaded_by) if staff or a.uploaded_by == p.user.id else "Facilities team"
 
     rating = await db.scalar(select(TicketRating).where(TicketRating.ticket_id == t.id))
-    return TicketOut(
+    out = TicketOut(
         **_summary_fields(t, lk, staff),
         description=t.description, access_note=t.access_note, alt_contact=t.alt_contact,
         hold_reason=t.hold_reason if t.status == "OnHold" else None,
@@ -437,11 +460,52 @@ async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
                                    url=f"/api/v1/attachments/{a.id}/content" if a.state == "available" else None)
                      for a in atts],
     )
+    # Translations are built from the response itself, so they only ever cover text this person may see.
+    texts = [out.title, out.description, out.hold_reason, out.rating.comment if out.rating else None,
+             *(e.action for e in out.events), *(e.detail for e in out.events), *(c.body for c in out.comments)]
+    if out.proposal:
+        texts += [out.proposal.remedy, out.proposal.reason, out.proposal.conditions]
+    if wants_translations(p):
+        out.translations = await translate.lookup(db, texts)
+    return out
 
 
 def _public_actor(e: TicketEvent) -> str:
     # Faculty see roles, not individual staff or worker names, in their timeline.
     return "Facilities" if e.actor_id else "PCMS"
+
+
+DOCUMENT_EVENT = "Document added"
+# Who besides the uploader may open a document the facility manager added.
+FM_DOCUMENT_READERS = frozenset({"principal", "management", "ossc"})
+
+
+def _fm_document_reader(p: Principal) -> bool:
+    return p.user.role in FM_DOCUMENT_READERS
+
+
+async def _is_facility_manager(db: AsyncSession, lk: Lookups, user_id: uuid.UUID | None) -> bool:
+    if user_id is None:
+        return False
+    if user_id not in lk.users:
+        u = await db.get(User, user_id)
+        if u is not None:
+            lk.users[user_id] = u
+    u = lk.users.get(user_id)
+    return bool(u and u.role == "facility_manager")
+
+
+def document_visible(p: Principal, a: Attachment, uploader: User | None) -> bool:
+    """Staff documents never reach faculty. One added by a facility manager is seen only by that
+    person, the principal, institute management and Team OSSC, not by other facility managers.
+    Documents added by the principal or management stay visible to every staff role."""
+    if not is_staff(p):
+        return False
+    if a.uploaded_by == p.user.id:
+        return True
+    if uploader is not None and uploader.role == "facility_manager":
+        return _fm_document_reader(p)
+    return True
 
 
 def ensure_not_terminal(t: Ticket) -> None:

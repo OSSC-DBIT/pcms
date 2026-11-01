@@ -7,7 +7,9 @@
 import type { TKey } from './i18n'
 
 export const MAX_VIDEO_BYTES = 20 * 1024 * 1024
-export const VIDEO_TYPES = ['video/mp4', 'video/webm']
+export const MAX_VIDEO_SECONDS = 30
+// The server turns iPhone .MOV (H.264) into MP4.
+export const VIDEO_TYPES = ['video/mp4', 'video/webm', 'video/quicktime']
 const MAX_EDGE = 2048
 
 /** A problem found on the device before upload. `key` is the message to show, in the reader's language. */

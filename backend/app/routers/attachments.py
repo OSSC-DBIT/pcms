@@ -8,8 +8,9 @@ GET  /media/public/{token}               signed, expiring link used only by Twil
 import re
 import uuid
 from datetime import timedelta
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,7 +24,8 @@ from app.schemas.ticket import AttachmentOut
 from app.security.deps import Principal, current_principal
 from app.security.sessions import now
 from app.services import audit, media
-from app.services.tickets import add_event, get_visible, is_staff
+from app.models.user import User
+from app.services.tickets import DOCUMENT_EVENT, add_event, document_visible, get_visible
 
 api = APIRouter(tags=["attachments"])
 public = APIRouter(tags=["media"], include_in_schema=False)
@@ -43,13 +45,18 @@ def _safe_name(name: str | None) -> str:
 
 @api.post("/tickets/{ticket_id}/attachments", response_model=AttachmentOut, status_code=202)
 async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File(...),
+                 purpose: Literal["evidence", "document"] = Form("evidence"),
                  p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> AttachmentOut:
+    """evidence: photos and videos, added only by the person who reported the ticket.
+    document: staff files (quotes, bills, reports), added by any staff role (ticket.attach).
+    Staff view the reporter's photos and videos but do not add to them (DBIT, 2026-11-01)."""
     t = await get_visible(db, p, ticket_id, lock=True)
-    # The reporter adds evidence to their own ticket; every staff role may add photos and documents.
-    if t.reporter_id != p.user.id and not p.can("ticket.attach"):
-        raise forbidden()
+    if purpose == "evidence" and t.reporter_id != p.user.id:
+        raise forbidden("Only the person who reported this can add photos or videos. Add staff files under Documents.")
+    if purpose == "document" and not p.can("ticket.attach"):
+        raise forbidden("Only facilities staff can add documents.")
     if t.status in TERMINAL:
-        raise ApiError(409, "ticket_closed", "Evidence cannot be added to a closed ticket.")
+        raise ApiError(409, "ticket_closed", "Files cannot be added to a closed ticket.")
 
     raw = await file.read(media.MAX_VIDEO + 1)
     if len(raw) > media.MAX_VIDEO:
@@ -68,8 +75,7 @@ async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File
     tmp = media.root() / "tmp"
     tmp.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
-        # Only staff who handle the ticket add documents (quotes, approvals, reports).
-        out = await media.process(raw, tmp, allow_documents=p.can("ticket.attach"))
+        out = await media.process(raw, tmp, purpose=purpose)
     except media.MediaRejected as exc:
         audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="attachment.rejected", entity_type="ticket",
                      entity_id=t.id, reason=exc.message)
@@ -99,7 +105,7 @@ async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File
     db.add(att)
     await db.flush()
     if att.kind == "document":
-        add_event(db, t, p.user, "Document added", detail=att.original_name, public=False)
+        add_event(db, t, p.user, DOCUMENT_EVENT, detail=att.original_name, public=False)
     else:
         add_event(db, t, p.user, "Photo or video added", detail=att.original_name, public=True)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="attachment.uploaded", entity_type="attachment",
@@ -118,8 +124,8 @@ async def download(attachment_id: uuid.UUID, p: Principal = Depends(current_prin
     await get_visible(db, p, att.ticket_id)  # 404 if the ticket is not visible
     if att.state != "available":
         raise not_found()
-    if att.kind == "document" and not is_staff(p):
-        raise not_found()  # staff documents are internal
+    if att.kind == "document" and not document_visible(p, att, await db.get(User, att.uploaded_by)):
+        raise not_found()  # staff documents are internal; the facility manager's are for the approvers
     path = media.store_path(att.storage_key)
     if not path.exists():
         raise not_found()
@@ -128,7 +134,7 @@ async def download(attachment_id: uuid.UUID, p: Principal = Depends(current_prin
         return FileResponse(path, media_type=att.content_type, headers=SAFE_HEADERS,
                             content_disposition_type="attachment",
                             filename=f"document-{att.id.hex[:8]}.{media.DOCUMENT_TYPES[att.content_type]}")
-    ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm"}[att.content_type]
+    ext = {**media.PHOTO_EXT, "video/mp4": "mp4", "video/webm": "webm"}[att.content_type]
     return FileResponse(path, media_type=att.content_type, headers=SAFE_HEADERS,
                         content_disposition_type="inline", filename=f"evidence-{att.id.hex[:8]}.{ext}")
 

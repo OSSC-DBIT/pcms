@@ -167,8 +167,9 @@ decided by its own role, and separation of duty applies at both.
 management, the principal and Team OSSC read and write them. Faculty neither see nor send them;
 the reporter follows progress through the public timeline and notifications.
 
-**Attachments.** Every staff role (`ticket.attach`) can add photos and PDF or Word documents; the
-reporter adds photos and video to their own ticket. Each attachment records who added it.
+**Attachments.** The reporter adds photos and video to their own ticket (in-app camera or file); staff view
+them but do not add to them. Every staff role (`ticket.attach`) adds documents (`purpose=document`): PDF,
+Office, text or images. Each attachment records who added it.
 Faculty see their own name, or "Facilities team" for staff uploads. Documents are internal: the
 API never returns them to the reporter, the timeline entry is internal, and downloads are always
 `Content-Disposition: attachment`.

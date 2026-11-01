@@ -21,7 +21,7 @@ def test_database_url_is_built_from_parts_with_the_password_escaped():
 
 def test_production_refuses_a_missing_or_placeholder_database_password():
     common = dict(env="prod", secret_key="x" * 40, credential_key="y" * 40, cookie_secure=True,
-                  clamav_required=True, messaging_provider="none", database_url="")
+                  clamav_required=True, messaging_provider="none", translation_provider="none", database_url="")
     assert "PCMS_DB_PASSWORD is not set" in Settings(**common, db_password="").check_production()
     assert any("placeholder" in p for p in Settings(**common, db_password="CHANGE_ME").check_production())
     assert Settings(**common, db_password="a-real-password-123").check_production() == []

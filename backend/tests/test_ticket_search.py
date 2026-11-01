@@ -228,3 +228,34 @@ async def test_filters_never_cross_the_visibility_boundary(client):
         assert (await two.get(f"{API}/tickets", params={"scope": "mine", "search": "Broken"})).json()["total"] == 0
     finally:
         await other.aclose()
+
+
+async def test_queue_views_departments_and_overdue_are_applied_by_the_server(client):
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from app.db import sessionmaker
+    from app.models import Ticket
+    from app.security.sessions import now
+
+    fac = await _faculty(client)
+    ids = [(await fac.post(f"{API}/tickets", json=ticket_body(title=f"Broken chair number {i}"))).json()["id"]
+           for i in range(3)]
+    async with new_client() as mc:
+        mgr = await _manager(mc)
+        await _triage(mgr, ids[0])  # accepted: now waiting on the team, not on a decision
+        q = lambda **p: mgr.get(f"{API}/tickets", params={"scope": "queue", **p})  # noqa: E731
+        action = (await q(view="action")).json()
+        assert action["total"] == 2 and {i["id"] for i in action["items"]} == set(ids[1:])
+        assert {i["id"] for i in (await q(view="working")).json()["items"]} == {ids[0]}
+        assert (await q(view="nonsense")).status_code == 400
+
+        dept = (await mgr.get(f"{API}/tickets/{ids[0]}")).json()["location"]["department"]
+        assert (await q(department=dept)).json()["total"] == 3
+        assert (await q(department="No such department")).json()["total"] == 0
+
+        async with sessionmaker()() as db:
+            await db.execute(update(Ticket).where(Ticket.id == ids[2]).values(next_update_due=now() - timedelta(hours=1)))
+            await db.commit()
+        assert [i["id"] for i in (await q(overdue="true")).json()["items"]] == [ids[2]]

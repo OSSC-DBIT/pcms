@@ -47,7 +47,7 @@ def test_production_requires_a_strong_credential_key():
     common = dict(
         env="prod", secret_key="x" * 40, cookie_secure=True,
         database_url="postgresql+asyncpg://pcms:real@db:5432/pcms",
-        clamav_required=True, messaging_provider="none",
+        clamav_required=True, messaging_provider="none", translation_provider="none",
     )
     weak = Settings(**common, credential_key="dev-only-credential-key-change-me")
     assert "PCMS_CREDENTIAL_KEY must be a random value of at least 32 characters" in weak.check_production()

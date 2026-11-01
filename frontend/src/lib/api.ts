@@ -37,6 +37,11 @@ export interface TicketFilters {
   severity?: Impact
   building?: string
   worker?: string
+  department?: string
+  /** Only requests whose promised update is late. */
+  overdue?: boolean
+  /** Queue tab: waiting on staff, or being worked on. */
+  view?: 'action' | 'working'
   /** Name or email of the person who reported it (staff queue). */
   reporter?: string
   reporterRole?: Role
@@ -141,7 +146,7 @@ export const api = {
     return request('GET', `/tickets${qs({
       scope: params.scope, status: params.status?.join(','), open: params.open,
       search: params.search, category: params.category, flag: params.flag, severity: params.severity,
-      building: params.building, worker: params.worker, reporter: params.reporter, reporterRole: params.reporterRole,
+      building: params.building, worker: params.worker, department: params.department, overdue: params.overdue, view: params.view, reporter: params.reporter, reporterRole: params.reporterRole,
       from: params.from, to: params.to, sort: params.sort,
       page: params.page, pageSize: params.pageSize ?? 25,
     })}`)
@@ -171,10 +176,15 @@ export const api = {
     return request('POST', `/tickets/${ticket.id}/transitions`, { body: { ...action, expectedVersion: ticket.version } })
   },
   /** A staff message. Messages are visible to staff only; faculty cannot read or send them. */
+  /** Machine translation of text being typed. "pending": ask again shortly. */
+  translate(text: string, target: 'en' | 'kn' | 'hi'): Promise<{ state: 'done' | 'pending' | 'same' | 'unavailable' | 'failed'; text: string | null }> {
+    return request('POST', '/translate', { body: { text, target } })
+  },
   addComment(ticket: Pick<Ticket, 'id'>, body: string): Promise<Ticket> {
     return request('POST', `/tickets/${ticket.id}/comments`, { body: { body } })
   },
-  uploadAttachment(ticketId: string, file: File, onProgress?: (fraction: number) => void): Promise<Ticket['attachments'][number]> {
+  uploadAttachment(ticketId: string, file: File, onProgress?: (fraction: number) => void,
+    purpose: 'evidence' | 'document' = 'evidence'): Promise<Ticket['attachments'][number]> {
     // XHR, not fetch, for upload progress.
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
@@ -194,6 +204,8 @@ export const api = {
       }
       const form = new FormData()
       form.append('file', file, file.name)
+      // evidence: the reporter's photos and videos. document: staff files.
+      form.append('purpose', purpose)
       xhr.send(form)
     })
   },

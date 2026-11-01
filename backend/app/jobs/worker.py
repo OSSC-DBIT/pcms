@@ -5,7 +5,7 @@ import logging
 import signal
 
 from app.config import get_settings
-from app.services import outbox
+from app.services import outbox, translate
 
 log = logging.getLogger("pcms.worker")
 
@@ -19,13 +19,19 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
-    log.info("outbox worker started (provider=%s)", get_settings().messaging_provider)
+    log.info("outbox worker started (provider=%s, translation=%s)", get_settings().messaging_provider,
+             get_settings().translation_provider)
     while not stop.is_set():
         try:
             n = await outbox.run_once()
         except Exception:
             log.exception("outbox cycle failed")
             n = 0
+        try:
+            # Translations wait behind notifications; they are never urgent.
+            n += await translate.run_once()
+        except Exception:
+            log.exception("translation cycle failed")
         if n == 0:
             try:
                 await asyncio.wait_for(stop.wait(), timeout=2)

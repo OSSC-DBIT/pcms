@@ -15,7 +15,7 @@ import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Clock, MessageSquare, Wrench } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog, type FormField } from '../../components/ActionDialog'
-import { Documents, Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, ago } from '../../components/ticket'
+import { Documents, Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, Translated, ago } from '../../components/ticket'
 import { Alert, Badge, Button, Card, Chips, Field, Input, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, formatPaise, HttpError, parseRupees, type TransitionAction } from '../../lib/api'
 import { categories, category, categoryName } from '../../lib/catalog'
@@ -78,7 +78,7 @@ export default function StaffTicket() {
             {(ticket.accessNote || ticket.altContact) && (
               <p className="mt-3 text-[14px]">{ticket.accessNote && <>{t('ticket.access', { note: ticket.accessNote })} </>}{ticket.altContact && <>{t('ticket.contact', { contact: ticket.altContact })}</>}</p>
             )}
-            {s === 'OnHold' && ticket.holdReason && <div className="mt-3"><Alert tone="warn" title={t('ticket.postponed')}>{ticket.holdReason}{ticket.holdReviewDate && ` · ${t('ticket.review', { date: ticket.holdReviewDate })}`}</Alert></div>}
+            {s === 'OnHold' && ticket.holdReason && <div className="mt-3"><Alert tone="warn" title={t('ticket.postponed')}><Translated text={ticket.holdReason} map={ticket.translations} />{ticket.holdReviewDate && ` · ${t('ticket.review', { date: ticket.holdReviewDate })}`}</Alert></div>}
           </TicketSummaryCard>
 
           {error && <Alert tone="bad">{error}</Alert>}
@@ -96,16 +96,17 @@ export default function StaffTicket() {
           {s === 'Resolved' && <Alert tone="info" title={t('ticket.reporterCheck')}>{t('ticket.reporterCheckBody')}</Alert>}
           <RatingCard ticket={ticket} />
 
-          <Card title={t('ticket.photosVideo')}><Gallery ticket={ticket} canAdd={can('ticket.attach') && !TERMINAL.includes(s)} onChanged={load} /></Card>
+          {/* Photos and video are the reporter's evidence; staff add their files under Documents. */}
+          <Card title={t('ticket.photosVideo')}><Gallery ticket={ticket} canAdd={ticket.reporterId === user?.id && !TERMINAL.includes(s)} onChanged={load} /></Card>
           <Card title={t('ticket.documents')}><Documents ticket={ticket} canAdd={can('ticket.attach') && !TERMINAL.includes(s)} onChanged={load} /></Card>
         </Stack>
 
         <Stack>
           <MoreActions ticket={ticket} onPick={setDialog} />
           <Card title={t('ticket.messagesNotes')}>
-            <Messages comments={ticket.comments} onSend={async (body) => { setTicket(await api.addComment(ticket, body)) }} />
+            <Messages comments={ticket.comments} translations={ticket.translations} onSend={async (body) => { setTicket(await api.addComment(ticket, body)) }} />
           </Card>
-          <Card title={t('ticket.history')}><Timeline events={ticket.events} /></Card>
+          <Card title={t('ticket.history')}><Timeline events={ticket.events} translations={ticket.translations} /></Card>
         </Stack>
       </div>
 
@@ -330,7 +331,7 @@ function RatingCard({ ticket }: { ticket: Ticket }) {
   if (ticket.rating) {
     return (
       <Card title={t('ticket.reporterRating')} subtitle={t('ticket.ratingGiven')}>
-        <RatingSummary stars={ticket.rating.stars} comment={ticket.rating.comment} createdAt={ticket.rating.createdAt} />
+        <RatingSummary stars={ticket.rating.stars} comment={ticket.rating.comment} createdAt={ticket.rating.createdAt} translations={ticket.translations} />
       </Card>
     )
   }

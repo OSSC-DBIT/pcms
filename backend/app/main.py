@@ -6,7 +6,7 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.errors import RequestIdMiddleware, install_error_handlers
-from app.routers import admin_ops, admin_users, attachments, catalogs, directory, health, push, session, tickets, webhooks
+from app.routers import admin_ops, admin_users, attachments, catalogs, directory, health, push, session, tickets, translate, webhooks
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -38,6 +38,7 @@ def create_app() -> FastAPI:
     app.include_router(admin_users.router, prefix=API_PREFIX)
     app.include_router(admin_ops.router, prefix=API_PREFIX)
     app.include_router(tickets.router, prefix=API_PREFIX)
+    app.include_router(translate.router, prefix=API_PREFIX)
     app.include_router(directory.proposals, prefix=API_PREFIX)
     app.include_router(attachments.api, prefix=API_PREFIX)
     app.include_router(attachments.public)

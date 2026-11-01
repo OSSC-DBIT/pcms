@@ -9,11 +9,12 @@ from app.models.push import PushSubscription
 from app.models.rating import TicketRating
 from app.models.session import ThrottleEvent, UserSession
 from app.models.ticket import Ticket, TicketComment, TicketEvent, TokenCounter
+from app.models.translation import TextTranslation
 from app.models.user import User
 from app.models.worker import Assignment, Worker, WorkerSkill
 
 __all__ = [
     "Assignment", "Attachment", "AuditEvent", "Building", "Category", "Decision", "DeliveryAttempt",
     "Outbox", "Proposal", "ProposalLine", "ProviderEvent", "PushSubscription", "ThrottleEvent", "Ticket",
-    "TicketComment", "TicketEvent", "TicketRating", "TokenCounter", "User", "UserSession", "Worker", "WorkerSkill",
+    "TextTranslation", "TicketComment", "TicketEvent", "TicketRating", "TokenCounter", "User", "UserSession", "Worker", "WorkerSkill",
 ]

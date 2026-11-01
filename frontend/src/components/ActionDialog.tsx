@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react'
 import { useT } from '../lib/i18n'
+import { LanguageButtons } from './LanguageButtons'
 import { Alert, Button, Dialog, Field, Input, Select, Textarea, errorMessage } from './ui'
 
 export interface FormField {
@@ -47,7 +48,8 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
       <form onSubmit={submit} className="space-y-4">
         {description && <p className="text-[14px] text-muted">{description}</p>}
         {fields.map((f) => (
-          <Field key={f.name} label={f.label} hint={f.hint} optional={!f.required}>
+          <div key={f.name}>
+          <Field label={f.label} hint={f.hint} optional={!f.required}>
             {(id, d) => f.type === 'select'
               ? <Select id={id} aria-describedby={d} value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))}>
                   <option value="">{t('action.choose')}</option>
@@ -59,6 +61,11 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
               : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : f.type === 'password' ? 'password' : 'text'} maxLength={500} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />}
           </Field>
+          {f.type === 'textarea' && (
+            <LanguageButtons value={values[f.name] ?? ''} maxLength={1000}
+              onChange={(text) => setValues((v) => ({ ...v, [f.name]: text }))} />
+          )}
+          </div>
         ))}
         {error && <Alert tone="bad">{error}</Alert>}
         <div className="flex flex-wrap justify-end gap-2 pt-1">

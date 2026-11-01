@@ -23,6 +23,7 @@ dependencies = [
     "openpyxl==3.1.5",
     "cryptography==50.0.2",
     "tzdata==2026.5",
+    "googletrans-curl==4.1.0",
 ]
 
 [dependency-groups]

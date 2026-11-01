@@ -81,6 +81,11 @@ body { min-height: 100dvh; }
 /* 16px inputs stop iOS from zooming the page on focus. */
 input, textarea, select { font-size: 16px; }
 
+/* PasswordInput has its own show/hide button. Microsoft Edge adds a second, native one
+   to every password field; hide it so only one eye shows.
+   https://learn.microsoft.com/en-us/microsoft-edge/web-platform/password-reveal */
+input::-ms-reveal { display: none; }
+
 .token {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -91,6 +96,67 @@ input, textarea, select { font-size: 16px; }
 .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
 
 dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+
+/* ---------- landing page effects (all disabled by prefers-reduced-motion below) ---------- */
+
+/* Soft colour blobs drifting behind the hero. */
+.blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  opacity: 0.55;
+  animation: blob-drift 18s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+:root[data-theme="dark"] .blob { opacity: 0.35; }
+@keyframes blob-drift {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, -30px) scale(1.12); }
+  100% { transform: translate(-30px, 25px) scale(0.95); }
+}
+
+/* Faint grid that fades out towards the edges. */
+.grid-backdrop {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--c-fg) 7%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--c-fg) 7%, transparent) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 50% 30%, black 30%, transparent 75%);
+}
+
+/* Animated gradient text. */
+.text-gradient {
+  background: linear-gradient(90deg, #2563eb, #7c3aed, #0891b2, #2563eb);
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradient-pan 8s linear infinite;
+}
+:root[data-theme="dark"] .text-gradient { background-image: linear-gradient(90deg, #6b93ff, #a78bfa, #22d3ee, #6b93ff); }
+@keyframes gradient-pan { to { background-position: 300% 0; } }
+
+/* Card with a light that follows the pointer (--x and --y are set from JS). */
+.spotlight { position: relative; isolation: isolate; }
+.spotlight::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(320px circle at var(--x, 50%) var(--y, 50%), color-mix(in srgb, var(--c-accent) 14%, transparent), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: -1;
+}
+.spotlight:hover::before { opacity: 1; }
+
+/* Gradient border for the featured mock ticket. */
+.glow-border {
+  background:
+    linear-gradient(var(--c-surface), var(--c-surface)) padding-box,
+    linear-gradient(135deg, #2563eb, #7c3aed 50%, #0891b2) border-box;
+  border: 1px solid transparent;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }

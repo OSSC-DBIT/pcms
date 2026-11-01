@@ -7,7 +7,6 @@ import { useT } from './lib/i18n'
 import { api, clearLocalData } from './lib/api'
 import { loadCatalogs } from './lib/catalog'
 import type { Capability, User } from './lib/types'
-import Landing from './pages/Landing'
 import Login from './pages/Login'
 import Settings from './pages/Settings'
 import Home from './pages/faculty/Home'
@@ -17,6 +16,8 @@ import Tickets from './pages/faculty/Tickets'
 import TicketView from './pages/faculty/TicketView'
 
 // Staff screens load only for people who open them.
+// The landing page carries the animation library; signed-in people never load it.
+const Landing = lazy(() => import('./pages/Landing'))
 const Queue = lazy(() => import('./pages/staff/Queue'))
 const StaffTicket = lazy(() => import('./pages/staff/StaffTicket'))
 const Approvals = lazy(() => import('./pages/staff/Approvals'))
@@ -99,7 +100,7 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to={homeFor(user)} replace /> : <Login />} />
-      <Route path="/" element={user ? <Navigate to={homeFor(user)} replace /> : <Landing />} />
+      <Route path="/" element={user ? <Navigate to={homeFor(user)} replace /> : <Suspense fallback={<Spinner />}><Landing /></Suspense>} />
       <Route path="/home" element={<Gate faculty><Home /></Gate>} />
       <Route path="/report" element={<Gate cap="ticket.create"><Report /></Gate>} />
       <Route path="/tickets" element={<Gate><Tickets /></Gate>} />

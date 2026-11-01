@@ -4,13 +4,14 @@ import uuid
 from datetime import date
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.errors import conflict, forbidden, validation
 from app.models.catalog import Category
+from app.models.proposal import Proposal
 from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket, TicketComment
 from app.models.user import User
@@ -20,6 +21,7 @@ from app.schemas.ticket import (
 )
 from app.security.deps import Principal, current_principal, require
 from app.security.roles import ROLES
+from app.security.sessions import now
 from app.services import audit, lifecycle, notify, reporting as rep, tickets as svc, workflow
 from app.services.tickets import is_staff
 
@@ -32,6 +34,7 @@ def _like(q: str) -> str:
 
 
 SORTS = ("newest", "oldest", "severity", "updated")
+ACTION_STATES = ("Submitted", "AwaitingApproval", "Resolved")
 SEVERITY_RANK = case((Ticket.impact == "red", 0), (Ticket.impact == "orange", 1), else_=2)
 
 
@@ -45,6 +48,9 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
                        reporter_role: str | None = Query(None, alias="reporterRole", pattern="^(" + "|".join(ROLES) + ")$"),
                        start: date | None = Query(None, alias="from"), end: date | None = Query(None, alias="to"),
                        building: str | None = Query(None, max_length=20), worker: str | None = Query(None, max_length=120),
+                       department: str | None = Query(None, max_length=120),
+                       overdue: bool | None = None,
+                       view: str | None = Query(None, pattern="^(action|working)$"),
                        sort: str = Query("newest", pattern="^(" + "|".join(SORTS) + ")$"),
                        p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> TicketPage:
     stmt = select(Ticket)
@@ -92,6 +98,17 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
         stmt = stmt.where(Ticket.building_code == building)
     if worker:
         stmt = stmt.where(Ticket.worker_name.ilike(_like(worker), escape="\\"))
+    if department:
+        stmt = stmt.where(Ticket.department == department)
+    if overdue:
+        # The next update promised to the reporter is late.
+        stmt = stmt.where(Ticket.next_update_due < now(), Ticket.status.not_in(TERMINAL))
+    if view:
+        # Queue tabs, in SQL so paging and totals match what is shown. "action": waiting on staff
+        # (new, awaiting a spending decision, awaiting the reporter, or approved and ready to finish).
+        approved = select(Proposal.id).where(Proposal.ticket_id == Ticket.id, Proposal.state == "approved").exists()
+        needs_action = or_(Ticket.status.in_(ACTION_STATES), and_(Ticket.status == "InProgress", approved))
+        stmt = stmt.where(needs_action if view == "action" else and_(Ticket.status.not_in(TERMINAL), ~needs_action))
     total = await db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
     order = {
         "newest": (Ticket.created_at.desc(), Ticket.id.desc()),
@@ -103,7 +120,7 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
     rows = (await db.scalars(stmt.order_by(*order).offset((page - 1) * page_size).limit(page_size))).all()
     staff = scope == "queue" and is_staff(p)
     lk = await svc.Lookups.load(db, list(rows), staff)
-    return TicketPage(items=[svc.summary_out(t, lk, staff) for t in rows], total=total, page=page, page_size=page_size)
+    return TicketPage(items=await svc.summaries_out(db, p, list(rows), lk, staff), total=total, page=page, page_size=page_size)
 
 
 @router.get("/duplicates", response_model=list[DuplicateOut])

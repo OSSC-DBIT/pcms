@@ -1,13 +1,17 @@
 /** Ticket building blocks shared by the faculty and staff screens. */
 import { clsx } from 'clsx'
-import { ChevronRight, Download, FileText, ImageOff, Loader2, Play, Plus, Star } from 'lucide-react'
+import { ChevronRight, Download, FileText, ImageOff, ImagePlus, Languages, Loader2, Play, Plus, Star } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../App'
 import { api } from '../lib/api'
+import { detectLang, translateText } from '../lib/translate'
 import { building, buildingDepartments, buildingName, category, categoryName, categoryParts } from '../lib/catalog'
 import { PrepareError, checkVideo, preparePhoto } from '../lib/images'
 import { LOCALE, useT, type Lang, type TFunc } from '../lib/i18n'
 import type { Attachment, Comment, Impact, Ticket, TicketSummary, TimelineEvent } from '../lib/types'
+import { CameraButton } from './CameraCapture'
+import { LanguageButtons } from './LanguageButtons'
 import { Alert, Badge, Button, Dialog, StatusBadge, Textarea, errorMessage } from './ui'
 
 const IST_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }
@@ -103,7 +107,59 @@ export function typeText(ticket: Pick<TicketSummary, 'categoryCode' | 'subtype'>
   return `${categoryName(c, lang)}${ticket.subtype ? ` · ${subtypeText(c, ticket.subtype, lang)}` : ''}`
 }
 
-/** One ticket in a list. */
+type TranslationMap = TicketSummary['translations']
+
+/**
+ * Text someone typed, shown in the reader's language when a machine translation exists,
+ * with a link back to the original. Without a translation the original is shown as it is.
+ */
+export function Translated({ text, map }: { text: string | null | undefined; map?: TranslationMap }) {
+  const { lang, t } = useT()
+  const { user } = useAuth()
+  const [original, setOriginal] = useState(false)
+  const [asked, setAsked] = useState<{ lang: Lang; text: string } | null>(null)
+  const [state, setState] = useState<'idle' | 'busy' | 'failed'>('idle')
+  if (!text) return null
+  const translated = map?.[text]?.[lang] ?? (asked?.lang === lang ? asked.text : undefined)
+  const source = detectLang(text)
+  if (!translated || translated === text) {
+    // Only the facility manager translates, and only text written in another language.
+    if (user?.role !== 'facility_manager' || !source || source === lang) return <>{text}</>
+    const ask = async (e: React.MouseEvent) => {
+      e.preventDefault(); e.stopPropagation()
+      setState('busy')
+      try {
+        const r = await translateText(text, lang)
+        if (r.ok) { setAsked({ lang, text: r.text }); setState('idle') } else setState('failed')
+      } catch { setState('failed') }
+    }
+    return (
+      <>
+        {text}
+        <button type="button" onClick={(e) => void ask(e)} disabled={state === 'busy'}
+          className="ml-2 inline-flex items-center gap-1 whitespace-nowrap align-baseline text-[12px] font-normal text-accent hover:underline disabled:opacity-60">
+          {state === 'busy' ? <Loader2 size={12} className="animate-spin" aria-hidden /> : <Languages size={12} aria-hidden />}
+          {state === 'busy' ? t('translate.working') : state === 'failed' ? t('translate.retry') : t('translate.translate')}
+        </button>
+      </>
+    )
+  }
+  return (
+    <>
+      {original ? text : translated}
+      <button type="button" onClick={(e) => { e.preventDefault(); e.stopPropagation(); setOriginal((v) => !v) }}
+        className="ml-2 whitespace-nowrap align-baseline text-[12px] font-normal text-accent hover:underline">
+        {original ? t('translate.showTranslation') : t('translate.showOriginal')}
+      </button>
+    </>
+  )
+}
+
+/** The translated text, or the original, as a plain string (for one-line lists). */
+export function translatedText(text: string, map: TranslationMap, lang: Lang): string {
+  return map?.[text]?.[lang] ?? text
+}
+
 /** One ticket in a list. Staff lists pass showReporter so they can see who raised it. */
 export function TicketRow({ ticket, to, extra, showReporter }: { ticket: TicketSummary; to: string; extra?: React.ReactNode; showReporter?: boolean }) {
   const { lang, t } = useT()
@@ -116,7 +172,7 @@ export function TicketRow({ ticket, to, extra, showReporter }: { ticket: TicketS
           <SeverityBadge impact={ticket.impact} />
           {extra}
         </div>
-        <p className="mt-1 truncate text-[15px] font-medium">{ticket.title}</p>
+        <p className="mt-1 truncate text-[15px] font-medium">{translatedText(ticket.title, ticket.translations, lang)}</p>
         <p className="mt-0.5 truncate text-[13px] text-muted">{typeText(ticket, lang)} · {placeText(ticket, lang, t)} · {ago(ticket.createdAt, t, lang)}</p>
         {showReporter && <p className="mt-0.5 truncate text-[12.5px] text-muted">{t('ticket.reportedBy')} {ticket.reporterName}</p>}
       </div>
@@ -139,10 +195,10 @@ export function TicketSummaryCard({ ticket, children }: { ticket: Ticket; childr
         <StatusBadge status={ticket.status} />
         <SeverityBadge impact={ticket.impact} />
       </div>
-      <h1 className="mt-3 text-[20px] font-semibold leading-snug md:text-[22px]">{ticket.title}</h1>
+      <h1 className="mt-3 text-[20px] font-semibold leading-snug md:text-[22px]"><Translated text={ticket.title} map={ticket.translations} /></h1>
       <LocationDetails ticket={ticket} lang={lang} />
       <p className="mt-1 text-[14px] text-muted">{typeText(ticket, lang)}</p>
-      {ticket.description && <p className="mt-3 whitespace-pre-line text-[15px] leading-6">{ticket.description}</p>}
+      {ticket.description && <p className="mt-3 whitespace-pre-line text-[15px] leading-6"><Translated text={ticket.description} map={ticket.translations} /></p>}
       <p className="mt-3 text-[13px] text-muted">{t('ticket.reportedBy')} {ticket.reporterName} · {fmtTime(ticket.createdAt, lang)}</p>
       {children}
     </section>
@@ -150,7 +206,7 @@ export function TicketSummaryCard({ ticket, children }: { ticket: Ticket; childr
 }
 
 /** Five stars with the optional comment, shared by the faculty and staff views. */
-export function RatingSummary({ stars, comment, createdAt }: { stars: number; comment?: string | null; createdAt?: string }) {
+export function RatingSummary({ stars, comment, createdAt, translations }: { stars: number; comment?: string | null; createdAt?: string; translations?: TranslationMap }) {
   const { lang, t } = useT()
   return (
     <div>
@@ -160,13 +216,13 @@ export function RatingSummary({ stars, comment, createdAt }: { stars: number; co
         ))}
         <span className="ml-2 text-[14px] text-muted">{t('common.of5', { value: stars })}</span>
       </div>
-      {comment && <p className="mt-2 whitespace-pre-line text-[14.5px]">{comment}</p>}
+      {comment && <p className="mt-2 whitespace-pre-line text-[14.5px]"><Translated text={comment} map={translations} /></p>}
       {createdAt && <p className="mt-1 text-[12.5px] text-muted">{fmtDate(createdAt, lang)}</p>}
     </div>
   )
 }
 
-export function Timeline({ events }: { events: TimelineEvent[] }) {
+export function Timeline({ events, translations }: { events: TimelineEvent[]; translations?: TranslationMap }) {
   const { lang } = useT()
   return (
     <ol className="space-y-4">
@@ -174,11 +230,11 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
         <li key={e.id} className="flex gap-3">
           <span className={clsx('mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full', i === 0 ? 'bg-accent' : 'bg-line')} aria-hidden />
           <div className="min-w-0">
-            <p className="text-[14.5px] font-medium">{e.action}</p>
+            <p className="text-[14.5px] font-medium">{translatedText(e.action, translations, lang)}</p>
             <p className="text-[13px] text-muted">
               {fmtTime(e.at, lang)} · {e.actor}{e.delegatedWorker ? ` (for ${e.delegatedWorker})` : ''}
             </p>
-            {e.detail && <p className="mt-0.5 text-[13.5px]">{e.detail}</p>}
+            {e.detail && <p className="mt-0.5 text-[13.5px]"><Translated text={e.detail} map={translations} /></p>}
           </div>
         </li>
       ))}
@@ -186,7 +242,14 @@ export function Timeline({ events }: { events: TimelineEvent[] }) {
   )
 }
 
-/** Photos and videos with a full-size viewer, and an upload button when allowed. */
+const MAX_PHOTOS = 3
+const MAX_VIDEOS = 1
+
+/**
+ * The reporter's photos and videos with a full-size viewer. Only the reporter adds them
+ * (camera or file); staff see them read-only and add their own files under Documents.
+ * The server enforces the same rule.
+ */
 export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?: boolean; onChanged?: () => void }) {
   const { t } = useT()
   const [open, setOpen] = useState<Attachment | null>(null)
@@ -194,68 +257,88 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
   const [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
   const items = ticket.attachments.filter((a) => a.kind !== 'document')
+  const live = items.filter((a) => a.state !== 'failed')
+  const photos = live.filter((a) => a.kind === 'photo').length
+  const videos = live.filter((a) => a.kind === 'video').length
+  const full = photos >= MAX_PHOTOS && videos >= MAX_VIDEOS
 
-  async function add(files: FileList | null) {
-    if (!files?.length) return
+  async function add(files: File[]) {
+    if (!files.length) return
     setBusy(true); setError(null)
+    let p = photos, v = videos
     try {
-      for (const f of Array.from(files)) {
+      for (const f of files) {
         if (f.type.startsWith('video/')) {
+          if (v >= MAX_VIDEOS) throw new PrepareError('form.oneVideo')
           const bad = checkVideo(f)
           if (bad) throw new PrepareError(bad)
           await api.uploadAttachment(ticket.id, f)
+          v++
         } else {
+          if (p >= MAX_PHOTOS) throw new PrepareError('form.tooManyPhotos')
           await api.uploadAttachment(ticket.id, await preparePhoto(f))
+          p++
         }
       }
-      onChanged?.()
     } catch (e) {
       setError(e instanceof PrepareError ? t(e.key) : errorMessage(e))
     } finally {
       setBusy(false)
-      if (input.current) input.current.value = ''
+      onChanged?.()
     }
   }
 
-  if (!items.length && !canAdd) return null
   return (
     <div>
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
-        {items.map((a) => (
-          <figure key={a.id} className="min-w-0">
-          <button type="button" onClick={() => a.state === 'available' && setOpen(a)}
-            className="relative aspect-square w-full overflow-hidden rounded-md border border-line bg-subtle" aria-label={t('ticket.openPhoto', { name: a.name })}>
-            {a.state === 'available' && a.url && a.kind === 'photo' && <img src={a.url} alt={a.name} loading="lazy" className="h-full w-full object-cover" />}
-            {a.state === 'available' && a.kind === 'video' && <span className="flex h-full items-center justify-center"><Play size={26} /></span>}
-            {a.state !== 'available' && (
-              <span className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center text-[11.5px] text-muted">
-                {a.state === 'failed' ? <ImageOff size={18} /> : <Loader2 size={18} className="animate-spin" />}
-                {a.state === 'failed' ? (a.failureReason ?? t('form.notAccepted')) : t('form.checking')}
-              </span>
-            )}
-          </button>
-          <figcaption className="mt-1 truncate text-[11.5px] text-muted">{t('ticket.uploadedBy', { name: a.uploadedBy })}</figcaption>
-          </figure>
-        ))}
-        {canAdd && items.filter((a) => a.state !== 'failed').length < 4 && (
-          <button type="button" onClick={() => input.current?.click()} disabled={busy}
-            className="flex aspect-square flex-col items-center justify-center gap-1 rounded-md border border-dashed border-line text-[13px] text-muted hover:bg-subtle">
-            {busy ? <Loader2 size={20} className="animate-spin" /> : <Plus size={20} />}
-            {t('ticket.addPhoto')}
-          </button>
-        )}
-      </div>
-      <input ref={input} type="file" accept="image/*,video/mp4,video/webm" multiple hidden onChange={(e) => void add(e.target.files)} />
+      {!canAdd && <p className="mb-3 text-[13px] text-muted">{items.length ? t('ticket.photosReadOnly') : t('ticket.noPhotos')}</p>}
+      {items.length > 0 && (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+          {items.map((a) => (
+            <figure key={a.id} className="min-w-0">
+              <button type="button" onClick={() => a.state === 'available' && setOpen(a)}
+                className="relative aspect-square w-full overflow-hidden rounded-md border border-line bg-subtle" aria-label={t('ticket.openPhoto', { name: a.name })}>
+                {a.state === 'available' && a.url && a.kind === 'photo' && <img src={a.url} alt={a.name} loading="lazy" className="h-full w-full object-cover" />}
+                {a.state === 'available' && a.kind === 'video' && <span className="flex h-full items-center justify-center"><Play size={26} /></span>}
+                {a.state !== 'available' && (
+                  <span className="flex h-full flex-col items-center justify-center gap-1 p-2 text-center text-[11.5px] text-muted">
+                    {a.state === 'failed' ? <ImageOff size={18} /> : <Loader2 size={18} className="animate-spin" />}
+                    {a.state === 'failed' ? (a.failureReason ?? t('form.notAccepted')) : t('form.checking')}
+                  </span>
+                )}
+              </button>
+              <figcaption className="mt-1 truncate text-[11.5px] text-muted">{t('ticket.uploadedBy', { name: a.uploadedBy })}</figcaption>
+            </figure>
+          ))}
+        </div>
+      )}
+      {canAdd && (
+        <div className={clsx('flex flex-wrap items-center gap-2', items.length > 0 && 'mt-3')}>
+          <CameraButton disabled={busy || full} allowVideo={videos < MAX_VIDEOS} onFiles={(f) => void add(f)} />
+          <Button variant="secondary" disabled={busy || full} onClick={() => input.current?.click()}>
+            {busy ? <Loader2 size={17} className="animate-spin" /> : <ImagePlus size={17} />} {t('form.choosePhoto')}
+          </Button>
+          <span className="text-[12.5px] text-muted">{t('form.photosHint')}</span>
+        </div>
+      )}
+      <input ref={input} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden
+        onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; void add(f) }} />
       {error && <div className="mt-3"><Alert tone="bad">{error}</Alert></div>}
       <Dialog open={!!open} onClose={() => setOpen(null)} title={open?.name ?? ''} wide>
         {open?.kind === 'photo' && open.url && <img src={open.url} alt={open.name} className="max-h-[75vh] w-full rounded-md object-contain" />}
-        {open?.kind === 'video' && open.url && <video src={open.url} controls autoPlay className="max-h-[75vh] w-full rounded-md" />}
+        {open?.kind === 'video' && open.url && <video src={open.url} controls autoPlay playsInline className="max-h-[75vh] w-full rounded-md" />}
       </Dialog>
     </div>
   )
 }
 
-const DOCUMENT_ACCEPT = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const DOCUMENT_ACCEPT = [
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.ppt', '.pptx', '.txt', '.jpg', '.jpeg', '.png', '.webp',
+  'application/pdf', 'application/msword', 'application/vnd.ms-excel', 'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain', 'image/jpeg', 'image/png', 'image/webp',
+].join(',')
 const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 
 /** Staff documents (quotes, approvals, reports). The server never returns them to faculty. */
@@ -272,7 +355,7 @@ export function Documents({ ticket, canAdd, onChanged }: { ticket: Ticket; canAd
     try {
       for (const f of Array.from(files)) {
         if (f.size > MAX_DOCUMENT_BYTES) throw new PrepareError('media.documentTooLarge')
-        await api.uploadAttachment(ticket.id, f)
+        await api.uploadAttachment(ticket.id, f, undefined, 'document')
       }
       onChanged?.()
     } catch (e) {
@@ -320,7 +403,7 @@ export function Documents({ ticket, canAdd, onChanged }: { ticket: Ticket; canAd
  * Staff message thread. Seen and written only by the facility manager, institute
  * management, the principal and Team OSSC; the server never sends it to faculty.
  */
-export function Messages({ comments, onSend }: { comments: Comment[]; onSend: (body: string) => Promise<void> }) {
+export function Messages({ comments, onSend, translations }: { comments: Comment[]; onSend: (body: string) => Promise<void>; translations?: TranslationMap }) {
   const { lang, t } = useT()
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
@@ -339,13 +422,14 @@ export function Messages({ comments, onSend }: { comments: Comment[]; onSend: (b
       {comments.length === 0 && <p className="text-[14px] text-muted">{t('ticket.noMessages')}</p>}
       {comments.map((c) => (
         <div key={c.id} className="rounded-md border border-line bg-subtle px-3.5 py-2.5">
-          <p className="whitespace-pre-line text-[14.5px]">{c.body}</p>
+          <p className="whitespace-pre-line text-[14.5px]"><Translated text={c.body} map={translations} /></p>
           <p className="mt-1 text-[12.5px] text-muted">{c.actor} · {fmtTime(c.at, lang)}</p>
         </div>
       ))}
       <form onSubmit={send} className="space-y-2">
         <Textarea rows={2} maxLength={2000} value={body} onChange={(e) => setBody(e.target.value)} aria-label={t('ticket.message')}
           placeholder={t('ticket.messagePlaceholder')} />
+        <LanguageButtons value={body} maxLength={2000} onChange={setBody} />
         <div className="flex justify-end">
           <Button type="submit" size="sm" loading={busy} disabled={!body.trim()}>{t('ticket.send')}</Button>
         </div>

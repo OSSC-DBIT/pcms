@@ -83,7 +83,18 @@ class Settings(BaseSettings):
     twilio_validate_signature: bool = True
     facilities_desk_phone: str | None = None  # shown in SMS fallback
 
+    # Translation of typed text (titles, descriptions, messages, reasons) between English,
+    # Kannada and Hindi, done by the worker. "mymemory" is the free public MyMemory API and
+    # sends that text to MyMemory; "none" shows only the original; "fake" is for tests.
+    translation_provider: Literal["mymemory", "none", "fake"] = "none"
+    # Optional contact email for MyMemory: raises its free limit from 5000 to 50000 characters a day.
+    translation_email: str | None = None
+    # Backup when MyMemory fails or its daily limit is used up: Google Translate through the
+    # googletrans-curl library (unofficial endpoint; may stop working). "none" disables the backup.
+    translation_fallback: Literal["google", "none"] = "google"
+
     # Workflow timing
+
     accept_timeout_minutes: int = 30
     dispute_window_days: int = 7
     verify_reminder_days: int = 2
@@ -124,6 +135,8 @@ class Settings(BaseSettings):
             problems.append("PCMS_DB_PASSWORD is still the development or placeholder value")
         if not self.clamav_required:
             problems.append("PCMS_CLAMAV_REQUIRED must be true")
+        if self.translation_provider == "fake":
+            problems.append("PCMS_TRANSLATION_PROVIDER=fake is for tests; use mymemory or none")
         if self.messaging_provider == "fake":
             problems.append("PCMS_MESSAGING_PROVIDER=fake is for tests; use twilio or none")
         if self.messaging_provider == "twilio" and not (self.twilio_account_sid and self.twilio_auth_token):

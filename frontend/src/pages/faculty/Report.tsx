@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowLeft, Building2, Camera, ImagePlus, Monitor, Wrench, X } from 'lucide-react'
+import { ArrowLeft, Building2, ImagePlus, Monitor, Wrench, X } from 'lucide-react'
 import { useAuth } from '../../App'
+import { CameraButton } from '../../components/CameraCapture'
+import { LanguageButtons } from '../../components/LanguageButtons'
 import { Gallery, floorLabel } from '../../components/ticket'
 import { Alert, Button, Card, Checkbox, Field, Input, PageHeader, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, HttpError } from '../../lib/api'
@@ -44,11 +46,12 @@ function severityOf(v: string | undefined): Impact {
   return 'green'
 }
 
-const SEVERITY_STYLE: Record<Impact, { on: string; dot: string }> = {
-  red: { on: 'border-bad bg-bad-soft ring-2 ring-bad/25', dot: 'bg-bad' },
-  orange: { on: 'border-warn bg-warn-soft ring-2 ring-warn/25', dot: 'bg-warn' },
-  green: { on: 'border-ok bg-ok-soft ring-2 ring-ok/25', dot: 'bg-ok' },
+const SEVERITY_STYLE: Record<Impact, { on: string; off: string; radio: string; text: string }> = {
+  red: { on: 'border-bad bg-bad-soft ring-2 ring-bad/30', off: 'border-bad/40 bg-bad-soft/40 hover:bg-bad-soft', radio: 'border-bad', text: 'text-bad' },
+  orange: { on: 'border-warn bg-warn-soft ring-2 ring-warn/30', off: 'border-warn/40 bg-warn-soft/40 hover:bg-warn-soft', radio: 'border-warn', text: 'text-warn' },
+  green: { on: 'border-ok bg-ok-soft ring-2 ring-ok/30', off: 'border-ok/40 bg-ok-soft/40 hover:bg-ok-soft', radio: 'border-ok', text: 'text-ok' },
 }
+const SEVERITY_DOT: Record<Impact, string> = { red: 'bg-bad', orange: 'bg-warn', green: 'bg-ok' }
 
 /** Three colour-coded radio buttons. Native inputs, so keyboard and screen readers work as usual. */
 function SeverityPicker({ value, onChange }: { value: Impact; onChange: (v: Impact) => void }) {
@@ -56,13 +59,14 @@ function SeverityPicker({ value, onChange }: { value: Impact; onChange: (v: Impa
   return (
     <div role="radiogroup" aria-label={t('form.impact')} className="grid gap-2 sm:grid-cols-3">
       {IMPACTS.map((v) => (
-        <label key={v} className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-md border px-3.5 py-3 ${value === v ? SEVERITY_STYLE[v].on : 'border-line bg-surface hover:bg-subtle'}`}>
-          <input type="radio" name="impact" value={v} checked={value === v} onChange={() => onChange(v)} className="mt-0.5 h-5 w-5 accent-[var(--c-accent)]" />
+        <label key={v} className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-md border px-3.5 py-3 transition-colors focus-within:ring-2 ${value === v ? SEVERITY_STYLE[v].on : SEVERITY_STYLE[v].off}`}>
+          {/* A native radio (keyboard and screen readers as usual), drawn as a coloured ring with a coloured dot. */}
+          <input type="radio" name="impact" value={v} checked={value === v} onChange={() => onChange(v)} className="peer sr-only" />
+          <span aria-hidden className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 bg-surface ${SEVERITY_STYLE[v].radio}`}>
+            {value === v && <span className={`h-2.5 w-2.5 rounded-full ${SEVERITY_DOT[v]}`} />}
+          </span>
           <span>
-            <span className="flex items-center gap-2 text-[15px] font-medium">
-              <span className={`inline-block h-3 w-3 rounded-full ${SEVERITY_STYLE[v].dot}`} aria-hidden />
-              {t(`impact.${v}`)}
-            </span>
+            <span className={`block text-[15px] font-semibold ${SEVERITY_STYLE[v].text}`}>{t(`impact.${v}`)}</span>
             <span className="mt-0.5 block text-[13px] text-muted">{t(`impact.${v}Hint`)}</span>
           </span>
         </label>
@@ -131,7 +135,6 @@ export default function Report() {
   const [ticketId, setTicketId] = useState<string | null>(null)
   const [dups, setDups] = useState<{ token: string; title: string; status: Status }[]>([])
   const [more, setMore] = useState(!!(d.accessNote || d.altContact))
-  const camera = useRef<HTMLInputElement>(null)
   const picker = useRef<HTMLInputElement>(null)
   const mediaRef = useRef(media)
   mediaRef.current = media
@@ -187,10 +190,10 @@ export default function Report() {
     return () => clearTimeout(id)
   }, [editing, d.categoryCode, d.location])
 
-  async function addFiles(files: FileList | null) {
-    if (!files) return
+  async function addFiles(files: File[]) {
+    if (!files.length) return
     setError(null)
-    for (const f of Array.from(files)) {
+    for (const f of files) {
       const kind = f.type.startsWith('video/') ? 'video' as const : 'photo' as const
       const ok = mediaRef.current.filter((m) => !m.error)
       if (kind === 'photo' && ok.filter((m) => m.kind === 'photo').length >= MAX_PHOTOS) { setError(t('form.tooManyPhotos')); continue }
@@ -444,10 +447,12 @@ export default function Report() {
               {(fieldId, desc) => <Input id={fieldId} aria-describedby={desc} invalid={!!errors.title} maxLength={120} value={d.title}
                 placeholder={t('form.titlePlaceholder')} onChange={(e) => set({ title: e.target.value })} />}
             </Field>
+            <LanguageButtons value={d.title} maxLength={120} onChange={(title) => set({ title })} />
             <Field label={t('form.details')} optional hint={t('form.detailsHint')}>
               {(fieldId, desc) => <Textarea id={fieldId} aria-describedby={desc} rows={4} maxLength={2000} value={d.description}
                 onChange={(e) => set({ description: e.target.value })} />}
             </Field>
+            <LanguageButtons value={d.description} maxLength={2000} onChange={(description) => set({ description })} />
             <div>
               <p className="mb-1.5 text-[14px] font-medium">{t('form.impact')}</p>
               <SeverityPicker value={d.impact} onChange={(v) => set({ impact: v })} />
@@ -480,11 +485,10 @@ export default function Report() {
           <Card title={t('form.photos')}>
             <p className="mb-3 text-[13.5px] text-muted">{t('form.photosHint')}</p>
             <div className="flex flex-wrap gap-2">
-              <Button variant="secondary" onClick={() => camera.current?.click()}><Camera size={17} /> {t('form.takePhoto')}</Button>
+              <CameraButton allowVideo={!media.some((m) => m.kind === 'video' && !m.error)} onFiles={(f) => void addFiles(f)} />
               <Button variant="secondary" onClick={() => picker.current?.click()}><ImagePlus size={17} /> {t('form.choosePhoto')}</Button>
             </div>
-            <input ref={camera} type="file" accept="image/*" capture="environment" hidden onChange={(e) => { void addFiles(e.target.files); e.target.value = '' }} />
-            <input ref={picker} type="file" accept="image/*,video/mp4,video/webm" multiple hidden onChange={(e) => { void addFiles(e.target.files); e.target.value = '' }} />
+            <input ref={picker} type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden onChange={(e) => { const f = Array.from(e.target.files ?? []); e.target.value = ''; void addFiles(f) }} />
             {media.length > 0 && (
               <ul className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
                 {media.map((m) => (

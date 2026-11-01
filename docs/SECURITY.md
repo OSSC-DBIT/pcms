@@ -54,11 +54,18 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 **Uploads**
 - The type is detected from the bytes, not the name or browser.
 - Photos are decoded and re-encoded, which drops EXIF and GPS. Videos are probed and remuxed without metadata.
+- Photos and videos are the reporter's evidence: only the person who reported the ticket adds them
+  (in-app camera or file). Staff view them and add their own files as documents. Videos are remuxed and
+  checked for 30 s after remuxing; iPhone H.264 `.MOV` becomes MP4.
 - Limits: 3 photos, 1 video of 20 MB and 30 s, 35 MB in total.
-- Staff documents (PDF, DOC, DOCX; any staff role): 10 MB each, 5 per ticket.
-  They cannot be re-encoded, so PDFs with `/JavaScript` or `/Launch` and Word files with macros are
-  refused, DOCX must contain `word/document.xml`, and they still pass ClamAV. They are never returned
-  to the reporter and are always served as downloads, never inline.
+- Staff documents (any staff role): PDF, Word, Excel, PowerPoint (`doc/docx/xls/xlsx/ppt/pptx`), UTF-8 text
+  and JPEG/PNG/WebP images, 10 MB each, 10 per ticket. Everything else is refused. Images are re-encoded.
+  Office and PDF files cannot be re-encoded, so PDFs with `/JavaScript`, `/Launch` or embedded files,
+  Office files with macros or ActiveX, and Office Open XML files without their main part or with too many
+  or too large entries (zip bombs) are refused, and they still pass ClamAV. They are never returned
+  to the reporter and are always served as downloads, never inline. A document added by a facility manager
+  is seen only by that person, the principal, institute management and Team OSSC (DBIT, 2026-11-01); other
+  facility managers get 404 and do not see its timeline entry.
 - Files are stored under random keys in a private volume, held in quarantine until ClamAV clears
   them (production), and downloaded only after a permission check with `nosniff` and a sandbox CSP.
 
@@ -85,6 +92,18 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - Swagger and ReDoc are disabled, and the OpenAPI JSON route is off in production.
 - Containers run as non-root with read-only filesystems and no Linux capabilities. Only nginx publishes ports.
 - Backups are encrypted to an age public key, so the server cannot read its own backups.
+
+## Translation
+
+- Typed text (titles, descriptions, staff messages, reasons, timeline entries) is machine-translated
+  between English, Kannada and Hindi by the worker with the free public MyMemory API
+  (`PCMS_TRANSLATION_PROVIDER=mymemory`). **That text leaves the college server and goes to MyMemory.**
+  Set `PCMS_TRANSLATION_PROVIDER=none` to keep it on campus. The original text is always kept and shown on request.
+- Translations are shown to the facility manager only (DBIT, 2026-11-01); every other role reads text as written,
+  and their page views never send text to a translator. They are only looked up for text already in a response,
+  so they follow the normal visibility rules.
+- `POST /translate` (language buttons under a text box) is for the facility manager only (403 otherwise) and is throttled to
+  40 new texts per person per 10 minutes.
 
 ## Not verified yet
 

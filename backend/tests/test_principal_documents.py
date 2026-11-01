@@ -18,6 +18,8 @@ from datetime import date, timedelta
 from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
+# Staff files are sent with purpose=document; photos and videos are the reporter's.
+DOC = {"purpose": "document"}
 
 
 def docx(macro: bool = False) -> bytes:
@@ -92,7 +94,7 @@ async def test_principal_can_view_report_and_upload_but_not_handle_tickets(clien
         assert (await prin.get(f"{API}/reports")).status_code == 200
         assert (await _tr(prin, tid, action="triage")).status_code == 403
         assert (await _tr(prin, tid, action="reject", reason="no")).status_code == 403
-        up = await prin.post(f"{API}/tickets/{tid}/attachments", files={"file": ("q.pdf", PDF, "application/pdf")})
+        up = await prin.post(f"{API}/tickets/{tid}/attachments", files={"file": ("q.pdf", PDF, "application/pdf")}, data=DOC)
         assert up.status_code == 202 and up.json()["uploadedBy"] == "Principal"
     finally:
         await _close(clients)
@@ -188,13 +190,16 @@ async def test_documents_show_who_added_them_and_stay_internal(client):
         tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
         r = await fac.post(f"{API}/tickets/{tid}/attachments", files={"file": ("q.pdf", PDF, "application/pdf")})
         assert r.status_code == 400 and r.json()["code"] == "media_rejected"  # faculty add photos, not documents
+        r = await fac.post(f"{API}/tickets/{tid}/attachments", files={"file": ("q.pdf", PDF, "application/pdf")}, data=DOC)
+        assert r.status_code == 403
 
-        r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": ("quote.pdf", PDF, "application/pdf")})
+        r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": ("quote.pdf", PDF, "application/pdf")},
+                           data=DOC)
         assert r.status_code == 202, r.text
         pdf = r.json()
         assert pdf["kind"] == "document" and pdf["uploadedBy"] == "Manager"
         assert (await mgmt.post(f"{API}/tickets/{tid}/attachments",
-                                files={"file": ("approval.docx", docx(), "x/y")})).status_code == 202
+                                files={"file": ("approval.docx", docx(), "x/y")}, data=DOC)).status_code == 202
 
         got = await prin.get(pdf["url"])
         assert got.status_code == 200 and got.content == PDF
@@ -211,7 +216,8 @@ async def test_documents_show_who_added_them_and_stay_internal(client):
         await _close(clients)
 
 
-async def test_faculty_see_the_team_not_staff_names_on_photos(client):
+async def test_staff_view_the_reporters_photos_but_do_not_add_to_them(client):
+    """DBIT, 2026-11-01: photos and videos are the reporter's evidence. Staff add files as documents."""
     from tests.test_media import jpeg_with_gps
 
     fac, mgr, mgmt, prin, clients = await _people(client)
@@ -219,12 +225,115 @@ async def test_faculty_see_the_team_not_staff_names_on_photos(client):
         tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
         assert (await fac.post(f"{API}/tickets/{tid}/attachments",
                                files={"file": ("mine.jpg", jpeg_with_gps(), "image/jpeg")})).status_code == 202
-        assert (await mgr.post(f"{API}/tickets/{tid}/attachments",
-                               files={"file": ("after.jpg", jpeg_with_gps(), "image/jpeg")})).status_code == 202
-        assert [a["uploadedBy"] for a in (await _get(fac, tid))["attachments"]] == ["Reporter", "Facilities team"]
-        assert [a["uploadedBy"] for a in (await _get(mgr, tid))["attachments"]] == ["Reporter", "Manager"]
+        for s in (mgr, mgmt, prin):
+            r = await s.post(f"{API}/tickets/{tid}/attachments", files={"file": ("after.jpg", jpeg_with_gps(), "image/jpeg")})
+            assert r.status_code == 403, r.text
+        staff_view = (await _get(mgr, tid))["attachments"]
+        assert [(a["kind"], a["uploadedBy"]) for a in staff_view] == [("photo", "Reporter")]
+        assert (await mgr.get(staff_view[0]["url"])).status_code == 200
+
+        # A photo of a bill added by staff is a document: re-encoded, internal, download only.
+        r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": ("bill.jpg", jpeg_with_gps(), "image/jpeg")},
+                           data=DOC)
+        assert r.status_code == 202 and r.json()["kind"] == "document", r.text
+        got = await mgr.get(r.json()["url"])
+        assert got.headers["content-disposition"].startswith("attachment") and b"PhoneMaker" not in got.content
+        assert [a["uploadedBy"] for a in (await _get(fac, tid))["attachments"]] == ["Reporter"]
     finally:
         await _close(clients)
+
+
+async def test_staff_who_reported_a_problem_add_their_own_photos(client):
+    from tests.test_media import jpeg_with_gps
+
+    fac, mgr, mgmt, prin, clients = await _people(client)
+    try:
+        tid = (await mgr.post(f"{API}/tickets", json=ticket_body())).json()["id"]
+        r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": ("mine.jpg", jpeg_with_gps(), "image/jpeg")})
+        assert r.status_code == 202 and r.json()["kind"] == "photo"
+    finally:
+        await _close(clients)
+
+
+def ooxml(main: str, extra: dict[str, bytes] | None = None) -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("[Content_Types].xml", '<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/'
+                                          'package/2006/content-types"/>')
+        z.writestr("_rels/.rels", '<?xml version="1.0"?><Relationships '
+                                  'xmlns="http://schemas.openxmlformats.org/package/2006/relationships"/>')
+        z.writestr(main, '<?xml version="1.0"?><x/>')
+        for name, data in (extra or {}).items():
+            z.writestr(name, data)
+    return buf.getvalue()
+
+
+async def test_staff_documents_accept_office_text_and_images(client):
+    from tests.test_media import jpeg_with_gps
+
+    fac, mgr, mgmt, prin, clients = await _people(client)
+    try:
+        tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
+        files = [
+            ("quote.pdf", PDF, "pdf"),
+            ("letter.docx", docx(), "docx"),
+            ("estimate.xlsx", ooxml("xl/workbook.xml"), "xlsx"),
+            ("plan.pptx", ooxml("ppt/presentation.xml"), "pptx"),
+            ("notes.txt", "Vendor: Ravi\nಕನ್ನಡ टिप्पणी\n".encode(), "txt"),
+            ("bill.jpg", jpeg_with_gps(), "jpg"),
+        ]
+        for name, raw, ext in files:
+            r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": (name, raw, "application/octet-stream")},
+                               data=DOC)
+            assert r.status_code == 202 and r.json()["kind"] == "document", f"{name}: {r.text}"
+            got = await mgr.get(r.json()["url"])
+            assert got.status_code == 200 and got.headers["content-disposition"].endswith(f".{ext}\""), name
+            assert got.headers["x-content-type-options"] == "nosniff"
+        assert (await _get(fac, tid))["attachments"] == []
+    finally:
+        await _close(clients)
+
+
+async def test_unsafe_or_unknown_staff_files_are_rejected(client):
+    fac, mgr, mgmt, prin, clients = await _people(client)
+    try:
+        tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
+        cases = [
+            ("macro.xlsx", ooxml("xl/workbook.xml", {"xl/vbaProject.bin": b"\0" * 64})),
+            ("activex.pptx", ooxml("ppt/presentation.xml", {"ppt/activeX/activeX1.xml": b"<x/>"})),
+            ("fake.xlsx", ooxml("docProps/app.xml")),
+            ("embedded.pdf", PDF.replace(b"1 0 obj<<>>", b"1 0 obj<</Type/EmbeddedFile>>")),
+            ("tool.exe", b"MZ\x90\x00" + b"\x00" * 200),
+            ("page.html", b"<!DOCTYPE html><html><script>alert(1)</script></html>"),
+            ("logo.svg", b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'),
+            ("bundle.zip", _zip()),
+            ("run.sh", b"#!/bin/sh\nrm -rf /\n"),
+        ]
+        for name, raw in cases:
+            r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": (name, raw, "application/pdf")}, data=DOC)
+            assert r.status_code == 400 and r.json()["code"] == "media_rejected", f"{name} gave {r.status_code}"
+    finally:
+        await _close(clients)
+
+
+def _zip() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("readme.txt", "hello")
+    return buf.getvalue()
+
+
+def test_old_office_files_with_macros_are_refused():
+    from app.services import media
+
+    ole = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\0" * 504
+    assert media._document(ole, "application/vnd.ms-excel").kind == "document"
+    try:
+        media._document(ole + "_VBA_PROJECT".encode("utf-16-le"), "application/vnd.ms-excel")
+    except media.MediaRejected as exc:
+        assert "macros" in exc.message
+    else:
+        raise AssertionError("an OLE file with a VBA project was accepted")
 
 
 async def test_unsafe_documents_are_rejected(client):
@@ -237,7 +346,7 @@ async def test_unsafe_documents_are_rejected(client):
             ("archive.docx", b"PK\x03\x04" + b"\x00" * 100),
         ]
         for name, raw in cases:
-            r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": (name, raw, "application/pdf")})
+            r = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": (name, raw, "application/pdf")}, data=DOC)
             assert r.status_code == 400, f"{name} gave {r.status_code}"
     finally:
         await _close(clients)
@@ -324,3 +433,37 @@ async def test_amenities_and_terrace_are_places(client):
     r = await fac.post(f"{API}/tickets", json=ticket_body(location={"building": "CANTEEN", "floor": "Ground",
                                                                      "room": "Counter 2"}))
     assert r.status_code == 201, r.text
+
+
+async def test_facility_manager_documents_are_for_the_approvers_only(client):
+    """DBIT, 2026-11-01: a document the facility manager adds is seen by that manager, the principal
+    and institute management, not by other facility managers or the reporter."""
+    fac, mgr, mgmt, prin, clients = await _people(client)
+    await make_user("manager2@dbit.edu", "facility_manager", "Second Manager")
+    try:
+        tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
+        up = await mgr.post(f"{API}/tickets/{tid}/attachments", files={"file": ("quote.pdf", PDF, "application/pdf")}, data=DOC)
+        assert up.status_code == 202, up.text
+        url = up.json()["url"]
+        by_principal = (await prin.post(f"{API}/tickets/{tid}/attachments",
+                                        files={"file": ("approval.pdf", PDF, "application/pdf")}, data=DOC)).json()
+
+        def docs(t):
+            return sorted(a["name"] for a in t["attachments"] if a["kind"] == "document")
+
+        assert docs(await _get(mgr, tid)) == ["approval.pdf", "quote.pdf"]
+        assert docs(await _get(prin, tid)) == ["approval.pdf", "quote.pdf"]
+        assert docs(await _get(mgmt, tid)) == ["approval.pdf", "quote.pdf"]
+        assert (await prin.get(url)).status_code == 200 and (await mgmt.get(url)).status_code == 200
+
+        async with new_client() as c2:
+            mgr2 = await sign_in(c2, "manager2@dbit.edu")
+            t2 = await _get(mgr2, tid)
+            assert docs(t2) == ["approval.pdf"]  # the principal's document is for all staff
+            assert not any(e["action"] == "Document added" and e["detail"] == "quote.pdf" for e in t2["events"])
+            assert (await mgr2.get(url)).status_code == 404
+            assert (await mgr2.get(by_principal["url"])).status_code == 200
+
+        assert docs(await _get(fac, tid)) == [] and (await fac.get(url)).status_code == 404
+    finally:
+        await _close(clients)

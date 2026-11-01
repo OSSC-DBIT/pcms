@@ -2378,6 +2378,56 @@
             }
           },
           {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "overdue",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Overdue"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(action|working)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "View"
+            }
+          },
+          {
             "name": "sort",
             "in": "query",
             "required": false,
@@ -2903,6 +2953,47 @@
         }
       }
     },
+    "/api/v1/translate": {
+      "post": {
+        "tags": [
+          "translate"
+        ],
+        "summary": "Translate Text",
+        "operationId": "translate_text_api_v1_translate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TranslateIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranslateOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/proposals/{proposal_id}/decisions": {
       "post": {
         "tags": [
@@ -2962,6 +3053,7 @@
           "attachments"
         ],
         "summary": "Upload",
+        "description": "evidence: photos and videos, added only by the person who reported the ticket.\ndocument: staff files (quotes, bills, reports), added by any staff role (ticket.attach).\nStaff view the reporter's photos and videos but do not add to them (DBIT, 2026-11-01).",
         "operationId": "upload_api_v1_tickets__ticket_id__attachments_post",
         "parameters": [
           {
@@ -3446,6 +3538,15 @@
             "type": "string",
             "contentMediaType": "application/octet-stream",
             "title": "File"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "evidence",
+              "document"
+            ],
+            "title": "Purpose",
+            "default": "evidence"
           }
         },
         "type": "object",
@@ -5883,6 +5984,16 @@
               }
             ]
           },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Translations"
+          },
           "description": {
             "type": "string",
             "title": "Description"
@@ -6188,6 +6299,16 @@
                 "type": "null"
               }
             ]
+          },
+          "translations": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "type": "object",
+            "title": "Translations"
           }
         },
         "type": "object",
@@ -6485,6 +6606,62 @@
           "expectedVersion"
         ],
         "title": "TransitionIn"
+      },
+      "TranslateIn": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Text"
+          },
+          "target": {
+            "type": "string",
+            "enum": [
+              "en",
+              "kn",
+              "hi"
+            ],
+            "title": "Target"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text",
+          "target"
+        ],
+        "title": "TranslateIn"
+      },
+      "TranslateOut": {
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "done",
+              "pending",
+              "same",
+              "unavailable",
+              "failed"
+            ],
+            "title": "State"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "state"
+        ],
+        "title": "TranslateOut"
       },
       "UpdateUserIn": {
         "properties": {

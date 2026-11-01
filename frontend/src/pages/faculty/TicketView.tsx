@@ -79,7 +79,7 @@ export default function TicketView() {
 
       {mine && ticket.rating && (
         <Card title={t('ticket.yourRating')} subtitle={t('ticket.rateThanks')}>
-          <RatingSummary stars={ticket.rating.stars} comment={ticket.rating.comment} createdAt={ticket.rating.createdAt} />
+          <RatingSummary stars={ticket.rating.stars} comment={ticket.rating.comment} createdAt={ticket.rating.createdAt} translations={ticket.translations} />
         </Card>
       )}
 
@@ -107,7 +107,7 @@ export default function TicketView() {
 
       {/* Messages are a staff discussion, so the reporter sees progress and photos only. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title={t('ticket.timeline')}><Timeline events={ticket.events} /></Card>
+        <Card title={t('ticket.timeline')}><Timeline events={ticket.events} translations={ticket.translations} /></Card>
         <Card title={t('ticket.evidence')}>
           <Gallery ticket={ticket} canAdd={mine && !TERMINAL.includes(ticket.status)} onChanged={load} />
         </Card>

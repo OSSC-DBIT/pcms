@@ -131,6 +131,8 @@ export interface TicketSummary {
   workerName?: string | null
   /** Never present for faculty. */
   proposal?: Proposal | null
+  /** Machine translations of typed text: { original: { en|kn|hi: text } }. Missing while still being translated. */
+  translations?: Record<string, Partial<Record<'en' | 'kn' | 'hi', string>>>
 }
 
 export interface Rating {

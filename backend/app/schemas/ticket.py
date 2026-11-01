@@ -171,6 +171,9 @@ class TicketSummaryOut(CamelModel):
     verified_by_reporter: bool | None = None
     worker_name: str | None = None
     proposal: ProposalOut | None = None
+    # Machine translations of the typed text in this response: {original: {"en"|"kn"|"hi": text}}.
+    # Missing entries are still being translated; show the original.
+    translations: dict[str, dict[str, str]] = Field(default_factory=dict)
 
 
 class TicketOut(TicketSummaryOut):
