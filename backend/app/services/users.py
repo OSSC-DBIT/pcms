@@ -33,8 +33,9 @@ from app.services.xlsx import read_people_workbook
 EMAIL_RE = re.compile(r"^[^@\s<>\"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-# CSV/Excel import cannot create super-admin accounts; those are created one by one.
-IMPORT_ROLES = ("faculty", "facility_manager", "management")
+# Every role can be imported, Team OSSC included. An imported admin still has to set up an
+# authenticator app at first sign-in, like one created by hand.
+IMPORT_ROLES = ROLES
 IMPORT_COLUMNS = ("email", "name", "role", "password")
 
 # Argon2 hashing is CPU bound and releases the GIL; hash imports in parallel.

@@ -1,13 +1,20 @@
 # Development stack. Usage:
 #   docker compose -f compose.dev.yml up --build
-# PWA (Vite HMR): http://localhost:5173   API docs: http://localhost:8000/api/v1/docs
-# Mailpit UI:     http://localhost:8025   Full nginx stack: --profile nginx -> http://localhost:8080
+# Default host ports (change them in .env):
+#   PWA (Vite HMR) http://localhost:5173 (PCMS_WEB_PORT)    API http://localhost:8000 (PCMS_API_PORT)
+#   Mailpit UI     http://localhost:8025 (PCMS_MAIL_PORT)
+#   nginx (--profile nginx) http://localhost:8080 (PCMS_HTTP_PORT), webhooks 8081 (PCMS_PUBLIC_PORT)
+# The database login comes from PCMS_DB_NAME, PCMS_DB_USER and PCMS_DB_PASSWORD in .env.
 name: pcms-dev
 
 x-api-env: &api-env
   PCMS_ENV: dev
-  PCMS_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms
-  PCMS_TEST_DATABASE_URL: postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms_test
+  PCMS_DB_HOST: db
+  PCMS_DB_PORT: "5432"
+  PCMS_DB_NAME: ${PCMS_DB_NAME:-pcms}
+  PCMS_DB_USER: ${PCMS_DB_USER:-pcms}
+  PCMS_DB_PASSWORD: ${PCMS_DB_PASSWORD:-pcms_dev}
+  PCMS_PUBLIC_APP_URL: ${PCMS_PUBLIC_APP_URL:-http://localhost:${PCMS_HTTP_PORT:-8080}}
   PCMS_SECRET_KEY: dev-only-secret-key-change-me
   PCMS_CREDENTIAL_KEY: dev-only-credential-key-change-me
   PCMS_CLAMAV_REQUIRED: "false"
@@ -20,40 +27,49 @@ x-api-env: &api-env
   PCMS_TWILIO_WHATSAPP_FROM: ${PCMS_TWILIO_WHATSAPP_FROM:-}
   PCMS_TWILIO_SMS_FROM: ${PCMS_TWILIO_SMS_FROM:-}
   PCMS_TWILIO_JOB_CONTENT_SID: ${PCMS_TWILIO_JOB_CONTENT_SID:-}
-  PCMS_PUBLIC_BASE_URL: ${PCMS_PUBLIC_BASE_URL:-http://localhost:8081}
+  PCMS_PUBLIC_BASE_URL: ${PCMS_PUBLIC_BASE_URL:-http://localhost:${PCMS_PUBLIC_PORT:-8081}}
   WATCHFILES_FORCE_POLLING: "true"
+
+# Everything else in .env (for example PCMS_ADMIN_1_EMAIL) also reaches the app containers.
+# The values above win where both set the same name.
+x-env-file: &env-file
+  - path: .env
+    required: false
 
 services:
   db:
     image: postgres:17-alpine
     environment:
-      POSTGRES_USER: pcms
-      POSTGRES_PASSWORD: pcms_dev
-      POSTGRES_DB: pcms
+      # PostgreSQL applies these only when it first creates the pgdata volume.
+      POSTGRES_USER: ${PCMS_DB_USER:-pcms}
+      POSTGRES_PASSWORD: ${PCMS_DB_PASSWORD:-pcms_dev}
+      POSTGRES_DB: ${PCMS_DB_NAME:-pcms}
       TZ: UTC
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./backend/docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pcms -d pcms"]
+      test: ["CMD-SHELL", "pg_isready -U ${PCMS_DB_USER:-pcms} -d ${PCMS_DB_NAME:-pcms}"]
       interval: 3s
       timeout: 3s
       retries: 20
 
   api:
     build: { context: ./backend, target: dev }
+    env_file: *env-file
     environment: *api-env
     command: ["sh", "-c", "alembic upgrade head && python -m app.cli seed && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"]
     volumes:
       - ./backend:/app
       - media:/data/media
     ports:
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:${PCMS_API_PORT:-8000}:8000"
     depends_on:
       db: { condition: service_healthy }
 
   worker:
     build: { context: ./backend, target: dev }
+    env_file: *env-file
     environment: *api-env
     command: ["python", "-m", "app.jobs.worker"]
     volumes:
@@ -65,6 +81,7 @@ services:
 
   scheduler:
     build: { context: ./backend, target: dev }
+    env_file: *env-file
     environment: *api-env
     command: ["python", "-m", "app.jobs.scheduler"]
     volumes:
@@ -86,28 +103,21 @@ services:
       - ./frontend:/app
       - /app/node_modules
     ports:
-      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:${PCMS_WEB_PORT:-5173}:5173"
 
   mailpit:
     image: axllent/mailpit:v1.31.6
     ports:
-      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:${PCMS_MAIL_PORT:-8025}:8025"
 
   nginx:
     build: { context: ., dockerfile: nginx/Dockerfile }
     ports:
-      - "127.0.0.1:8080:8080"
-      - "127.0.0.1:8081:8081"
+      - "127.0.0.1:${PCMS_HTTP_PORT:-8080}:8080"
+      # Webhooks and signed photos only. Point your own tunnel at http://127.0.0.1:${PCMS_PUBLIC_PORT}.
+      - "127.0.0.1:${PCMS_PUBLIC_PORT:-8081}:8081"
     depends_on: [api]
     profiles: ["nginx"]
-
-  cloudflared:
-    image: cloudflare/cloudflared:2026.10.1
-    # Quick tunnel for development; prints a trycloudflare.com URL in the logs.
-    # Points only at the public nginx listener (webhooks + signed media).
-    command: ["tunnel", "--no-autoupdate", "--url", "http://nginx:8081"]
-    depends_on: [nginx]
-    profiles: ["tunnel"]
 
 volumes:
   pgdata:

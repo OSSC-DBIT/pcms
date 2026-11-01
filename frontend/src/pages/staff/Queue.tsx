@@ -9,9 +9,11 @@ import { api, type FailedNotification } from '../../lib/api'
 import { buildings, buildingName, categories, categoryName } from '../../lib/catalog'
 import { useT, type TKey } from '../../lib/i18n'
 import { useTickets, type UseTicketsOptions } from '../../lib/useTickets'
-import type { Priority, TicketSort, TicketSummary } from '../../lib/types'
+import { IMPACTS, type Impact, type Role, type TicketSort, type TicketSummary } from '../../lib/types'
 
 type View = 'action' | 'working' | 'all'
+/** Every role can report a problem, so every role can be a filter. */
+const REPORTER_ROLES: Role[] = ['faculty', 'facility_manager', 'management', 'principal', 'ossc']
 
 const needsAction = (x: TicketSummary, canTriage: boolean) =>
   ['Submitted', 'AwaitingApproval', 'Resolved'].includes(x.status) ||
@@ -23,7 +25,12 @@ export default function Queue() {
   const [view, setView] = useState<View>('action')
   const [search, setSearch] = useState('')
   const [applied, setApplied] = useState('')
-  const [priority, setPriority] = useState<Priority | ''>('')
+  const [severity, setSeverity] = useState<Impact | ''>('')
+  const [reporterInput, setReporterInput] = useState('')
+  const [reporter, setReporter] = useState('')
+  const [reporterRole, setReporterRole] = useState<Role | ''>('')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [place, setPlace] = useState('')
   const [kind, setKind] = useState('')
   const [sort, setSort] = useState<TicketSort>('newest')
@@ -33,7 +40,11 @@ export default function Queue() {
   const filters: UseTicketsOptions = {
     open: true,
     search: applied || undefined,
-    priority: priority || undefined,
+    severity: severity || undefined,
+    reporter: reporter || undefined,
+    reporterRole: reporterRole || undefined,
+    from: from || undefined,
+    to: to || undefined,
     building: place || undefined,
     category: kind || undefined,
     sort,
@@ -43,7 +54,7 @@ export default function Queue() {
   const sorts: { value: TicketSort; label: string }[] = [
     { value: 'newest', label: t('queue.newest') },
     { value: 'oldest', label: t('queue.oldest') },
-    { value: 'priority', label: t('queue.priority') },
+    { value: 'severity', label: t('queue.severity') },
     { value: 'updated', label: t('queue.recentlyUpdated') },
   ]
 
@@ -62,9 +73,10 @@ export default function Queue() {
     [tickets, view, canTriage],
   )
 
-  const filtering = !!(applied || priority || place || kind)
+  const filtering = !!(applied || severity || place || kind || reporter || reporterRole || from || to)
   const clear = () => {
-    setSearch(''); setApplied(''); setPriority(''); setPlace(''); setKind('')
+    setSearch(''); setApplied(''); setSeverity(''); setPlace(''); setKind('')
+    setReporterInput(''); setReporter(''); setReporterRole(''); setFrom(''); setTo('')
   }
 
   return (
@@ -83,7 +95,7 @@ export default function Queue() {
           { value: 'action', label: t('queue.needsAction') }, { value: 'working', label: t('queue.inProgress') }, { value: 'all', label: t('queue.allOpen') }]} />
       </div>
 
-      <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); setApplied(search.trim()) }}>
+      <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); setApplied(search.trim()); setReporter(reporterInput.trim()) }}>
         <div className="w-full sm:w-64 sm:flex-1 sm:min-w-56">
           <label htmlFor="queue-search" className="mb-1.5 block text-[13px] font-medium">{t('action.search')}</label>
           <div className="relative">
@@ -92,10 +104,10 @@ export default function Queue() {
               placeholder={t('queue.searchPlaceholder')} className="pl-9" autoComplete="off" />
           </div>
         </div>
-        <div className="w-full sm:w-32">
-          <label htmlFor="queue-priority" className="mb-1.5 block text-[13px] font-medium">{t('queue.priority')}</label>
-          <Select id="queue-priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority | '')}>
-            <option value="">{t('common.any')}</option>{(['P1', 'P2', 'P3', 'P4'] as const).map((p) => <option key={p}>{p}</option>)}
+        <div className="w-full sm:w-40">
+          <label htmlFor="queue-severity" className="mb-1.5 block text-[13px] font-medium">{t('queue.severity')}</label>
+          <Select id="queue-severity" value={severity} onChange={(e) => setSeverity(e.target.value as Impact | '')}>
+            <option value="">{t('common.any')}</option>{IMPACTS.map((v) => <option key={v} value={v}>{t(`impact.${v}`)}</option>)}
           </Select>
         </div>
         <div className="w-full sm:w-44">
@@ -109,6 +121,25 @@ export default function Queue() {
           <Select id="queue-type" value={kind} onChange={(e) => setKind(e.target.value)}>
             <option value="">{t('common.all')}</option>{categories().map((c) => <option key={c.code} value={c.code}>{categoryName(c, lang)}</option>)}
           </Select>
+        </div>
+        <div className="w-full sm:w-52">
+          <label htmlFor="queue-reporter" className="mb-1.5 block text-[13px] font-medium">{t('queue.reporter')}</label>
+          <Input id="queue-reporter" value={reporterInput} onChange={(e) => setReporterInput(e.target.value)}
+            placeholder={t('queue.reporterPlaceholder')} autoComplete="off" />
+        </div>
+        <div className="w-full sm:w-44">
+          <label htmlFor="queue-role" className="mb-1.5 block text-[13px] font-medium">{t('queue.reporterRole')}</label>
+          <Select id="queue-role" value={reporterRole} onChange={(e) => setReporterRole(e.target.value as Role | '')}>
+            <option value="">{t('common.any')}</option>{REPORTER_ROLES.map((r) => <option key={r} value={r}>{t(`role.${r}`)}</option>)}
+          </Select>
+        </div>
+        <div className="w-full sm:w-40">
+          <label htmlFor="queue-from" className="mb-1.5 block text-[13px] font-medium">{t('queue.from')}</label>
+          <Input id="queue-from" type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} />
+        </div>
+        <div className="w-full sm:w-40">
+          <label htmlFor="queue-to" className="mb-1.5 block text-[13px] font-medium">{t('queue.to')}</label>
+          <Input id="queue-to" type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} />
         </div>
         <div className="w-full sm:w-44">
           <label htmlFor="queue-sort" className="mb-1.5 block text-[13px] font-medium">{t('queue.sort')}</label>
@@ -127,9 +158,8 @@ export default function Queue() {
       ) : (
         <>
           <TicketList>
-            {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
-              extra={<><Badge>{x.priority}</Badge>
-                {x.status === 'InProgress' && x.proposal?.state === 'approved' && <Badge tone="ok">{t('queue.approved')}</Badge>}</>} />)}
+            {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`} showReporter
+              extra={x.status === 'InProgress' && x.proposal?.state === 'approved' ? <Badge tone="ok">{t('queue.approved')}</Badge> : undefined} />)}
           </TicketList>
           <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />
         </>

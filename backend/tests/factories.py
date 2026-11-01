@@ -78,7 +78,7 @@ def ticket_body(**over) -> dict:
         "location": {"building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)",
                      "floor": "2", "room": "203"},
         "title": "Broken chair in lecture room", "description": "Two chairs have broken backs.",
-        "impact": "class_interrupted",
+        "impact": "orange",
     }
     body.update(over)
     return body

@@ -7,8 +7,8 @@ import { HttpError, qs, request, requestBlob, setCsrf } from './http'
 import { resetCatalogs } from './catalog'
 import { unsubscribeThisDevice } from './push'
 import type {
-  AdminUser, AnnualReport, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Location, Page,
-  Priority, Proposal, Report, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag,
+  AdminUser, AnnualReport, Assessment, AuditEvent, Channel, Credential, DecisionKind, Draft, Expenditure, Impact,
+  Location, Page, Proposal, Report, Role, Status, StepResult, Ticket, TicketSort, TicketSummary, User, WorkFlag,
 } from './types'
 
 export { HttpError } from './http'
@@ -34,17 +34,37 @@ export interface TicketFilters {
   search?: string
   category?: string
   flag?: WorkFlag
-  priority?: Priority
+  severity?: Impact
   building?: string
   worker?: string
+  /** Name or email of the person who reported it (staff queue). */
+  reporter?: string
+  reporterRole?: Role
+  /** Reported on or after / on or before, as YYYY-MM-DD. */
+  from?: string
+  to?: string
   sort?: TicketSort
   page?: number
   pageSize?: number
 }
 
+/** The period and scope shared by the Reports page and every download. Dates are YYYY-MM-DD. */
+export interface ReportFilters {
+  days?: number
+  from?: string
+  to?: string
+  building?: string
+  department?: string
+  category?: string
+}
+
+function reportQs(f: ReportFilters): string {
+  return qs({ days: f.from || f.to ? undefined : f.days, from: f.from, to: f.to,
+    building: f.building, department: f.department, category: f.category })
+}
+
 export type TransitionAction =
-  | { action: 'triage'; priority: Priority; flag?: WorkFlag }
-  | { action: 'set_priority'; priority: Priority; reason: string }
+  | { action: 'triage'; flag?: WorkFlag }
   | { action: 'set_flag'; flag: WorkFlag }
   | { action: 'recategorise'; categoryCode: string; reason?: string }
   | { action: 'hold'; reason: string; owner: string; nextAction: string; reviewDate: string }
@@ -120,8 +140,9 @@ export const api = {
   listTickets(params: TicketFilters): Promise<Page<TicketSummary>> {
     return request('GET', `/tickets${qs({
       scope: params.scope, status: params.status?.join(','), open: params.open,
-      search: params.search, category: params.category, flag: params.flag, priority: params.priority,
-      building: params.building, worker: params.worker, sort: params.sort,
+      search: params.search, category: params.category, flag: params.flag, severity: params.severity,
+      building: params.building, worker: params.worker, reporter: params.reporter, reporterRole: params.reporterRole,
+      from: params.from, to: params.to, sort: params.sort,
       page: params.page, pageSize: params.pageSize ?? 25,
     })}`)
   },
@@ -149,8 +170,9 @@ export const api = {
   transition(ticket: Pick<Ticket, 'id' | 'version'>, action: TransitionAction): Promise<Ticket> {
     return request('POST', `/tickets/${ticket.id}/transitions`, { body: { ...action, expectedVersion: ticket.version } })
   },
-  addComment(ticket: Pick<Ticket, 'id'>, body: string, internal: boolean): Promise<Ticket> {
-    return request('POST', `/tickets/${ticket.id}/comments`, { body: { body, internal } })
+  /** A staff message. Messages are visible to staff only; faculty cannot read or send them. */
+  addComment(ticket: Pick<Ticket, 'id'>, body: string): Promise<Ticket> {
+    return request('POST', `/tickets/${ticket.id}/comments`, { body: { body } })
   },
   uploadAttachment(ticketId: string, file: File, onProgress?: (fraction: number) => void): Promise<Ticket['attachments'][number]> {
     // XHR, not fetch, for upload progress.
@@ -233,10 +255,19 @@ export const api = {
   },
 
   // ---------- reports and export ----------
-  /** One shared filter set for the dashboard, the annual chart and every download. */
-  report(params: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<Report> {
-    return request('GET', `/reports${
-      qs({ days: params.days, building: params.building, department: params.department, category: params.category })}`)
+  /** One shared filter set for the dashboard and every download: a From and a To date (whole days). */
+  report(params: ReportFilters = {}): Promise<Report> {
+    return request('GET', `/reports${reportQs(params)}`)
+  },
+  /** Expenditure in INR for the period. Only the principal, management and Team OSSC may call it. */
+  expenditure(params: ReportFilters = {}): Promise<Expenditure> {
+    return request('GET', `/reports/expenditure${reportQs(params)}`)
+  },
+  exportExpenditureCsv(filters: ReportFilters = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/expenditure.csv${reportQs(filters)}`, { accept: 'text/csv' })
+  },
+  exportExpenditureXlsx(filters: ReportFilters = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/expenditure.xlsx${reportQs(filters)}`, { accept: XLSX })
   },
   /** Monthly activity for one calendar year, from actual ticket data. */
   annualReport(params: { year?: number; building?: string; department?: string; category?: string } = {}): Promise<AnnualReport> {
@@ -244,20 +275,14 @@ export const api = {
       qs({ year: params.year, building: params.building, department: params.department, category: params.category })}`)
   },
   /** Every download is audited on the server. Filters are applied by the backend, never the browser. */
-  exportTicketsCsv(filters: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<{ blob: Blob; filename: string }> {
-    return requestBlob('GET', `/reports/tickets.csv${
-      qs({ days: filters.days, building: filters.building, department: filters.department, category: filters.category })}`,
-      { accept: 'text/csv' })
+  exportTicketsCsv(filters: ReportFilters = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/tickets.csv${reportQs(filters)}`, { accept: 'text/csv' })
   },
-  exportTicketsXlsx(filters: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<{ blob: Blob; filename: string }> {
-    return requestBlob('GET', `/reports/export.xlsx${
-      qs({ days: filters.days, building: filters.building, department: filters.department, category: filters.category })}`,
-      { accept: XLSX })
+  exportTicketsXlsx(filters: ReportFilters = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/export.xlsx${reportQs(filters)}`, { accept: XLSX })
   },
-  exportTicketsPdf(filters: { days?: number; building?: string; department?: string; category?: string } = {}): Promise<{ blob: Blob; filename: string }> {
-    return requestBlob('GET', `/reports/export.pdf${
-      qs({ days: filters.days, building: filters.building, department: filters.department, category: filters.category })}`,
-      { accept: 'application/pdf' })
+  exportTicketsPdf(filters: ReportFilters = {}): Promise<{ blob: Blob; filename: string }> {
+    return requestBlob('GET', `/reports/export.pdf${reportQs(filters)}`, { accept: 'application/pdf' })
   },
 
   // ---------- audit ----------

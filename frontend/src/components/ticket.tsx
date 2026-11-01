@@ -1,13 +1,13 @@
 /** Ticket building blocks shared by the faculty and staff screens. */
 import { clsx } from 'clsx'
-import { ChevronRight, ImageOff, Loader2, Play, Plus, Star } from 'lucide-react'
+import { ChevronRight, Download, FileText, ImageOff, Loader2, Play, Plus, Star } from 'lucide-react'
 import { useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../lib/api'
 import { building, buildingDepartments, buildingName, category, categoryName, categoryParts } from '../lib/catalog'
 import { PrepareError, checkVideo, preparePhoto } from '../lib/images'
 import { LOCALE, useT, type Lang, type TFunc } from '../lib/i18n'
-import type { Attachment, Comment, Ticket, TicketSummary, TimelineEvent } from '../lib/types'
+import type { Attachment, Comment, Impact, Ticket, TicketSummary, TimelineEvent } from '../lib/types'
 import { Alert, Badge, Button, Dialog, StatusBadge, Textarea, errorMessage } from './ui'
 
 const IST_DATE: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', timeZone: 'Asia/Kolkata' }
@@ -28,7 +28,22 @@ export function ago(iso: string, t: TFunc, lang: Lang = 'en'): string {
 
 export function floorLabel(floor: string, t: TFunc): string {
   if (floor === 'Ground') return t('time.groundFloor')
+  if (floor === 'Terrace') return t('time.terrace')
   return /^\d+$/.test(floor) ? t('time.floor', { floor }) : floor
+}
+
+const SEVERITY_TONE = { red: 'bad', orange: 'warn', green: 'ok' } as const
+export const SEVERITY_DOT = { red: 'bg-bad', orange: 'bg-warn', green: 'bg-ok' } as const
+
+/** The reporter's red, orange or green severity, colour-coded everywhere it appears. */
+export function SeverityBadge({ impact }: { impact: Impact }) {
+  const { t } = useT()
+  return (
+    <Badge tone={SEVERITY_TONE[impact]}>
+      <span className={clsx('mr-1.5 inline-block h-2 w-2 rounded-full', SEVERITY_DOT[impact])} aria-hidden />
+      {t(`impact.${impact}`)}
+    </Badge>
+  )
 }
 
 function departmentLabel(value: string, b: ReturnType<typeof building>, lang: Lang): string {
@@ -89,7 +104,8 @@ export function typeText(ticket: Pick<TicketSummary, 'categoryCode' | 'subtype'>
 }
 
 /** One ticket in a list. */
-export function TicketRow({ ticket, to, extra }: { ticket: TicketSummary; to: string; extra?: React.ReactNode }) {
+/** One ticket in a list. Staff lists pass showReporter so they can see who raised it. */
+export function TicketRow({ ticket, to, extra, showReporter }: { ticket: TicketSummary; to: string; extra?: React.ReactNode; showReporter?: boolean }) {
   const { lang, t } = useT()
   return (
     <Link to={to} className="flex items-center gap-3 border-b border-line px-4 py-3.5 last:border-b-0 hover:bg-subtle">
@@ -97,11 +113,12 @@ export function TicketRow({ ticket, to, extra }: { ticket: TicketSummary; to: st
         <div className="flex flex-wrap items-center gap-2">
           <span className="token text-[13px] font-semibold">{ticket.token}</span>
           <StatusBadge status={ticket.status} />
-          {ticket.impact === 'safety' && <Badge tone="bad">{t('impact.safety')}</Badge>}
+          <SeverityBadge impact={ticket.impact} />
           {extra}
         </div>
         <p className="mt-1 truncate text-[15px] font-medium">{ticket.title}</p>
         <p className="mt-0.5 truncate text-[13px] text-muted">{typeText(ticket, lang)} · {placeText(ticket, lang, t)} · {ago(ticket.createdAt, t, lang)}</p>
+        {showReporter && <p className="mt-0.5 truncate text-[12.5px] text-muted">{t('ticket.reportedBy')} {ticket.reporterName}</p>}
       </div>
       <ChevronRight size={18} className="shrink-0 text-muted" aria-hidden />
     </Link>
@@ -120,7 +137,7 @@ export function TicketSummaryCard({ ticket, children }: { ticket: Ticket; childr
       <div className="flex flex-wrap items-center gap-2">
         <span className="token rounded-md bg-subtle px-2.5 py-1 text-[18px] font-bold md:text-[20px]">{ticket.token}</span>
         <StatusBadge status={ticket.status} />
-        {ticket.impact === 'safety' && <Badge tone="bad">{t('impact.safety')}</Badge>}
+        <SeverityBadge impact={ticket.impact} />
       </div>
       <h1 className="mt-3 text-[20px] font-semibold leading-snug md:text-[22px]">{ticket.title}</h1>
       <LocationDetails ticket={ticket} lang={lang} />
@@ -176,7 +193,7 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const input = useRef<HTMLInputElement>(null)
-  const items = ticket.attachments
+  const items = ticket.attachments.filter((a) => a.kind !== 'document')
 
   async function add(files: FileList | null) {
     if (!files?.length) return
@@ -193,7 +210,7 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
       }
       onChanged?.()
     } catch (e) {
-      setError(errorMessage(e))
+      setError(e instanceof PrepareError ? t(e.key) : errorMessage(e))
     } finally {
       setBusy(false)
       if (input.current) input.current.value = ''
@@ -205,8 +222,9 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
     <div>
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
         {items.map((a) => (
-          <button key={a.id} type="button" onClick={() => a.state === 'available' && setOpen(a)}
-            className="relative aspect-square overflow-hidden rounded-md border border-line bg-subtle" aria-label={t('ticket.openPhoto', { name: a.name })}>
+          <figure key={a.id} className="min-w-0">
+          <button type="button" onClick={() => a.state === 'available' && setOpen(a)}
+            className="relative aspect-square w-full overflow-hidden rounded-md border border-line bg-subtle" aria-label={t('ticket.openPhoto', { name: a.name })}>
             {a.state === 'available' && a.url && a.kind === 'photo' && <img src={a.url} alt={a.name} loading="lazy" className="h-full w-full object-cover" />}
             {a.state === 'available' && a.kind === 'video' && <span className="flex h-full items-center justify-center"><Play size={26} /></span>}
             {a.state !== 'available' && (
@@ -216,6 +234,8 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
               </span>
             )}
           </button>
+          <figcaption className="mt-1 truncate text-[11.5px] text-muted">{t('ticket.uploadedBy', { name: a.uploadedBy })}</figcaption>
+          </figure>
         ))}
         {canAdd && items.filter((a) => a.state !== 'failed').length < 4 && (
           <button type="button" onClick={() => input.current?.click()} disabled={busy}
@@ -235,11 +255,74 @@ export function Gallery({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?
   )
 }
 
-/** Message thread. Staff can choose internal (never shown to faculty) or public. */
-export function Messages({ comments, staff, onSend }: { comments: Comment[]; staff?: boolean; onSend: (body: string, internal: boolean) => Promise<void> }) {
+const DOCUMENT_ACCEPT = '.pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+
+/** Staff documents (quotes, approvals, reports). The server never returns them to faculty. */
+export function Documents({ ticket, canAdd, onChanged }: { ticket: Ticket; canAdd?: boolean; onChanged?: () => void }) {
+  const { t, lang } = useT()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const input = useRef<HTMLInputElement>(null)
+  const docs = ticket.attachments.filter((a) => a.kind === 'document')
+
+  async function add(files: FileList | null) {
+    if (!files?.length) return
+    setBusy(true); setError(null)
+    try {
+      for (const f of Array.from(files)) {
+        if (f.size > MAX_DOCUMENT_BYTES) throw new PrepareError('media.documentTooLarge')
+        await api.uploadAttachment(ticket.id, f)
+      }
+      onChanged?.()
+    } catch (e) {
+      setError(e instanceof PrepareError ? t(e.key) : errorMessage(e))
+    } finally {
+      setBusy(false)
+      if (input.current) input.current.value = ''
+    }
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[13px] text-muted">{t('ticket.documentsHint')}</p>
+      {docs.length === 0 && <p className="text-[14px] text-muted">{t('ticket.noDocuments')}</p>}
+      {docs.length > 0 && (
+        <ul className="divide-y divide-line rounded-md border border-line">
+          {docs.map((a) => (
+            <li key={a.id} className="flex items-center gap-3 px-3.5 py-2.5">
+              <FileText size={18} className="shrink-0 text-muted" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[14px]">{a.name}</span>
+                <span className="block truncate text-[12px] text-muted">
+                  {t('ticket.uploadedBy', { name: a.uploadedBy })}{a.uploadedAt ? ` · ${fmtTime(a.uploadedAt, lang)}` : ''}
+                </span>
+              </span>
+              {a.state === 'available' && a.url
+                ? <a href={a.url} download className="inline-flex items-center gap-1 text-[13.5px] text-accent"><Download size={15} aria-hidden /> {t('ticket.download')}</a>
+                : <span className="text-[12.5px] text-muted">{a.state === 'failed' ? (a.failureReason ?? t('form.notAccepted')) : t('form.checking')}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canAdd && (
+        <Button size="sm" variant="secondary" loading={busy} onClick={() => input.current?.click()}>
+          <Plus size={16} /> {t('ticket.addDocument')}
+        </Button>
+      )}
+      <input ref={input} type="file" accept={DOCUMENT_ACCEPT} multiple hidden onChange={(e) => void add(e.target.files)} />
+      {error && <Alert tone="bad">{error}</Alert>}
+    </div>
+  )
+}
+
+/**
+ * Staff message thread. Seen and written only by the facility manager, institute
+ * management, the principal and Team OSSC; the server never sends it to faculty.
+ */
+export function Messages({ comments, onSend }: { comments: Comment[]; onSend: (body: string) => Promise<void> }) {
   const { lang, t } = useT()
   const [body, setBody] = useState('')
-  const [internal, setInternal] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -247,28 +330,23 @@ export function Messages({ comments, staff, onSend }: { comments: Comment[]; sta
     e.preventDefault()
     if (!body.trim()) return
     setBusy(true); setError(null)
-    try { await onSend(body.trim(), internal); setBody('') } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+    try { await onSend(body.trim()); setBody('') } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
 
   return (
     <div className="space-y-3">
+      <p className="text-[13px] text-muted">{t('ticket.notesOnly')}</p>
       {comments.length === 0 && <p className="text-[14px] text-muted">{t('ticket.noMessages')}</p>}
       {comments.map((c) => (
-        <div key={c.id} className={clsx('rounded-md border px-3.5 py-2.5', c.internal ? 'border-warn/30 bg-warn-soft' : 'border-line bg-subtle')}>
+        <div key={c.id} className="rounded-md border border-line bg-subtle px-3.5 py-2.5">
           <p className="whitespace-pre-line text-[14.5px]">{c.body}</p>
-          <p className="mt-1 text-[12.5px] text-muted">{c.internal ? t('ticket.internalNotePrefix') : ''}{c.actor} · {fmtTime(c.at, lang)}</p>
+          <p className="mt-1 text-[12.5px] text-muted">{c.actor} · {fmtTime(c.at, lang)}</p>
         </div>
       ))}
       <form onSubmit={send} className="space-y-2">
         <Textarea rows={2} maxLength={2000} value={body} onChange={(e) => setBody(e.target.value)} aria-label={t('ticket.message')}
-          placeholder={staff ? (internal ? t('ticket.internalNoteShort') : t('ticket.messageReporter')) : t('ticket.commentPlaceholder')} />
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          {staff ? (
-            <label className="flex items-center gap-2 text-[14px]">
-              <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
-              {t('ticket.internalNote')}
-            </label>
-          ) : <span />}
+          placeholder={t('ticket.messagePlaceholder')} />
+        <div className="flex justify-end">
           <Button type="submit" size="sm" loading={busy} disabled={!body.trim()}>{t('ticket.send')}</Button>
         </div>
         {error && <Alert tone="bad">{error}</Alert>}

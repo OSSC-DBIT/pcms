@@ -18,7 +18,7 @@ export default function Approvals() {
       {tickets === null ? <Skeleton className="h-40" /> : shown.length === 0 ? <EmptyState title={t('approvals.empty')} /> : (
         <>
           <TicketList>
-            {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`}
+            {shown.map((x) => <TicketRow key={x.id} ticket={x} to={`/staff/t/${x.id}`} showReporter
               extra={x.proposal && <Badge tone="warn">{formatPaise(x.proposal.totalPaise)} · v{x.proposal.version}</Badge>} />)}
           </TicketList>
           <Pager page={page} pageCount={pageCount} total={total} pageSize={pageSize} onPage={setPage} onPageSize={setPageSize} />

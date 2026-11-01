@@ -19,7 +19,8 @@ from tests.factories import API, make_user, new_client, sign_in, ticket_body
 async def _setup(client):
     await make_user("faculty@dbit.edu", "faculty", "Reporter")
     await make_user("manager@dbit.edu", "facility_manager", "Manager One")
-    await make_user("management@dbit.edu", "management", "Principal Office")
+    await make_user("management@dbit.edu", "management", "Management Office")
+    await make_user("principal@dbit.edu", "principal", "Principal Office")
     fac = await sign_in(client, "faculty@dbit.edu")
     t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
     mgr_client = new_client()
@@ -39,8 +40,8 @@ async def _tr(s, tid, **body):
 async def test_full_journey_without_a_worker_directory(client):
     fac, mgr, mc, tid = await _setup(client)
     try:
-        assert (await _tr(fac, tid, action="triage", priority="P1", flag="I")).status_code == 403
-        r = await _tr(mgr, tid, action="triage", priority="P2", flag="I")
+        assert (await _tr(fac, tid, action="triage", flag="I")).status_code == 403
+        r = await _tr(mgr, tid, action="triage", flag="I")
         assert r.status_code == 200 and r.json()["status"] == "Triaged"
 
         r = await _tr(mgr, tid, action="assign", workerName="Ramesh K")
@@ -80,7 +81,7 @@ async def test_full_journey_without_a_worker_directory(client):
 async def test_worker_name_is_staff_only_and_does_not_change_status(client):
     fac, mgr, mc, tid = await _setup(client)
     try:
-        r = await _tr(mgr, tid, action="triage", priority="P3", flag="I")
+        r = await _tr(mgr, tid, action="triage", flag="I")
         t = (await _tr(mgr, tid, action="assign", workerName="Suresh")).json()
         assert t["status"] == "Assigned"
 
@@ -105,7 +106,7 @@ async def test_worker_name_is_staff_only_and_does_not_change_status(client):
 async def test_resume_and_assessment_need_no_assignment(client):
     fac, mgr, mc, tid = await _setup(client)
     try:
-        await _tr(mgr, tid, action="triage", priority="P2", flag="C")
+        await _tr(mgr, tid, action="triage", flag="C")
         assert (await _tr(mgr, tid, action="resolve", note="Temporary fix")).status_code == 409  # not assigned
         await _tr(mgr, tid, action="assign", workerName="Ramesh K")
 
@@ -127,7 +128,7 @@ async def test_resume_and_assessment_need_no_assignment(client):
 async def test_stale_version_conflicts_and_invalid_transitions(client):
     fac, mgr, mc, tid = await _setup(client)
     try:
-        r = await mgr.post(f"{API}/tickets/{tid}/transitions", json={"action": "triage", "priority": "P3", "flag": "I", "expectedVersion": 1})
+        r = await mgr.post(f"{API}/tickets/{tid}/transitions", json={"action": "triage", "flag": "I", "expectedVersion": 1})
         assert r.status_code == 200
         stale = await mgr.post(f"{API}/tickets/{tid}/transitions", json={"action": "set_flag", "flag": "C", "expectedVersion": 1})
         assert stale.status_code == 409 and stale.json()["code"] == "stale_version"
@@ -146,7 +147,7 @@ async def test_stale_version_conflicts_and_invalid_transitions(client):
 async def test_dispute_within_window_reopens_and_after_window_fails(client):
     fac, mgr, mc, tid = await _setup(client)
     try:
-        await _tr(mgr, tid, action="triage", priority="P3", flag="I")
+        await _tr(mgr, tid, action="triage", flag="I")
         await _tr(mgr, tid, action="assign", workerName="Ramesh K")
         await _tr(mgr, tid, action="start")
         await _tr(mgr, tid, action="resolve", note="Done")
@@ -162,21 +163,26 @@ async def test_dispute_within_window_reopens_and_after_window_fails(client):
         await mc.aclose()
 
 
-async def test_internal_notes_hidden_from_faculty(client):
+async def test_messages_are_staff_only(client):
     fac, mgr, mc, tid = await _setup(client)
     try:
-        await mgr.post(f"{API}/tickets/{tid}/comments", json={"body": "Vendor quote pending", "internal": True})
-        await mgr.post(f"{API}/tickets/{tid}/comments", json={"body": "We will visit tomorrow", "internal": False})
-        assert (await fac.post(f"{API}/tickets/{tid}/comments", json={"body": "x", "internal": True})).status_code == 403
-        ft = await _get(fac, tid)
-        assert [c["body"] for c in ft["comments"]] == ["We will visit tomorrow"]
-        assert len((await _get(mgr, tid))["comments"]) == 2
+        assert (await mgr.post(f"{API}/tickets/{tid}/comments", json={"body": "Vendor quote pending"})).status_code == 200
+        # Even a message marked public stays among staff.
+        assert (await mgr.post(f"{API}/tickets/{tid}/comments",
+                               json={"body": "We will visit tomorrow", "internal": False})).status_code == 200
+        for internal in (True, False):
+            r = await fac.post(f"{API}/tickets/{tid}/comments", json={"body": "x", "internal": internal})
+            assert r.status_code == 403
+        assert (await _get(fac, tid))["comments"] == []
+        staff = (await _get(mgr, tid))["comments"]
+        assert [c["body"] for c in staff] == ["Vendor quote pending", "We will visit tomorrow"]
+        assert all(c["internal"] for c in staff)
     finally:
         await mc.aclose()
 
 
 async def _to_awaiting_approval(mgr, tid):
-    await _tr(mgr, tid, action="triage", priority="P2", flag="C")
+    await _tr(mgr, tid, action="triage", flag="C")
     await _tr(mgr, tid, action="assign", workerName="Ramesh K")
     v = (await _get(mgr, tid))["version"]
     t = (await mgr.post(f"{API}/tickets/{tid}/assessments", json={
@@ -201,8 +207,8 @@ async def test_approval_separation_of_duty_and_concurrency(client):
         assert (await mgr.post(f"{API}/proposals/{p['id']}/decisions", json={"kind": "approved", "proposalVersion": 1, "ceilingPaise": 235000})).status_code == 403
 
         async with new_client() as c1, new_client() as c2:
-            a1 = await sign_in(c1, "management@dbit.edu")
-            await make_user("dean@dbit.edu", "management", "Dean Office")
+            a1 = await sign_in(c1, "principal@dbit.edu")
+            await make_user("dean@dbit.edu", "principal", "Vice Principal")
             a2 = await sign_in(c2, "dean@dbit.edu")
             low = await a1.post(f"{API}/proposals/{p['id']}/decisions", json={"kind": "approved", "proposalVersion": 1, "ceilingPaise": 100})
             assert low.status_code == 400
@@ -221,7 +227,7 @@ async def test_rejection_keeps_ticket_on_hold_with_next_action(client):
     try:
         t = await _to_awaiting_approval(mgr, tid)
         async with new_client() as c1:
-            a1 = await sign_in(c1, "management@dbit.edu")
+            a1 = await sign_in(c1, "principal@dbit.edu")
             r = await a1.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "rejected", "proposalVersion": 1, "reason": "Use spare from store"})
             t = r.json()
             assert t["status"] == "OnHold" and "Use spare" in t["holdReason"] and t["holdReviewDate"]
@@ -235,10 +241,10 @@ async def test_rejection_keeps_ticket_on_hold_with_next_action(client):
 
 
 async def test_dbit_flow_manual_assignment_then_critical_to_management(client):
-    """Faculty reports -> FM accepts -> assigns by hand -> flags Critical -> management decides."""
+    """Faculty reports -> FM accepts -> assigns by hand -> flags Critical -> the principal decides."""
     fac, mgr, mc, tid = await _setup(client)
     try:
-        r = await _tr(mgr, tid, action="triage", priority="P2")  # accept: no flag needed yet
+        r = await _tr(mgr, tid, action="triage")  # accept: no flag needed yet
         assert r.status_code == 200 and r.json()["status"] == "Triaged" and r.json()["flag"] is None
         t = (await _tr(mgr, tid, action="assign", workerName="Call Only")).json()
         assert t["status"] == "Assigned", t
@@ -252,7 +258,7 @@ async def test_dbit_flow_manual_assignment_then_critical_to_management(client):
         t = r.json()
         assert t["status"] == "AwaitingApproval" and t["flag"] == "C" and t["proposal"]["totalPaise"] == 0
         async with new_client() as c:
-            m = await sign_in(c, "management@dbit.edu")
+            m = await sign_in(c, "principal@dbit.edu")
             r = await m.post(f"{API}/proposals/{t['proposal']['id']}/decisions", json={"kind": "approved", "proposalVersion": 1})
             assert r.status_code == 200 and r.json()["status"] == "InProgress"
 
@@ -275,7 +281,7 @@ async def test_reject_with_reason_and_postpone_sets_flag(client):
         r = await _tr(mgr, tid, action="reject", reason="Not a facilities issue")
         assert r.json()["status"] == "Rejected"
         tid2 = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
-        await _tr(mgr, tid2, action="triage", priority="P4")
+        await _tr(mgr, tid2, action="triage")
         r = await _tr(mgr, tid2, action="hold", reason="Parts after exams", owner="Store", nextAction="Order",
                       reviewDate=(date.today() + timedelta(days=10)).isoformat())
         assert r.json()["status"] == "OnHold" and r.json()["flag"] == "P"

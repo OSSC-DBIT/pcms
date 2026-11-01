@@ -61,12 +61,12 @@ async function send(method: string, path: string, opts: RequestOptions = {}): Pr
     res = await fetch(API_BASE + path, { method, headers, body, credentials: 'same-origin', signal: opts.signal, cache: 'no-store' })
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') throw err
-    throw new HttpError(0, 'offline', 'The campus network is unreachable. Check your Wi-Fi and try again.')
+    throw new HttpError(0, 'offline', 'The campus network is unreachable. Please check your Wi-Fi connection and try again.')
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({} as Record<string, unknown>))
     const code = typeof data.code === 'string' ? data.code : String(res.status)
-    const message = typeof data.message === 'string' ? data.message : 'The request failed. Try again.'
+    const message = typeof data.message === 'string' ? data.message : 'The request could not be completed. Please try again.'
     const err = new HttpError(res.status, code, message, data.field_errors as Record<string, string> | null, data.request_id as string | null)
     if (res.status === 401 && !opts.quiet401 && SESSION_CODES.has(code)) {
       window.dispatchEvent(new CustomEvent('pcms:session-ended', { detail: code }))

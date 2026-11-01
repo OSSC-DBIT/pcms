@@ -4,6 +4,10 @@
   create-admin --email E --name NAME
                                   bootstrap a Team OSSC account; prints a temporary
                                   password that must be changed at first sign-in
+  create-admin-from-env           the same for every admin in the environment file:
+                                  PCMS_ADMIN_1_EMAIL, PCMS_ADMIN_1_NAME, PCMS_ADMIN_1_PASSWORD,
+                                  then PCMS_ADMIN_2_..., and so on (PCMS_ADMIN_EMAIL also works).
+                                  An empty password is generated. Existing accounts are skipped
   reset-password --email E [--reset-mfa]
                                   break-glass reset when no OSSC admin can sign in
   vapid-keys                      generate a VAPID key pair for web push
@@ -28,7 +32,12 @@ async def _seed(_: argparse.Namespace) -> int:
     return 0
 
 
-async def _create_admin(a: argparse.Namespace) -> int:
+async def _bootstrap_admin(raw_email: str, raw_name: str, password: str | None, *, exists_ok: bool,
+                           source: str = "") -> int:
+    """Create a Team OSSC account holding a temporary password. Never changes an existing account.
+
+    source names the environment variables the values came from, for messages only.
+    """
     import uuid
 
     from sqlalchemy import select
@@ -36,24 +45,34 @@ async def _create_admin(a: argparse.Namespace) -> int:
     from app.db import sessionmaker
     from app.errors import ApiError
     from app.models.user import User, normalise_email
+    from app.security.passwords import hash_password
     from app.services import audit
-    from app.services.accounts import issue_temporary_password
+    from app.services.accounts import generate_temporary_password, set_temporary_password, validate_initial_password
     from app.services.users import clean_name, validate_identity
 
-    email = normalise_email(a.email)
-    name = clean_name(a.name)
+    email = normalise_email(raw_email)
+    name = clean_name(raw_name)
     errs = validate_identity(email, name, "ossc")
+    if password:
+        try:
+            validate_initial_password(password, email)
+        except ApiError as exc:
+            errs["password"] = (exc.field_errors or {}).get("newPassword", exc.message)
     if errs:
         for k, v in errs.items():
-            print(f"{k}: {v}", file=sys.stderr)
+            print(f"{source + ': ' if source else ''}{k}: {v}", file=sys.stderr)
         return 2
     async with sessionmaker()() as db:
         if await db.scalar(select(User).where(User.email == email)):
+            if exists_ok:
+                print(f"account {email} already exists; nothing was changed")
+                return 0
             print(f"account {email} already exists; use reset-password", file=sys.stderr)
             return 1
         user = User(id=uuid.uuid4(), email=email, name=name, role="ossc", active=True,
                     totp_enabled=False, recovery_code_hashes=[])
-        pw = issue_temporary_password(user)
+        pw = password or generate_temporary_password()
+        set_temporary_password(user, pw, hash_password(pw))
         db.add(user)
         await db.flush()
         audit.record(db, actor_id=None, actor_label="cli", action="user.created", entity_type="user",
@@ -64,9 +83,55 @@ async def _create_admin(a: argparse.Namespace) -> int:
             print(exc.message, file=sys.stderr)
             return 1
     print(f"created {email} (ossc)")
-    print(f"temporary password: {pw}")
-    print("Give it to the person directly. They must change it and set up an authenticator app at first sign-in.")
+    if password:
+        print(f"temporary password: the {source or 'given'}_PASSWORD value")
+    else:
+        print(f"temporary password: {pw}")
+    print("They must change it and set up an authenticator app at first sign-in.")
     return 0
+
+
+async def _create_admin(a: argparse.Namespace) -> int:
+    return await _bootstrap_admin(a.email, a.name, None, exists_ok=False)
+
+
+def _env_admins() -> tuple[list[tuple[str, str, str, str]], list[str]]:
+    """Every admin set in the environment as (source, email, name, password), plus problems.
+
+    Read: PCMS_ADMIN_EMAIL/_NAME/_PASSWORD, then PCMS_ADMIN_1_EMAIL, PCMS_ADMIN_2_EMAIL and so on.
+    A slot with all three values empty is skipped, so blank placeholders are fine.
+    """
+    import os
+    import re
+
+    env = {k: v.strip() for k, v in os.environ.items()}
+    numbers = sorted({int(m.group(1)) for k in env
+                      if (m := re.fullmatch(r"PCMS_ADMIN_(\d+)_(?:EMAIL|NAME|PASSWORD)", k))})
+    admins, problems = [], []
+    for prefix in ["PCMS_ADMIN"] + [f"PCMS_ADMIN_{n}" for n in numbers]:
+        email, name, password = (env.get(f"{prefix}_{part}", "") for part in ("EMAIL", "NAME", "PASSWORD"))
+        if not (email or name or password):
+            continue
+        if not (email and name):
+            problems.append(f"{prefix}_EMAIL and {prefix}_NAME are both required")
+            continue
+        admins.append((prefix, email, name, password))
+    return admins, problems
+
+
+async def _create_admin_from_env(_: argparse.Namespace | None) -> int:
+    """Create every Team OSSC admin listed in the environment file. Safe to re-run."""
+    admins, problems = _env_admins()
+    for problem in problems:
+        print(problem, file=sys.stderr)
+    if not admins and not problems:
+        print("no admins set: add PCMS_ADMIN_1_EMAIL and PCMS_ADMIN_1_NAME (PASSWORD is optional) "
+              "to the environment file", file=sys.stderr)
+        return 2
+    result = 2 if problems else 0
+    for source, email, name, password in admins:
+        result = max(result, await _bootstrap_admin(email, name, password or None, exists_ok=True, source=source))
+    return result
 
 
 async def _reset_password(a: argparse.Namespace) -> int:
@@ -146,6 +211,8 @@ async def _test_accounts(_: argparse.Namespace) -> int:
         ("test-manager@dbit.edu", "Test Facility Manager", "facility_manager", "Admin portal: triage, assign, close"),
         ("test-management@dbit.edu", "Test Institute Management", "management",
          "Institute portal: approve spending, reports"),
+        ("test-principal@dbit.edu", "Test Principal", "principal",
+         "Principal: view tickets, approve, reject or escalate spending"),
         ("test-admin@dbit.edu", "Test OSSC Admin", "ossc", "Super admin: users, import, catalogs, audit"),
     ]
     out = []
@@ -233,7 +300,8 @@ async def _smoke_accounts(a: argparse.Namespace) -> int:
     async with sessionmaker()() as db:
         for email, name, role in [("smoke-faculty@dbit.edu", "Smoke Faculty", "faculty"),
                                   ("smoke-manager@dbit.edu", "Smoke Manager", "facility_manager"),
-                                  ("smoke-management@dbit.edu", "Smoke Management", "management")]:
+                                  ("smoke-management@dbit.edu", "Smoke Management", "management"),
+                                  ("smoke-principal@dbit.edu", "Smoke Principal", "principal")]:
             u = await db.scalar(select(User).where(User.email == email))
             if u is None:
                 u = User(id=uuid.uuid4(), email=email, name=name, role=role, active=True,
@@ -254,7 +322,8 @@ async def _smoke_accounts(a: argparse.Namespace) -> int:
             u.totp_last_step = None
             u.recovery_code_hashes = []
         await db.commit()
-    print("smoke accounts ready: smoke-faculty@dbit.edu, smoke-manager@dbit.edu, smoke-management@dbit.edu")
+    print("smoke accounts ready: smoke-faculty@dbit.edu, smoke-manager@dbit.edu, smoke-management@dbit.edu, "
+          "smoke-principal@dbit.edu")
     return 0
 
 
@@ -274,6 +343,7 @@ def main(argv: list[str]) -> int:
     p.add_argument("--email", required=True)
     p.add_argument("--name", required=True)
     p.set_defaults(fn=_create_admin)
+    sub.add_parser("create-admin-from-env").set_defaults(fn=_create_admin_from_env)
     p = sub.add_parser("reset-password")
     p.add_argument("--email", required=True)
     p.add_argument("--reset-mfa", action="store_true")

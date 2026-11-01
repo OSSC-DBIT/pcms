@@ -38,7 +38,7 @@ async def test_reporter_edits_their_ticket_and_history_is_kept(client):
 
     body = _edit_body(
         categoryCode="it_services", subtype="Computer / Laptop", title="Laptop will not start",
-        description="The lab laptop shows no power light.", impact="safety",
+        description="The lab laptop shows no power light.", impact="red",
         location={"building": "BLOCK_B", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
                   "floor": "1", "room": "Lab 2"},
     )
@@ -48,7 +48,7 @@ async def test_reporter_edits_their_ticket_and_history_is_kept(client):
     assert t["token"] == created["token"]
     assert t["version"] == 2
     assert t["categoryCode"] == "it_services" and t["subtype"] == "Computer / Laptop"
-    assert t["title"] == "Laptop will not start" and t["priority"] == "P1"
+    assert t["title"] == "Laptop will not start" and t["impact"] == "red"
     assert t["location"]["building"] == "BLOCK_B" and t["location"]["room"] == "Lab 2"
     assert any(e["action"] == "Ticket details updated by the reporter"  for e in t["events"])
 
@@ -90,7 +90,7 @@ async def test_edit_is_allowed_after_triage_but_closed_after_assignment(client):
     async with new_client() as mc:
         manager = await _manager(mc)
         triaged = await manager.post(f"{API}/tickets/{created['id']}/transitions",
-                                     json={"action": "triage", "priority": "P3", "expectedVersion": 1})
+                                     json={"action": "triage", "expectedVersion": 1})
         assert triaged.status_code == 200, triaged.text
         assert triaged.json()["status"] == "Triaged"
 

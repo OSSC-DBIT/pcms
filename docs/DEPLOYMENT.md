@@ -42,18 +42,29 @@ flowchart LR
 ```sh
 cd /srv/pcms/app
 cp .env.example /srv/pcms/pcms.env && chmod 600 /srv/pcms/pcms.env
+python3 -c "import secrets; print(secrets.token_urlsafe(24))"      # PCMS_DB_PASSWORD
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"      # PCMS_SECRET_KEY
 python3 -c "import secrets; print(secrets.token_urlsafe(48))"      # PCMS_CREDENTIAL_KEY
-python3 -c "import secrets; print(secrets.token_urlsafe(24))" > /srv/pcms/secrets/db_password
-echo "db:5432:pcms:pcms:$(cat /srv/pcms/secrets/db_password)" > /srv/pcms/secrets/pgpass
-chmod 600 /srv/pcms/secrets/*
 ```
 
 Edit `/srv/pcms/pcms.env`:
-- Put the same database password into `PCMS_DATABASE_URL`, and set `PCMS_SECRET_KEY` and `PCMS_CREDENTIAL_KEY`.
+- Set `PCMS_DB_NAME`, `PCMS_DB_USER` and `PCMS_DB_PASSWORD`. PostgreSQL creates this login the first
+  time it starts with an empty data volume. The API, the migrations and the backups all use the same
+  values. `migrate` refuses to start if the password is empty or still `CHANGE_ME`.
+- Set `PCMS_SECRET_KEY` and `PCMS_CREDENTIAL_KEY`.
   `PCMS_CREDENTIAL_KEY` encrypts temporary passwords until each person chooses their own. Keep it out of
   backups of the database; losing it means Team OSSC must reset any temporary password still outstanding.
+- Change `PCMS_HTTP_PORT`, `PCMS_HTTPS_PORT` or `PCMS_PUBLIC_PORT` if 80, 443 or 8081 are already in use.
+- Add the Team OSSC admins: `PCMS_ADMIN_1_EMAIL`, `PCMS_ADMIN_1_NAME`, `PCMS_ADMIN_1_PASSWORD`, then
+  `PCMS_ADMIN_2_...` and so on (step 5).
 - Set the hostnames, the SMTP relay, and `PCMS_MESSAGING_PROVIDER` (`none` until Twilio is ready).
+
+**Changing the database password later.** Changing `PCMS_DB_PASSWORD` alone does not change the existing
+database. First run `docker compose -f compose.prod.yml exec db psql -U pcms -d pcms` and type
+`\password pcms`, then put the same value in `pcms.env` and run `up -d`.
+
+**Upgrading from a release that used secret files.** Copy the contents of `/srv/pcms/secrets/db_password`
+into `PCMS_DB_PASSWORD`. The `db_password` and `pgpass` files are no longer read; `backup_recipient.txt` still is.
 
 **Backup encryption key.** Make it on a custodian's computer, not on the server:
 
@@ -76,21 +87,26 @@ docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env build
 For an offline server: build on another machine, `docker save` the images, copy the tar and its
 `sha256sum`, then run `docker load` (plan 26.2).
 
-## 5. Start and create the first admin
+## 5. Start and create the admins
 
 ```sh
 docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env up -d
 docker compose -f compose.prod.yml ps                         # all healthy; migrate exited 0
-docker compose -f compose.prod.yml exec api python -m app.cli create-admin --email you@dbit.edu.in --name "Full Name"
+docker compose -f compose.prod.yml exec api python -m app.cli create-admin-from-env
 ```
 
-The command prints a temporary password. That person:
+The command creates every admin listed as `PCMS_ADMIN_1_...`, `PCMS_ADMIN_2_...` and so on, and skips
+accounts that already exist, so it is safe to run again after adding more. A password left empty is
+generated and printed; a password from the file is never printed. Either way it is temporary. Each admin:
 1. Opens the site and signs in with it.
 2. Sets their own password.
 3. Scans the authenticator QR code and saves the recovery codes.
 
-They then create everyone else under **Admin, then People**, one at a time or with **Import file**
-(Excel or CSV). The import response is a credentials workbook with the temporary passwords; share each
+Then clear the `PCMS_ADMIN_*` values from `pcms.env`. To add a single admin without the file, run
+`python -m app.cli create-admin --email you@dbit.edu.in --name "Full Name"`.
+
+Admins create everyone else under **Admin, then People**: one person at a time, or many with
+**Import file** (Excel or CSV), for any role including other admins. The import response is a credentials workbook with the temporary passwords; share each
 row with that person and delete the file afterwards. It can be downloaded again until the person sets
 their own password.
 
@@ -106,10 +122,17 @@ Put both values in `pcms.env`, set `PCMS_VAPID_SUBJECT=mailto:facilities@dbit.ed
 Use `python -m app.cli push-test-all` to send one test to every enabled device.
 
 **Tunnel** (only Twilio's webhooks and photo links are public)
-1. IT creates a Cloudflare named tunnel with a public hostname (for example `pcms-hooks.dbit.edu.in`)
-   whose service is `http://nginx:8081`.
-2. Set `PCMS_TUNNEL_TOKEN` and `PCMS_PUBLIC_BASE_URL=https://pcms-hooks.dbit.edu.in`.
-3. Start with `--profile tunnel`.
+
+PCMS does not run a tunnel; you run your own. nginx publishes its public listener on
+`127.0.0.1:PCMS_PUBLIC_PORT` (default 8081). That listener serves only the two Twilio webhook routes and
+signed photo links; everything else returns 404.
+1. On this server, point your tunnel at `http://127.0.0.1:8081`, for example
+   `cloudflared tunnel --url http://127.0.0.1:8081` or `ngrok http 8081`, and give it a public https hostname.
+2. Set `PCMS_PUBLIC_BASE_URL` to that https address (for example `https://pcms-hooks.dbit.edu.in`), then `up -d`.
+3. If the tunnel runs on another machine, set `PCMS_PUBLIC_BIND` to this server's LAN address and let only
+   that machine through the firewall.
+
+Never point the tunnel at port 80 or 443. That would put the whole app on the internet.
 
 **Twilio (legacy)**
 Worker dispatch is retired. PCMS no longer queues new worker messages, so a new installation

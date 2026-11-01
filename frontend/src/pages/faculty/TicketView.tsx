@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { ArrowLeft, BadgeCheck, Pencil, Star } from 'lucide-react'
 import { useAuth } from '../../App'
-import { Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, fmtTime } from '../../components/ticket'
+import { Gallery, RatingSummary, TicketSummaryCard, Timeline, fmtTime } from '../../components/ticket'
 import { Alert, Button, Card, Field, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, HttpError } from '../../lib/api'
 import { useT } from '../../lib/i18n'
@@ -105,16 +105,12 @@ export default function TicketView() {
         </Card>
       )}
 
+      {/* Messages are a staff discussion, so the reporter sees progress and photos only. */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('ticket.timeline')}><Timeline events={ticket.events} /></Card>
-        <Stack>
-          <Card title={t('ticket.evidence')}>
-            <Gallery ticket={ticket} canAdd={mine && !TERMINAL.includes(ticket.status)} onChanged={load} />
-          </Card>
-          <Card title={t('ticket.messages')}>
-            <Messages comments={ticket.comments} onSend={async (body) => { setTicket(await api.addComment(ticket, body, false)) }} />
-          </Card>
-        </Stack>
+        <Card title={t('ticket.evidence')}>
+          <Gallery ticket={ticket} canAdd={mine && !TERMINAL.includes(ticket.status)} onChanged={load} />
+        </Card>
       </div>
     </Stack>
   )

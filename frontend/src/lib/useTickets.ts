@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, HttpError, type TicketFilters } from './api'
+import { useT } from './i18n'
 import type { TicketSummary } from './types'
 
 export interface UseTicketsOptions extends Omit<TicketFilters, 'scope'> {
@@ -20,6 +21,7 @@ export function useTickets(scope: 'mine' | 'queue', opts: UseTicketsOptions = {}
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(opts.pageSize ?? 25)
   const [error, setError] = useState<string | null>(null)
+  const { t } = useT()
 
   // One key for every filter, so a change refetches exactly once.
   const key = JSON.stringify([scope, opts])
@@ -35,7 +37,9 @@ export function useTickets(scope: 'mine' | 'queue', opts: UseTicketsOptions = {}
       setTotal(p.total)
     } catch (err) {
       if (signal?.aborted) return
-      setError(err instanceof HttpError ? err.message : 'Could not load tickets.')
+      // Network failures are explained in the reader's language; server messages are shown as sent.
+      setError(err instanceof HttpError && err.code !== 'offline' ? err.message
+        : err instanceof HttpError ? t('error.network') : t('error.loadRequests'))
       setTickets((t) => t ?? [])
       setTotal(0)
     }

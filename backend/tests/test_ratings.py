@@ -30,7 +30,7 @@ async def _closed_ticket(client, *, stars: int | None = None, comment: str | Non
         v = (await s.get(f"{API}/tickets/{created['id']}")).json()["version"]
         return await s.post(f"{API}/tickets/{created['id']}/transitions", json={"expectedVersion": v, **body})
 
-    await tr(mgr, action="triage", priority="P2", flag="I")
+    await tr(mgr, action="triage", flag="I")
     await tr(mgr, action="assign", workerName="Ramesh K")
     await tr(mgr, action="start")
     await tr(mgr, action="resolve", note="Fixed")
@@ -79,7 +79,7 @@ async def test_resolved_but_not_closed_cannot_be_rated(client):
             v = (await s.get(f"{API}/tickets/{created['id']}")).json()["version"]
             return await s.post(f"{API}/tickets/{created['id']}/transitions", json={"expectedVersion": v, **body})
 
-        await tr(mgr, action="triage", priority="P3", flag="I")
+        await tr(mgr, action="triage", flag="I")
         await tr(mgr, action="assign")
         await tr(mgr, action="resolve", note="Done")
         r = await fac.post(f"{API}/tickets/{created['id']}/rating", json={"stars": 5})
@@ -164,7 +164,7 @@ async def test_reports_aggregate_ratings_and_show_low_ones(client):
             created = (await s.post(f"{API}/tickets", json=ticket_body())).json()
             v = (await mgr.get(f"{API}/tickets/{created['id']}")).json()["version"]
             v = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
-                                json={"action": "triage", "priority": "P3", "flag": "I", "expectedVersion": v})).json()["version"]
+                                json={"action": "triage", "flag": "I", "expectedVersion": v})).json()["version"]
             v = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
                                 json={"action": "assign", "expectedVersion": v})).json()["version"]
             (await mgr.post(f"{API}/tickets/{created['id']}/transitions",

@@ -134,7 +134,7 @@ async def test_import_is_all_or_nothing(client):
         "good@dbit.edu,Good Row,faculty,Temp-Person-2349\n"
         "not-an-email,X,faculty,Temp-Bad-2345\n"
         "good@dbit.edu,Dup,faculty,Temp-Dup-2345\n"
-        "ossc2@dbit.edu,Bad Role,ossc,Temp-Role-2345\n"
+        "boss@dbit.edu,Bad Role,boss,Temp-Role-2345\n"
     )
     r = await s.post(f"{API}/admin/users/import", files=_csv(text))
     assert r.status_code == 400
@@ -142,6 +142,19 @@ async def test_import_is_all_or_nothing(client):
     assert set(errs) == {"line 3", "line 4", "line 5"}
     async with sessionmaker()() as db:
         assert await db.scalar(select(func.count()).select_from(User)) == 1  # only the OSSC account
+
+
+async def test_admins_can_be_imported_in_bulk(client):
+    s = await _ossc(client)
+    r = await s.post(f"{API}/admin/users/import", files=_csv(
+        "email,name,role,password\n"
+        "admin-a@dbit.edu,Admin A,ossc,Temp-Admin-2345\n"
+        "admin-b@dbit.edu,Admin B,ossc,Temp-Admin-2346\n"))
+    assert r.status_code == 200, r.text
+    async with sessionmaker()() as db:
+        imported = (await db.scalars(select(User).where(User.email.like("admin-%")).order_by(User.email))).all()
+    assert [(u.email, u.role, u.must_change_password) for u in imported] == [
+        ("admin-a@dbit.edu", "ossc", True), ("admin-b@dbit.edu", "ossc", True)]
 
 
 async def test_import_rejects_bad_files(client):

@@ -392,7 +392,8 @@
                     "faculty",
                     "ossc",
                     "facility_manager",
-                    "management"
+                    "management",
+                    "principal"
                   ],
                   "type": "string"
                 },
@@ -752,11 +753,51 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "maximum": 366,
-              "minimum": 1,
-              "default": 30,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Days"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
             }
           },
           {
@@ -953,11 +994,51 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "maximum": 731,
-              "minimum": 1,
-              "default": 90,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Days"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
             }
           },
           {
@@ -1049,11 +1130,51 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "maximum": 731,
-              "minimum": 1,
-              "default": 90,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Days"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
             }
           },
           {
@@ -1145,10 +1266,458 @@
             "in": "query",
             "required": false,
             "schema": {
-              "type": "integer",
-              "maximum": 731,
-              "minimum": 1,
-              "default": 90,
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Days"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/expenditure": {
+      "get": {
+        "tags": [
+          "reports",
+          "admin"
+        ],
+        "summary": "Expenditure Report",
+        "description": "Expenditure requests raised in the period: requested, approved and awaiting amounts in INR.",
+        "operationId": "expenditure_report_api_v1_reports_expenditure_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Days"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExpenditureOut"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/expenditure.csv": {
+      "get": {
+        "tags": [
+          "reports",
+          "admin"
+        ],
+        "summary": "Export Expenditure Csv",
+        "operationId": "export_expenditure_csv_api_v1_reports_expenditure_csv_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Days"
+            }
+          },
+          {
+            "name": "building",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 20
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Building"
+            }
+          },
+          {
+            "name": "department",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Department"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/reports/expenditure.xlsx": {
+      "get": {
+        "tags": [
+          "reports",
+          "admin"
+        ],
+        "summary": "Export Expenditure Xlsx",
+        "operationId": "export_expenditure_xlsx_api_v1_reports_expenditure_xlsx_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
+            }
+          },
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "maximum": 731,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
               "title": "Days"
             }
           },
@@ -1690,20 +2259,88 @@
             }
           },
           {
-            "name": "priority",
+            "name": "severity",
             "in": "query",
             "required": false,
             "schema": {
               "anyOf": [
                 {
                   "type": "string",
-                  "pattern": "^P[1-4]$"
+                  "pattern": "^(red|orange|green)$"
                 },
                 {
                   "type": "null"
                 }
               ],
-              "title": "Priority"
+              "title": "Severity"
+            }
+          },
+          {
+            "name": "reporter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 120
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reporter"
+            }
+          },
+          {
+            "name": "reporterRole",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "pattern": "^(faculty|ossc|facility_manager|management|principal)$"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Reporterrole"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "From"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "To"
             }
           },
           {
@@ -1746,7 +2383,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^(newest|oldest|priority|updated)$",
+              "pattern": "^(newest|oldest|severity|updated)$",
               "default": "newest",
               "title": "Sort"
             }
@@ -2615,7 +3252,8 @@
             "type": "string",
             "enum": [
               "photo",
-              "video"
+              "video",
+              "document"
             ],
             "title": "Kind"
           },
@@ -2626,6 +3264,23 @@
           "sizeBytes": {
             "type": "integer",
             "title": "Sizebytes"
+          },
+          "uploadedBy": {
+            "type": "string",
+            "title": "Uploadedby",
+            "default": ""
+          },
+          "uploadedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uploadedat"
           },
           "state": {
             "type": "string",
@@ -3302,7 +3957,7 @@
           "internal": {
             "type": "boolean",
             "title": "Internal",
-            "default": false
+            "default": true
           }
         },
         "type": "object",
@@ -3366,7 +4021,8 @@
               "faculty",
               "ossc",
               "facility_manager",
-              "management"
+              "management",
+              "principal"
             ],
             "title": "Role"
           },
@@ -3424,7 +4080,8 @@
               "approved",
               "rejected",
               "clarify",
-              "defer"
+              "defer",
+              "escalated"
             ],
             "title": "Kind"
           },
@@ -3592,6 +4249,226 @@
         ],
         "title": "EventOut"
       },
+      "ExpenditureCategory": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "requestedPaise": {
+            "type": "integer",
+            "title": "Requestedpaise"
+          },
+          "approvedPaise": {
+            "type": "integer",
+            "title": "Approvedpaise"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "requests",
+          "requestedPaise",
+          "approvedPaise"
+        ],
+        "title": "ExpenditureCategory"
+      },
+      "ExpenditureItem": {
+        "properties": {
+          "ticketId": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Ticketid"
+          },
+          "token": {
+            "type": "string",
+            "title": "Token"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "building": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "raisedAt": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Raisedat"
+          },
+          "requestedBy": {
+            "type": "string",
+            "title": "Requestedby"
+          },
+          "estimatePaise": {
+            "type": "integer",
+            "title": "Estimatepaise"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "decidedBy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedby"
+          },
+          "decidedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decidedat"
+          },
+          "approvedPaise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approvedpaise"
+          },
+          "escalated": {
+            "type": "boolean",
+            "title": "Escalated"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ticketId",
+          "token",
+          "title",
+          "category",
+          "building",
+          "department",
+          "raisedAt",
+          "requestedBy",
+          "estimatePaise",
+          "status",
+          "decidedBy",
+          "decidedAt",
+          "approvedPaise",
+          "escalated",
+          "note"
+        ],
+        "title": "ExpenditureItem"
+      },
+      "ExpenditureOut": {
+        "properties": {
+          "period": {
+            "type": "string",
+            "title": "Period"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "requestedPaise": {
+            "type": "integer",
+            "title": "Requestedpaise"
+          },
+          "approvedPaise": {
+            "type": "integer",
+            "title": "Approvedpaise"
+          },
+          "pendingPaise": {
+            "type": "integer",
+            "title": "Pendingpaise"
+          },
+          "approvedCount": {
+            "type": "integer",
+            "title": "Approvedcount"
+          },
+          "pendingCount": {
+            "type": "integer",
+            "title": "Pendingcount"
+          },
+          "rejectedCount": {
+            "type": "integer",
+            "title": "Rejectedcount"
+          },
+          "byCategory": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenditureCategory"
+            },
+            "type": "array",
+            "title": "Bycategory"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenditureItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "period",
+          "requests",
+          "requestedPaise",
+          "approvedPaise",
+          "pendingPaise",
+          "approvedCount",
+          "pendingCount",
+          "rejectedCount",
+          "byCategory",
+          "items"
+        ],
+        "title": "ExpenditureOut"
+      },
       "ExportIn": {
         "properties": {
           "password": {
@@ -3620,7 +4497,8 @@
                   "faculty",
                   "ossc",
                   "facility_manager",
-                  "management"
+                  "management",
+                  "principal"
                 ]
               },
               {
@@ -4216,6 +5094,11 @@
             "type": "string",
             "title": "State"
           },
+          "stage": {
+            "type": "string",
+            "title": "Stage",
+            "default": "principal"
+          },
           "ceilingPaise": {
             "anyOf": [
               {
@@ -4440,12 +5323,12 @@
             "type": "object",
             "title": "Openbystatus"
           },
-          "openByPriority": {
+          "openBySeverity": {
             "additionalProperties": {
               "type": "integer"
             },
             "type": "object",
-            "title": "Openbypriority"
+            "title": "Openbyseverity"
           },
           "untriaged": {
             "type": "integer",
@@ -4490,7 +5373,14 @@
             "$ref": "#/components/schemas/Percentiles"
           },
           "approvedPaise": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Approvedpaise"
           },
           "ratings": {
@@ -4502,7 +5392,7 @@
           "generatedAt",
           "days",
           "openByStatus",
-          "openByPriority",
+          "openBySeverity",
           "untriaged",
           "overdueUpdates",
           "pendingApprovals",
@@ -4723,10 +5613,9 @@
           "impact": {
             "type": "string",
             "enum": [
-              "safety",
-              "class_interrupted",
-              "multiple_areas",
-              "routine"
+              "red",
+              "orange",
+              "green"
             ],
             "title": "Impact"
           },
@@ -4872,22 +5761,11 @@
           "impact": {
             "type": "string",
             "enum": [
-              "safety",
-              "class_interrupted",
-              "multiple_areas",
-              "routine"
+              "red",
+              "orange",
+              "green"
             ],
             "title": "Impact"
-          },
-          "priority": {
-            "type": "string",
-            "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
-            ],
-            "title": "Priority"
           },
           "flag": {
             "anyOf": [
@@ -5097,7 +5975,6 @@
           "location",
           "title",
           "impact",
-          "priority",
           "assessments",
           "status",
           "version",
@@ -5190,22 +6067,11 @@
           "impact": {
             "type": "string",
             "enum": [
-              "safety",
-              "class_interrupted",
-              "multiple_areas",
-              "routine"
+              "red",
+              "orange",
+              "green"
             ],
             "title": "Impact"
-          },
-          "priority": {
-            "type": "string",
-            "enum": [
-              "P1",
-              "P2",
-              "P3",
-              "P4"
-            ],
-            "title": "Priority"
           },
           "flag": {
             "anyOf": [
@@ -5335,7 +6201,6 @@
           "location",
           "title",
           "impact",
-          "priority",
           "assessments",
           "status",
           "version",
@@ -5393,10 +6258,9 @@
           "impact": {
             "type": "string",
             "enum": [
-              "safety",
-              "class_interrupted",
-              "multiple_areas",
-              "routine"
+              "red",
+              "orange",
+              "green"
             ],
             "title": "Impact"
           },
@@ -5479,7 +6343,6 @@
             "type": "string",
             "enum": [
               "triage",
-              "set_priority",
               "set_flag",
               "recategorise",
               "hold",
@@ -5502,23 +6365,6 @@
             "type": "integer",
             "minimum": 1.0,
             "title": "Expectedversion"
-          },
-          "priority": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "P1",
-                  "P2",
-                  "P3",
-                  "P4"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Priority"
           },
           "flag": {
             "anyOf": [
@@ -5678,7 +6524,8 @@
                   "faculty",
                   "ossc",
                   "facility_manager",
-                  "management"
+                  "management",
+                  "principal"
                 ]
               },
               {

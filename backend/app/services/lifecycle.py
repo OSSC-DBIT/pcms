@@ -35,7 +35,6 @@ class Rule:
 
 RULES: dict[str, Rule] = {
     "triage": Rule("ticket.triage", ("Submitted",)),
-    "set_priority": Rule("ticket.triage", OPEN),
     "set_flag": Rule("ticket.triage", OPEN),
     "recategorise": Rule("ticket.triage", ("Submitted", "Triaged", "Assigned", "InProgress", "OnHold")),
     "hold": Rule("ticket.escalate", ("Triaged", "Assigned", "InProgress")),
@@ -53,8 +52,8 @@ RULES: dict[str, Rule] = {
     "close_unverified": Rule("ticket.close", ("Resolved",)),
 }
 
-LABEL = {"Triaged": "Facilities reviewed it", "Assigned": "A worker was assigned", "InProgress": "Work started",
-         "OnHold": "Put on hold", "Resolved": "Work finished: please check it", "Closed": "Closed",
+LABEL = {"Triaged": "Accepted by the facilities team", "Assigned": "Work assigned", "InProgress": "Work in progress",
+         "OnHold": "Placed on hold", "Resolved": "Work completed: awaiting your confirmation", "Closed": "Closed",
          "Cancelled": "Cancelled", "Rejected": "Not accepted", "Duplicate": "Linked to an existing report"}
 
 
@@ -93,19 +92,14 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
 
     match body.action:
         case "triage":
-            # Accepting a report: priority is required; the I/C/P flag comes later,
+            # Accepting a report. There is no manual priority: the reporter's red, orange
+            # or green severity already set the reminder clock. The I/C/P flag comes later,
             # after a worker has looked at it.
-            _need(priority=body.priority)
-            t.priority, new = body.priority, "Triaged"
+            new = "Triaged"
             if body.flag:
                 t.flag = body.flag
             t.next_update_due = now() + NEXT_UPDATE[t.priority]
-            detail = f"Accepted, priority {t.priority}"
-        case "set_priority":
-            _need(priority=body.priority, reason=reason)
-            t.priority = body.priority
-            t.next_update_due = now() + NEXT_UPDATE[t.priority]
-            detail, public = f"Priority changed to {t.priority}", False
+            detail = "Accepted"
         case "set_flag":
             _need(flag=body.flag)
             t.flag = body.flag
@@ -153,12 +147,12 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             new = "Closed"
             t.verified_by_reporter = True
             t.closed_at = now()
-            detail = "Verified by the reporter"
+            detail = "Completion confirmed by the reporter"
         case "dispute":
             _need(reason=reason)
             if t.resolved_at is None or now() - t.resolved_at > timedelta(days=s.dispute_window_days):
                 raise ApiError(409, "dispute_window_closed",
-                               f"Disputes are accepted within {s.dispute_window_days} days of resolution. Raise a new report or contact facilities.")
+                               f"Work can be reopened within {s.dispute_window_days} days of completion. Please submit a new report or contact the facilities team.")
             new, detail = "Triaged", reason
             t.verified_by_reporter = False
             t.closed_at = None
@@ -183,8 +177,8 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             _need(reason=reason)
             if t.resolved_at is None or now() - t.resolved_at < timedelta(days=s.auto_close_days):
                 raise ApiError(409, "too_early",
-                               f"The reporter has {s.auto_close_days} days to verify before facilities may close it.")
-            new, detail = "Closed", f"Auto-closed without reporter verification: {reason}"
+                               f"The reporter has {s.auto_close_days} days to confirm completion before the facilities team may close it.")
+            new, detail = "Closed", f"Closed without the reporter's confirmation: {reason}"
             t.verified_by_reporter = False
             t.closed_at = now()
 
@@ -210,5 +204,5 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
 
 
 def _label(action: str) -> str:
-    return {"set_priority": "Priority changed", "set_flag": "Work type set", "recategorise": "Type changed",
+    return {"set_flag": "Work type set", "recategorise": "Type changed",
             "set_worker": "Worker updated"}.get(action, "Updated")

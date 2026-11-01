@@ -109,7 +109,7 @@ function AppRoutes() {
       <Route path="/settings" element={<Gate><Settings /></Gate>} />
       <Route path="/staff" element={<Gate cap="queue.view"><Queue /></Gate>} />
       <Route path="/staff/t/:id" element={<Gate cap="queue.view"><StaffTicket /></Gate>} />
-      <Route path="/staff/approvals" element={<Gate cap="cost.approve"><Approvals /></Gate>} />
+      <Route path="/staff/approvals" element={<Gate anyCap={['cost.approve', 'cost.principal']}><Approvals /></Gate>} />
       <Route path="/staff/reports" element={<Gate cap="queue.view"><Reports /></Gate>} />
       <Route path="/staff/audit" element={<Gate cap="admin.audit"><Audit /></Gate>} />
       <Route path="/staff/admin" element={<Gate anyCap={['admin.users', 'admin.catalogs', 'admin.locations', 'admin.audit']}><Admin /></Gate>} />

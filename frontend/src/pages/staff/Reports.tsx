@@ -5,19 +5,29 @@
  * always agree. Only people with queue.view see this page.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { clsx } from 'clsx'
 import { ChevronDown, Download } from 'lucide-react'
 import { Link } from 'react-router-dom'
-import { Alert, Button, Card, PageHeader, Select, Skeleton, Stack, errorMessage } from '../../components/ui'
+import { useAuth } from '../../App'
+import { Alert, Button, Card, Input, PageHeader, Select, Skeleton, Stack, errorMessage } from '../../components/ui'
 import { fmtDate } from '../../components/ticket'
-import { api, formatPaise } from '../../lib/api'
+import { api, formatPaise, type ReportFilters } from '../../lib/api'
 import { building, buildingName, buildings, categories, categoryName } from '../../lib/catalog'
 import { LOCALE, useT, type TFunc, type TKey } from '../../lib/i18n'
 import { saveBlob } from '../../lib/http'
-import type { AnnualReport, LowRating, MonthPoint, Report } from '../../lib/types'
+import { IMPACTS, type AnnualReport, type Expenditure, type LowRating, type MonthPoint, type Report } from '../../lib/types'
 
-const WINDOWS = [7, 30, 90, 180, 365]
-const EXPORT_LABEL: Record<string, TKey> = {
+type ExportFormat = 'csv' | 'xlsx' | 'pdf' | 'expCsv' | 'expXlsx'
+const EXPORT_LABEL: Record<ExportFormat, TKey> = {
   csv: 'reports.exportCsv', xlsx: 'reports.exportXlsx', pdf: 'reports.exportPdf',
+  expCsv: 'reports.exportExpenditureCsv', expXlsx: 'reports.exportExpenditureXlsx',
+}
+const EXPORT_EXT: Record<ExportFormat, string> = { csv: 'csv', xlsx: 'xlsx', pdf: 'pdf', expCsv: 'csv', expXlsx: 'xlsx' }
+
+/** A calendar day in campus time (Asia/Kolkata) as YYYY-MM-DD, `back` days before today. */
+function isoDay(back = 0): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+    .format(new Date(Date.now() - back * 864e5))
 }
 
 /** The server groups by raw status name; this is the same wording the ticket list uses. */
@@ -37,7 +47,11 @@ function hours(h: number | null, t: TFunc): string {
 
 export default function Reports() {
   const { t, lang } = useT()
-  const [days, setDays] = useState(30)
+  const { can } = useAuth()
+  // Spending figures are for those who decide them: the principal, institute management and Team OSSC.
+  const canSpend = can('cost.approve') || can('cost.principal')
+  const [from, setFrom] = useState(() => isoDay(29))
+  const [to, setTo] = useState(() => isoDay(0))
   const [place, setPlace] = useState('')
   const [dept, setDept] = useState('')
   const [type, setType] = useState('')
@@ -48,13 +62,18 @@ export default function Reports() {
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
 
+  const rangeOk = !!from && !!to && from <= to
+  // Every number, list and download on this page uses this one period and scope.
+  const filters: ReportFilters = { from, to, building: place || undefined, department: dept || undefined, category: type || undefined }
+
   const load = useCallback(async () => {
+    if (!from || !to || from > to) return
     setError(null)
     setBusy(true)
     try {
-      setData(await api.report({ days, building: place || undefined, department: dept || undefined, category: type || undefined }))
+      setData(await api.report({ from, to, building: place || undefined, department: dept || undefined, category: type || undefined }))
     } catch (e) { setError(errorMessage(e)) } finally { setBusy(false) }
-  }, [days, place, dept, type])
+  }, [from, to, place, dept, type])
 
   useEffect(() => { void load() }, [load])
 
@@ -70,15 +89,17 @@ export default function Reports() {
     return () => document.removeEventListener('mousedown', close)
   }, [menuOpen])
 
-  async function runExport(format: string) {
+  const formats: ExportFormat[] = ['csv', 'xlsx', 'pdf', ...(canSpend ? ['expCsv', 'expXlsx'] as const : [])]
+
+  async function runExport(format: ExportFormat) {
     setMenuOpen(false)
     setExporting(format)
     setError(null)
     try {
-      const filters = { days, building: place || undefined, department: dept || undefined, category: type || undefined }
-      const r = await (format === 'csv' ? api.exportTicketsCsv(filters)
-        : format === 'xlsx' ? api.exportTicketsXlsx(filters)
-          : api.exportTicketsPdf(filters))
+      const r = await ({
+        csv: api.exportTicketsCsv, xlsx: api.exportTicketsXlsx, pdf: api.exportTicketsPdf,
+        expCsv: api.exportExpenditureCsv, expXlsx: api.exportExpenditureXlsx,
+      }[format])(filters)
       saveBlob(r.blob, r.filename)
     } catch (e) { setError(errorMessage(e)) } finally { setExporting(null) }
   }
@@ -89,16 +110,16 @@ export default function Reports() {
         actions={
           <div className="relative" ref={menuRef}>
             <Button variant="secondary" size="sm" onClick={() => setMenuOpen((v) => !v)} aria-expanded={menuOpen}
-              aria-haspopup="menu" loading={exporting !== null}>
-              <Download size={16} /> {exporting ? t(EXPORT_LABEL[exporting]) : t('reports.export')} <ChevronDown size={14} />
+              aria-haspopup="menu" loading={exporting !== null} disabled={!rangeOk}>
+              <Download size={16} /> {exporting ? t(EXPORT_LABEL[exporting as ExportFormat]) : t('reports.export')} <ChevronDown size={14} />
             </Button>
             {menuOpen && (
-              <div role="menu" className="absolute right-0 z-10 mt-1 w-60 overflow-hidden rounded-lg border border-line bg-surface shadow-md">
-                {(['csv', 'xlsx', 'pdf'] as const).map((f) => (
+              <div role="menu" className="absolute right-0 z-10 mt-1 w-64 overflow-hidden rounded-lg border border-line bg-surface shadow-md">
+                {formats.map((f) => (
                   <button key={f} role="menuitem" onClick={() => void runExport(f)}
                     className="flex w-full items-center justify-between px-4 py-2.5 text-left text-[14px] hover:bg-subtle">
                     <span>{t(EXPORT_LABEL[f])}</span>
-                    <span className="text-[12px] text-muted uppercase">{f}</span>
+                    <span className="text-[12px] text-muted uppercase">{EXPORT_EXT[f]}</span>
                   </button>
                 ))}
                 <p className="border-t border-line px-4 py-2 text-[11.5px] text-muted">{t('reports.exportNote')}</p>
@@ -108,11 +129,14 @@ export default function Reports() {
         } />
 
       <div className="flex flex-wrap items-center gap-3">
-        <div className="w-36">
-          <Select aria-label={t('reports.window')} value={days} onChange={(e) => setDays(Number(e.target.value))}>
-            {WINDOWS.map((d) => <option key={d} value={d}>{t('reports.lastDays', { days: d })}</option>)}
-          </Select>
-        </div>
+        <label className="flex items-center gap-2 text-[13px] font-medium">
+          {t('reports.from')}
+          <Input type="date" value={from} max={to || undefined} onChange={(e) => setFrom(e.target.value)} className="w-40" />
+        </label>
+        <label className="flex items-center gap-2 text-[13px] font-medium">
+          {t('reports.to')}
+          <Input type="date" value={to} min={from || undefined} onChange={(e) => setTo(e.target.value)} className="w-40" />
+        </label>
         <div className="w-52">
           <Select aria-label={t('queue.building')} value={place}
             onChange={(e) => { setPlace(e.target.value); setDept('') }}>
@@ -137,7 +161,9 @@ export default function Reports() {
         <Button variant="ghost" size="sm" onClick={() => void load()} loading={busy}>{t('action.refresh')}</Button>
       </div>
 
+      {!rangeOk && <Alert tone="bad">{t('reports.rangeError')}</Alert>}
       {error && <Alert tone="bad">{error}</Alert>}
+      {canSpend && rangeOk && <ExpenditureCard filters={filters} />}
       {!data ? <Skeleton className="h-72" /> : (
         <>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
@@ -157,8 +183,8 @@ export default function Reports() {
             <Card title={t('reports.openByStatus')}>
               <Bars data={data.openByStatus} labelFor={(s) => STATUS_LABEL[s] ? t(STATUS_LABEL[s]) : s} />
             </Card>
-            <Card title={t('reports.openByPriority')}>
-              <Bars data={data.openByPriority} labelFor={(p) => p} />
+            <Card title={t('reports.openBySeverity')}>
+              <Bars data={data.openBySeverity} labelFor={(k) => (IMPACTS as string[]).includes(k) ? t(`impact.${k}` as TKey) : k} />
             </Card>
           </div>
 
@@ -193,16 +219,116 @@ export default function Reports() {
             </Card>
           )}
 
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className={clsx('grid gap-3', data.approvedPaise === null ? 'sm:grid-cols-2' : 'sm:grid-cols-3')}>
             <Card title={t('reports.timeToTriage')}><p className="text-[15px]">{t('reports.median')} <b>{hours(data.triageTime.medianHours, t)}</b></p><p className="mt-1 text-[13px] text-muted">{t('reports.within', { time: hours(data.triageTime.p90Hours, t), count: data.triageTime.count })}</p></Card>
             <Card title={t('reports.timeToResolve')}><p className="text-[15px]">{t('reports.median')} <b>{hours(data.resolutionTime.medianHours, t)}</b></p><p className="mt-1 text-[13px] text-muted">{t('reports.within', { time: hours(data.resolutionTime.p90Hours, t), count: data.resolutionTime.count })}</p></Card>
-            <Card title={t('reports.approvedSpend')}><p className="text-[15px] font-semibold">{formatPaise(data.approvedPaise)}</p><p className="mt-1 text-[13px] text-muted">{t('reports.approvedByManagement')}</p></Card>
+            {data.approvedPaise !== null && (
+              <Card title={t('reports.approvedSpend')}><p className="text-[15px] font-semibold">{formatPaise(data.approvedPaise)}</p><p className="mt-1 text-[13px] text-muted">{t('reports.approvedByManagement')}</p></Card>
+            )}
           </div>
 
           <p className="text-[12.5px] text-muted">{t('common.generated', { date: new Date(data.generatedAt).toLocaleString(LOCALE[lang], { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' }) })}</p>
         </>
       )}
     </Stack>
+  )
+}
+
+/**
+ * Expenditure requests raised in the period, in INR: requested, approved and
+ * awaiting amounts, the request list and a category breakdown. Only the
+ * principal, institute management and Team OSSC see this card.
+ */
+function ExpenditureCard({ filters }: { filters: ReportFilters }) {
+  const { t, lang } = useT()
+  const [exp, setExp] = useState<Expenditure | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const key = JSON.stringify(filters)
+
+  useEffect(() => {
+    let live = true
+    api.expenditure(JSON.parse(key) as ReportFilters)
+      .then((r) => { if (live) { setExp(r); setError(null) } })
+      .catch((e) => { if (live) setError(errorMessage(e)) })
+    return () => { live = false }
+  }, [key])
+
+  return (
+    <Card title={t('reports.expenditure')} subtitle={t('reports.expenditureSubtitle')}>
+      {error ? <Alert tone="bad">{error}</Alert> : !exp ? <Skeleton className="h-24" /> : (
+        <Stack>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Money label={t('reports.requested')} paise={exp.requestedPaise} note={t('reports.requestCount', { count: exp.requests })} />
+            <Money label={t('reports.approvedAmount')} paise={exp.approvedPaise} tone="ok"
+              note={t('reports.requestCount', { count: exp.approvedCount })} />
+            <Money label={t('reports.awaitingAmount')} paise={exp.pendingPaise} tone="warn"
+              note={t('reports.requestCount', { count: exp.pendingCount })} />
+          </div>
+          {exp.items.length === 0 ? <p className="text-[14px] text-muted">{t('reports.noExpenditure')}</p> : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-[14px]">
+                  <thead><tr className="border-b border-line text-[13px] text-muted">
+                    <th scope="col" className="py-2 pr-3 font-medium">{t('reports.ticket')}</th>
+                    <th scope="col" className="py-2 pr-3 font-medium">{t('reports.raisedOn')}</th>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.estimate')}</th>
+                    <th scope="col" className="py-2 pr-3 font-medium">{t('reports.statusCol')}</th>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.approvedLimit')}</th>
+                    <th scope="col" className="py-2 font-medium">{t('reports.decidedBy')}</th>
+                  </tr></thead>
+                  <tbody>
+                    {exp.items.map((i) => (
+                      <tr key={`${i.ticketId}-${i.raisedAt}`} className="border-b border-line last:border-b-0 align-top">
+                        <td className="py-2 pr-3">
+                          <Link to={`/staff/t/${i.ticketId}`} className="token font-semibold text-accent">{i.token}</Link>
+                          <span className="block max-w-56 truncate text-[12.5px] text-muted">{i.title}</span>
+                        </td>
+                        <td className="whitespace-nowrap py-2 pr-3">{fmtDate(i.raisedAt, lang)}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatPaise(i.estimatePaise)}</td>
+                        <td className="py-2 pr-3">{t(`expStatus.${i.status}`)}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{i.approvedPaise === null ? '-' : formatPaise(i.approvedPaise)}</td>
+                        <td className="py-2">{i.decidedBy ?? '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="overflow-x-auto">
+                <p className="mb-1 text-[13px] font-semibold text-muted">{t('reports.byCategory')}</p>
+                <table className="w-full text-left text-[14px]">
+                  <thead><tr className="border-b border-line text-[13px] text-muted">
+                    <th scope="col" className="py-2 pr-3 font-medium">{t('reports.type')}</th>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.count')}</th>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.requested')}</th>
+                    <th scope="col" className="py-2 text-right font-medium">{t('reports.approvedAmount')}</th>
+                  </tr></thead>
+                  <tbody>
+                    {exp.byCategory.map((c) => (
+                      <tr key={c.category} className="border-b border-line last:border-b-0">
+                        <td className="py-2 pr-3">{c.category}</td>
+                        <td className="py-2 pr-3 text-right">{c.requests}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{formatPaise(c.requestedPaise)}</td>
+                        <td className="whitespace-nowrap py-2 text-right">{formatPaise(c.approvedPaise)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </Stack>
+      )}
+    </Card>
+  )
+}
+
+function Money({ label, paise, note, tone }: { label: string; paise: number; note: string; tone?: 'ok' | 'warn' }) {
+  return (
+    <div className="rounded-lg border border-line bg-surface p-4">
+      <p className="text-[13px] text-muted">{label}</p>
+      <p className={clsx('mt-1 text-[22px] font-semibold', tone === 'ok' && 'text-ok', tone === 'warn' && 'text-warn')}>{formatPaise(paise)}</p>
+      <p className="mt-0.5 text-[12.5px] text-muted">{note}</p>
+    </div>
   )
 }
 

@@ -42,7 +42,7 @@ admin_users = require("admin.users")
 NO_STORE = {"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-RoleName = Literal["faculty", "ossc", "facility_manager", "management"]
+RoleName = Literal["faculty", "ossc", "facility_manager", "management", "principal"]
 
 
 class AdminUserOut(CamelModel):

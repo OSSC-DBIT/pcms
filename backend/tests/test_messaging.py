@@ -64,7 +64,7 @@ async def test_legacy_accept_button_still_works(client, monkeypatch):
     try:
         mgr = await sign_in(mc, "manager@dbit.edu")
         t = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
-                            json={"action": "triage", "priority": "P2", "flag": "I", "expectedVersion": 1})).json()
+                            json={"action": "triage", "flag": "I", "expectedVersion": 1})).json()
         t = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
                             json={"action": "assign", "workerName": "Legacy Worker", "expectedVersion": t["version"]})).json()
         async with sessionmaker()() as db:

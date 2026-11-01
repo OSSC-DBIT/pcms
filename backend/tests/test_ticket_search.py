@@ -8,11 +8,11 @@ client now sends filters here and shows the real total.
 from tests.factories import API, make_user, new_client, sign_in, ticket_body
 
 
-async def _triage(s, tid, priority="P2"):
+async def _triage(s, tid):
     """Triage with whatever version the ticket currently has."""
     v = (await s.get(f"{API}/tickets/{tid}")).json()["version"]
     return await s.post(f"{API}/tickets/{tid}/transitions",
-                        json={"action": "triage", "priority": priority, "expectedVersion": v})
+                        json={"action": "triage", "expectedVersion": v})
 
 
 async def _faculty(client, emp="faculty@dbit.edu"):
@@ -116,20 +116,36 @@ async def test_building_and_category_filters(client):
         await mc.aclose()
 
 
-async def test_priority_and_flag_filters(client):
+async def test_severity_and_flag_filters(client):
     fac = await _faculty(client)
-    t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
+    t = (await fac.post(f"{API}/tickets", json=ticket_body(impact="red"))).json()
 
     mc = new_client()
     try:
         mgr = await _manager(mc)
-        # Only a facility manager may triage, so the manager sets the priority.
-        assert (await _triage(mgr, t["id"], priority="P1")).status_code == 200
-        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "priority": "P1"})).json()["total"] == 1
-        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "priority": "P4"})).json()["total"] == 0
+        # Accepting no longer takes a priority: the reporter's colour is what staff filter by.
+        assert (await _triage(mgr, t["id"])).status_code == 200
+        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "severity": "red"})).json()["total"] == 1
+        assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "severity": "green"})).json()["total"] == 0
         assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "flag": "C"})).json()["total"] == 0
-        # The reporter can filter their own tickets by the same priority.
-        assert (await fac.get(f"{API}/tickets", params={"scope": "mine", "priority": "P1"})).json()["total"] == 1
+        # The reporter can filter their own tickets by the same severity.
+        assert (await fac.get(f"{API}/tickets", params={"scope": "mine", "severity": "red"})).json()["total"] == 1
+        # Priority is gone from the API: not returned, and not accepted as a filter.
+        assert "priority" not in (await mgr.get(f"{API}/tickets/{t['id']}")).json()
+    finally:
+        await mc.aclose()
+
+
+async def test_old_impact_values_and_manual_priority_are_rejected(client):
+    fac = await _faculty(client)
+    assert (await fac.post(f"{API}/tickets", json=ticket_body(impact="safety"))).status_code == 400
+    t = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
+    mc = new_client()
+    try:
+        mgr = await _manager(mc)
+        r = await mgr.post(f"{API}/tickets/{t['id']}/transitions",
+                           json={"action": "set_priority", "priority": "P1", "expectedVersion": 1})
+        assert r.status_code == 400
     finally:
         await mc.aclose()
 
@@ -137,7 +153,8 @@ async def test_priority_and_flag_filters(client):
 async def test_bad_filter_values_are_rejected(client):
     """An out-of-range value must fail loudly rather than being silently ignored."""
     mgr = await _manager(client)
-    for bad in ({"priority": "P9"}, {"flag": "Z"}, {"sort": "sideways"}, {"category": "does-not-exist"}):
+    for bad in ({"severity": "purple"}, {"flag": "Z"}, {"sort": "sideways"}, {"sort": "priority"},
+                {"category": "does-not-exist"}):
         r = await mgr.get(f"{API}/tickets", params={"scope": "queue", **bad})
         assert r.status_code == 400, f"{bad} gave {r.status_code}"
         assert r.json()["code"] == "validation"
@@ -145,14 +162,13 @@ async def test_bad_filter_values_are_rejected(client):
 
 async def test_sort_orders(client):
     fac = await _faculty(client)
-    first = (await fac.post(f"{API}/tickets", json=ticket_body(title="Older and more urgent"))).json()
-    second = (await fac.post(f"{API}/tickets", json=ticket_body(title="Newer but routine", impact="routine"))).json()
+    first = (await fac.post(f"{API}/tickets", json=ticket_body(title="Older and more urgent", impact="red"))).json()
+    middle = (await fac.post(f"{API}/tickets", json=ticket_body(title="Needs a look soon", impact="orange"))).json()
+    second = (await fac.post(f"{API}/tickets", json=ticket_body(title="Newer but routine", impact="green"))).json()
 
     mc = new_client()
     try:
         mgr = await _manager(mc)
-        await _triage(mgr, first["id"], priority="P1")
-        await _triage(mgr, second["id"], priority="P4")
 
         async def order(sort):
             r = (await mgr.get(f"{API}/tickets", params={"scope": "queue", "sort": sort})).json()
@@ -160,7 +176,8 @@ async def test_sort_orders(client):
 
         assert (await order("newest"))[0] == second["id"]
         assert (await order("oldest"))[0] == first["id"]
-        assert (await order("priority"))[0] == first["id"]  # P1 outranks P4
+        # Red, then orange, then green, whatever the creation order.
+        assert await order("severity") == [first["id"], middle["id"], second["id"]]
     finally:
         await mc.aclose()
 

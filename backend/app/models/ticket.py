@@ -16,7 +16,10 @@ from app.models.base import uuid_pk
 STATUSES = ("Submitted", "Triaged", "Assigned", "InProgress", "OnHold", "AwaitingApproval",
             "Resolved", "Closed", "Cancelled", "Rejected", "Duplicate")
 TERMINAL = ("Closed", "Cancelled", "Rejected", "Duplicate")
-IMPACTS = ("safety", "class_interrupted", "multiple_areas", "routine")
+# Severity chosen by the reporter: red (urgent), orange (soon), green (routine).
+# The column keeps its original name, impact.
+IMPACTS = ("red", "orange", "green")
+# Internal only: derived from the severity to time update reminders. Never shown or set by a person.
 PRIORITIES = ("P1", "P2", "P3", "P4")
 FLAGS = ("I", "C", "P")
 ASSESSMENTS = ("simple", "workforce", "parts", "expenditure")

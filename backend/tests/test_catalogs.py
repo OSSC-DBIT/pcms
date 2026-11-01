@@ -30,11 +30,12 @@ async def test_catalogs_shape_matches_frontend(client):
     assert all(b["active"] for b in body["buildings"])
     block_a = next(b for b in body["buildings"] if b["code"] == "BLOCK_A")
     assert "Computer Science and Engineering (CSE)" in block_a["departments"]
-    assert block_a["floors"] == ["Ground", "1", "2", "3"]
+    assert block_a["floors"] == ["Ground", "1", "2", "3", "Terrace"]
     sports = next(b for b in body["buildings"] if b["code"] == "SPORTS")
     assert sports["nameEn"] == "Sports Department"
     assert sports["departments"] == [] and sports["departmentsKn"] == []
-    assert codes.index("SPORTS") == len(codes) - 1
+    # The amenities DBIT added on 2026-10-30 follow Sports at the end of the list.
+    assert codes[-4:] == ["SPORTS", "CAFETERIA", "CANTEEN", "PARKING"]
 
 
 async def test_catalogs_include_inactive_is_for_admin_screens(client):

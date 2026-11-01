@@ -40,8 +40,8 @@ async def test_create_returns_token_and_replays(client):
     assert changed.status_code == 409 and changed.json()["code"] == "idempotency_conflict"
 
     t = (await s.get(f"{API}/tickets/{created['id']}")).json()
-    assert t["priority"] == "P2" and t["reporterName"] == "Faculty faculty@dbit.edu"
-    assert t["events"][0]["action"] == "Your report was received"
+    assert t["impact"] == "orange" and t["reporterName"] == "Faculty faculty@dbit.edu"
+    assert t["events"][0]["action"] == "Report submitted"
 
 
 async def test_validation_errors(client):
@@ -61,10 +61,17 @@ async def test_validation_errors(client):
     assert r.status_code == 201
 
 
-async def test_staff_cannot_create_without_capability(client):
-    await make_user("management@dbit.edu", "management")
-    s = await sign_in(client, "management@dbit.edu")
-    assert (await s.post(f"{API}/tickets", json=ticket_body())).status_code == 403
+async def test_every_staff_role_can_report_a_problem(client):
+    """DBIT, 2026-10-30: the facility manager, management and the principal report problems too."""
+    for i, role in enumerate(("facility_manager", "management", "principal")):
+        email = f"{role}@dbit.edu"
+        await make_user(email, role)
+        async with new_client() as c:
+            s = await sign_in(c, email)
+            r = await s.post(f"{API}/tickets", json=ticket_body(title=f"Staff report {i}"))
+            assert r.status_code == 201, (role, r.text)
+            mine = (await s.get(f"{API}/tickets", params={"scope": "mine"})).json()
+            assert [t["title"] for t in mine["items"]] == [f"Staff report {i}"]
 
 
 async def test_100_parallel_creates_yield_unique_sequential_tokens(client):

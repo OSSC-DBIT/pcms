@@ -1,9 +1,10 @@
 """Ticket endpoints. Every mutation locks the ticket row and checks the expected version."""
 
 import uuid
+from datetime import date
 
 from fastapi import APIRouter, Depends, Query, Response
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,12 +13,14 @@ from app.errors import conflict, forbidden, validation
 from app.models.catalog import Category
 from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket, TicketComment
+from app.models.user import User
 from app.schemas.ticket import (
     AssessmentIn, CommentIn, DuplicateOut, ProposalIn, RatingIn, StatusName, TicketCreatedOut,
     TicketCreateIn, TicketOut, TicketPage, TicketUpdateIn, TransitionIn,
 )
 from app.security.deps import Principal, current_principal, require
-from app.services import audit, lifecycle, notify, tickets as svc, workflow
+from app.security.roles import ROLES
+from app.services import audit, lifecycle, notify, reporting as rep, tickets as svc, workflow
 from app.services.tickets import is_staff
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -28,14 +31,19 @@ def _like(q: str) -> str:
     return "%" + q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-SORTS = ("newest", "oldest", "priority", "updated")
+SORTS = ("newest", "oldest", "severity", "updated")
+SEVERITY_RANK = case((Ticket.impact == "red", 0), (Ticket.impact == "orange", 1), else_=2)
 
 
 @router.get("", response_model=TicketPage)
 async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), status: str | None = Query(None, max_length=200),
                        open: bool | None = None, page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=200, alias="pageSize"),
                        search: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
-                       flag: str | None = Query(None, pattern="^[ICP]$"), priority: str | None = Query(None, pattern="^P[1-4]$"),
+                       flag: str | None = Query(None, pattern="^[ICP]$"),
+                       severity: str | None = Query(None, pattern="^(red|orange|green)$"),
+                       reporter: str | None = Query(None, max_length=120),
+                       reporter_role: str | None = Query(None, alias="reporterRole", pattern="^(" + "|".join(ROLES) + ")$"),
+                       start: date | None = Query(None, alias="from"), end: date | None = Query(None, alias="to"),
                        building: str | None = Query(None, max_length=20), worker: str | None = Query(None, max_length=120),
                        sort: str = Query("newest", pattern="^(" + "|".join(SORTS) + ")$"),
                        p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> TicketPage:
@@ -66,8 +74,20 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
         stmt = stmt.where(Ticket.category_id == cid)
     if flag:
         stmt = stmt.where(Ticket.flag == flag)
-    if priority:
-        stmt = stmt.where(Ticket.priority == priority)
+    if severity:
+        stmt = stmt.where(Ticket.impact == severity)
+    if reporter or reporter_role:
+        stmt = stmt.join(User, User.id == Ticket.reporter_id)
+        if reporter:
+            like = _like(reporter)
+            stmt = stmt.where(or_(User.name.ilike(like, escape="\\"), User.email.ilike(like, escape="\\")))
+        if reporter_role:
+            stmt = stmt.where(User.role == reporter_role)
+    since, until = rep.day_range(start, end)
+    if since:
+        stmt = stmt.where(Ticket.created_at >= since)
+    if until:
+        stmt = stmt.where(Ticket.created_at < until)
     if building:
         stmt = stmt.where(Ticket.building_code == building)
     if worker:
@@ -76,8 +96,8 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
     order = {
         "newest": (Ticket.created_at.desc(), Ticket.id.desc()),
         "oldest": (Ticket.created_at.asc(), Ticket.id.asc()),
-        # P1 is the most urgent, so plain ascending text order is right here.
-        "priority": (Ticket.priority.asc(), Ticket.created_at.desc()),
+        # Red first, then orange, then green; newest first within each.
+        "severity": (SEVERITY_RANK.asc(), Ticket.created_at.desc(), Ticket.id.desc()),
         "updated": (Ticket.updated_at.desc(), Ticket.id.desc()),
     }[sort]
     rows = (await db.scalars(stmt.order_by(*order).offset((page - 1) * page_size).limit(page_size))).all()
@@ -175,21 +195,13 @@ async def transition(ticket_id: uuid.UUID, body: TransitionIn, p: Principal = De
 async def comment(ticket_id: uuid.UUID, body: CommentIn, p: Principal = Depends(current_principal),
                   db: AsyncSession = Depends(get_session)) -> TicketOut:
     t = await svc.get_visible(db, p, ticket_id, lock=True)
-    staff = is_staff(p)
-    # Internal visibility is decided by the server: only staff can write internal notes.
-    if body.internal and not staff:
-        raise forbidden("Only facilities staff can add internal notes.")
-    if not staff and t.reporter_id != p.user.id:
-        raise forbidden()
-    if not staff:
-        svc.ensure_not_terminal(t)
-    db.add(TicketComment(ticket_id=t.id, author_id=p.user.id, author_label=p.user.name, body=body.body, internal=body.internal))
+    # Messages are a staff discussion (DBIT, 2026-10-30): the facility manager, management,
+    # the principal and Team OSSC. Faculty neither see nor write them.
+    if not is_staff(p):
+        raise forbidden("Messages on a ticket are for facilities staff only.")
+    db.add(TicketComment(ticket_id=t.id, author_id=p.user.id, author_label=p.user.name, body=body.body, internal=True))
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.commented", entity_type="ticket",
-                 entity_id=t.id, after={"internal": body.internal})
-    if staff and not body.internal and t.reporter_id != p.user.id:
-        await notify.notify_reporter(db, t, template="comment", title=f"{t.token}: message from facilities", body=body.body[:180])
-    elif not staff:
-        await notify.notify_role(db, "facility_manager", t, template="reporter_comment", title=f"{t.token}: reporter comment", body=body.body[:180])
+                 entity_id=t.id, after={"internal": True})
     await db.commit()
     return await svc.ticket_out(db, p, t)
 

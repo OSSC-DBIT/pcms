@@ -10,7 +10,7 @@ import { useT, LOCALE } from '../../lib/i18n'
 import { request, saveBlob } from '../../lib/http'
 import type { AdminUser, Credential, Role } from '../../lib/types'
 
-const ROLES: Role[] = ['faculty', 'facility_manager', 'management', 'ossc']
+const ROLES: Role[] = ['faculty', 'facility_manager', 'management', 'principal', 'ossc']
 const IST: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Kolkata' }
 
 /** A random initial password. The admin can see and replace it before creating the account. */
@@ -302,7 +302,7 @@ function Types({ ready }: { ready: boolean }) {
                   <span className={`token flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[18px] font-bold ${c.active ? 'bg-accent-soft text-accent' : 'bg-subtle text-muted'}`}>{c.letter}</span>
                   <div className="min-w-0">
                     <p className="truncate text-[15px] font-semibold">{c.nameEn}</p>
-                    <p className="truncate text-[13px] text-muted">{c.nameHi} · {c.nameKn}</p>
+                    <p className="truncate text-[13px] text-muted">{c.nameKn} · {c.nameHi}</p>
                   </div>
                 </div>
                 {!c.active && <Badge>{t('admin.retired')}</Badge>}
@@ -320,8 +320,8 @@ function Types({ ready }: { ready: boolean }) {
       )}
       {adding && (
         <ActionDialog open title={t('admin.addType')} confirmLabel={t('action.add')}
-          fields={[{ name: 'nameEn', label: t('admin.nameEn'), required: true }, { name: 'nameHi', label: t('admin.nameHi'), required: true },
-            { name: 'nameKn', label: t('admin.nameKn'), required: true }, { name: 'letter', label: t('admin.tokenLetter'), required: true },
+          fields={[{ name: 'nameEn', label: t('admin.nameEn'), required: true }, { name: 'nameKn', label: t('admin.nameKn'), required: true },
+            { name: 'nameHi', label: t('admin.nameHi'), required: true }, { name: 'letter', label: t('admin.tokenLetter'), required: true },
             { name: 'parts', label: t('admin.partsComma'), hint: t('admin.partsHint') }, { name: 'partsKn', label: t('admin.partsKn') }]}
           onClose={() => setAdding(false)}
           onSubmit={async (v) => {
@@ -375,8 +375,8 @@ function EditCategoryDialog({ code, onClose, onSaved, onError }: { code: string;
       <form onSubmit={save} className="space-y-4">
         <p className="text-[13px] text-muted">{t('admin.tokenLetterFixed', { letter: c.letter })}</p>
         <Field label={t('admin.nameEn')}>{(id) => <Input id={id} value={nameEn} onChange={(e) => setNameEn(e.target.value)} maxLength={80} required />}</Field>
-        <Field label={t('admin.nameHi')}>{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
         <Field label={t('admin.nameKn')}>{(id) => <Input id={id} value={nameKn} onChange={(e) => setNameKn(e.target.value)} maxLength={80} required />}</Field>
+        <Field label={t('admin.nameHi')}>{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
         <Field label={t('admin.parts')} hint={t('admin.partsEditHint')}>
           {(id, d) => <Input id={id} aria-describedby={d} value={parts} onChange={(e) => setParts(e.target.value)} maxLength={400} />}
         </Field>
@@ -450,7 +450,7 @@ function Places({ ready }: { ready: boolean }) {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
                   <p className="truncate text-[15px] font-semibold">{b.nameEn}</p>
-                  <p className="truncate text-[13px] text-muted">{b.nameHi} · {b.nameKn}</p>
+                  <p className="truncate text-[13px] text-muted">{b.nameKn} · {b.nameHi}</p>
                 </div>
                 {!b.active && <Badge>{t('admin.retired')}</Badge>}
               </div>
@@ -468,8 +468,8 @@ function Places({ ready }: { ready: boolean }) {
       )}
       {adding && (
         <ActionDialog open title={t('admin.addPlace')} confirmLabel={t('action.add')}
-          fields={[{ name: 'nameEn', label: t('admin.nameEn'), required: true }, { name: 'nameHi', label: t('admin.nameHi'), required: true },
-            { name: 'nameKn', label: t('admin.nameKn'), required: true }, { name: 'code', label: t('admin.shortCode'), required: true, placeholder: t('admin.shortCodePlaceholder') },
+          fields={[{ name: 'nameEn', label: t('admin.nameEn'), required: true }, { name: 'nameKn', label: t('admin.nameKn'), required: true },
+            { name: 'nameHi', label: t('admin.nameHi'), required: true }, { name: 'code', label: t('admin.shortCode'), required: true, placeholder: t('admin.shortCodePlaceholder') },
             { name: 'floors', label: t('admin.floorsComma'), required: true, placeholder: t('admin.floorsPlaceholder') },
             { name: 'departments', label: t('admin.departmentsComma'), placeholder: t('admin.departmentsPlaceholder') },
             { name: 'departmentsKn', label: t('admin.departmentsKn') }]}
@@ -560,8 +560,8 @@ function EditBuildingDialog({ code, onClose, onSaved, onError }: { code: string;
       <form onSubmit={save} className="space-y-4">
         <p className="token text-[13px] text-muted">{t('admin.codeFixed', { code: b.code })}</p>
         <Field label={t('admin.nameEn')}>{(id) => <Input id={id} value={nameEn} onChange={(e) => setNameEn(e.target.value)} maxLength={80} required />}</Field>
-        <Field label={t('admin.nameHi')}>{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
         <Field label={t('admin.nameKn')}>{(id) => <Input id={id} value={nameKn} onChange={(e) => setNameKn(e.target.value)} maxLength={80} required />}</Field>
+        <Field label={t('admin.nameHi')}>{(id) => <Input id={id} value={nameHi} onChange={(e) => setNameHi(e.target.value)} maxLength={80} required />}</Field>
         <Field label={t('admin.floors')} hint={t('admin.floorsHint')}>
           {() => <EditableList items={floors} onChange={setFloors} addLabel={t('admin.addFloor')} />}
         </Field>

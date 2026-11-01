@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import QRCode from 'qrcode'
 import { Link, useNavigate } from 'react-router-dom'
 import { homeFor, useAuth } from '../App'
-import { Footer, INSTITUTE } from '../components/Brand'
+import { Footer, INSTITUTE, LanguageSwitcher } from '../components/Brand'
 import InstallCard from '../components/InstallCard'
 import { Alert, Button, Card, Checkbox, Field, Input, PasswordInput, errorMessage } from '../components/ui'
 import { api } from '../lib/api'
@@ -37,6 +37,7 @@ export default function Login() {
           <Link to="/"><img src="/pwa-192x192.png" alt={t('login.homeAlt')} width={56} height={56} className="mx-auto rounded-xl" /></Link>
           <h1 className="mt-3 text-[24px] font-semibold">PCMS</h1>
           <p className="text-[14px] text-muted">{INSTITUTE}</p>
+          <div className="mt-3 flex justify-center"><LanguageSwitcher /></div>
         </div>
         <Card>
           {stage.kind === 'credentials' && <Credentials password={password} onStep={advance} />}

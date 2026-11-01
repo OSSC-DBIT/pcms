@@ -7,14 +7,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
 from app.schemas.ticket import DecisionIn, TicketOut
-from app.security.deps import Principal, require
+from app.security.deps import Principal, require_any
 from app.services import tickets as svc, workflow
 
 proposals = APIRouter(prefix="/proposals", tags=["proposals"])
 
 
 @proposals.post("/{proposal_id}/decisions", response_model=TicketOut)
-async def decide(proposal_id: uuid.UUID, body: DecisionIn, p: Principal = Depends(require("cost.approve")),
+async def decide(proposal_id: uuid.UUID, body: DecisionIn, p: Principal = Depends(require_any("cost.approve", "cost.principal")),
                  db: AsyncSession = Depends(get_session)) -> TicketOut:
     t = await workflow.decide(db, p, proposal_id, body)
     await db.commit()

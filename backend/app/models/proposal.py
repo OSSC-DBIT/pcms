@@ -12,8 +12,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db import Base
 from app.models.base import uuid_pk
 
-PROPOSAL_STATES = ("pending", "approved", "rejected", "clarify", "defer", "superseded")
-DECISION_KINDS = ("approved", "rejected", "clarify", "defer")
+PROPOSAL_STATES = ("pending", "approved", "rejected", "clarify", "defer", "escalated", "superseded")
+DECISION_KINDS = ("approved", "rejected", "clarify", "defer", "escalated")
+# Who decides a pending version. New requests go to the principal; when the
+# principal escalates, the next version goes to institute management, so every
+# version still has exactly one decision. Rows from before 0010 are "management".
+PROPOSAL_STAGES = ("management", "principal")
 
 
 class Proposal(Base):
@@ -22,6 +26,7 @@ class Proposal(Base):
         UniqueConstraint("ticket_id", "version", name="proposal_ticket_version_unique"),
         CheckConstraint("total_paise >= 0", name="proposal_total_non_negative"),
         CheckConstraint(f"state IN ({', '.join(repr(s) for s in PROPOSAL_STATES)})", name="proposal_state_valid"),
+        CheckConstraint(f"stage IN ({', '.join(repr(s) for s in PROPOSAL_STAGES)})", name="proposal_stage_valid"),
         # At most one proposal awaiting a decision per ticket.
         Index("uq_proposal_one_pending", "ticket_id", unique=True, postgresql_where=text("state = 'pending'")),
     )
@@ -34,6 +39,7 @@ class Proposal(Base):
     requested_date: Mapped[date] = mapped_column(Date, nullable=False)
     requested_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=False)
     state: Mapped[str] = mapped_column(String(12), nullable=False, default="pending")
+    stage: Mapped[str] = mapped_column(String(12), nullable=False, default="principal", server_default="management")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 

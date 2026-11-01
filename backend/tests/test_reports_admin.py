@@ -16,7 +16,7 @@ async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(cli
         await make_user("manager@dbit.edu", "facility_manager", "Manager")
         mgr = await sign_in(mc, "manager@dbit.edu")
         v = (await mgr.post(f"{API}/tickets/{t['id']}/transitions",
-                            json={"action": "triage", "priority": "P2", "expectedVersion": 1})).json()["version"]
+                            json={"action": "triage", "expectedVersion": 1})).json()["version"]
         assigned = (await mgr.post(f"{API}/tickets/{t['id']}/transitions", json={
             "action": "assign", "workerName": "Ramesh K", "expectedVersion": v})).json()
 
@@ -26,7 +26,7 @@ async def test_assessment_is_recorded_and_shown_but_hidden_from_the_reporter(cli
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["assessments"] == ["expenditure", "parts"]  # stored sorted and de-duplicated
-        assert any(e["action"] == "Assessment recorded" for e in body["events"])
+        assert any(e["action"] == "Work requirements recorded" for e in body["events"])
 
         # The reporter sees the summary field but never the internal note.
         ft = (await fac.get(f"{API}/tickets/{t['id']}")).json()
@@ -125,10 +125,10 @@ async def test_report_shows_the_fields_the_dashboard_renders(client):
         await make_user("manager@dbit.edu", "facility_manager", "Manager")
         mgr = await sign_in(mc, "manager@dbit.edu")
         await mgr.post(f"{API}/tickets/{t['id']}/transitions",
-                       json={"action": "triage", "priority": "P3", "expectedVersion": 1})
+                       json={"action": "triage", "expectedVersion": 1})
         r = (await mgr.get(f"{API}/reports")).json()
         assert r["openByStatus"] == {"Triaged": 1}
-        assert r["openByPriority"] == {"P3": 1}
+        assert r["openBySeverity"] == {"orange": 1}
         assert r["ratings"] == {"count": 0, "average": None,
                                 "distribution": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0}, "low": []}
         assert r["overdueUpdates"] == 0
@@ -136,7 +136,7 @@ async def test_report_shows_the_fields_the_dashboard_renders(client):
         assert r["failedNotifications"] == 0
         assert r["triageTime"]["count"] == 1 and r["triageTime"]["medianHours"] is not None
         assert r["resolutionTime"]["count"] == 0 and r["resolutionTime"]["medianHours"] is None
-        assert r["approvedPaise"] == 0
+        assert r["approvedPaise"] is None  # spending figures are for the principal, management and OSSC
         assert r["holdsByReason"] == []
         assert r["days"] == 30 and r["generatedAt"]
 

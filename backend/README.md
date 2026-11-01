@@ -18,6 +18,7 @@ Common commands (inside the `api` container):
 ```sh
 alembic upgrade head
 python -m app.cli seed
+python -m app.cli create-admin-from-env        # every PCMS_ADMIN_n_* admin in the env file
 python -m app.cli create-admin --email ossc@dbit.edu --name "Full Name"
 python -m app.cli reset-password --email ossc@dbit.edu [--reset-mfa]
 python -m app.cli vapid-keys

@@ -45,7 +45,8 @@ def _safe_name(name: str | None) -> str:
 async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File(...),
                  p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> AttachmentOut:
     t = await get_visible(db, p, ticket_id, lock=True)
-    if not is_staff(p) and t.reporter_id != p.user.id:
+    # The reporter adds evidence to their own ticket; every staff role may add photos and documents.
+    if t.reporter_id != p.user.id and not p.can("ticket.attach"):
         raise forbidden()
     if t.status in TERMINAL:
         raise ApiError(409, "ticket_closed", "Evidence cannot be added to a closed ticket.")
@@ -56,15 +57,19 @@ async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File
     if not raw:
         raise ApiError(400, "validation", "The file is empty.")
 
-    counts = dict((await db.execute(select(Attachment.kind, func.count()).where(
-        Attachment.ticket_id == t.id, Attachment.state != "failed").group_by(Attachment.kind))).all())
+    live = (Attachment.ticket_id == t.id, Attachment.state != "failed")
+    counts = dict((await db.execute(select(Attachment.kind, func.count()).where(*live)
+                                    .group_by(Attachment.kind))).all())
     used = await db.scalar(select(func.coalesce(func.sum(Attachment.size_bytes), 0)).where(
-        Attachment.ticket_id == t.id, Attachment.state != "failed")) or 0
+        *live, Attachment.kind != "document")) or 0
+    used_docs = await db.scalar(select(func.coalesce(func.sum(Attachment.size_bytes), 0)).where(
+        *live, Attachment.kind == "document")) or 0
 
     tmp = media.root() / "tmp"
     tmp.mkdir(parents=True, exist_ok=True, mode=0o700)
     try:
-        out = await media.process(raw, tmp)
+        # Only staff who handle the ticket add documents (quotes, approvals, reports).
+        out = await media.process(raw, tmp, allow_documents=p.can("ticket.attach"))
     except media.MediaRejected as exc:
         audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="attachment.rejected", entity_type="ticket",
                      entity_id=t.id, reason=exc.message)
@@ -75,7 +80,12 @@ async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File
         raise ApiError(409, "media_limit", "A ticket can have up to 3 photos.")
     if out.kind == "video" and counts.get("video", 0) >= media.MAX_VIDEOS:
         raise ApiError(409, "media_limit", "A ticket can have 1 video.")
-    if used + len(out.data) > media.MAX_TOTAL:
+    if out.kind == "document":
+        if counts.get("document", 0) >= media.MAX_DOCUMENTS:
+            raise ApiError(409, "media_limit", f"A ticket can have up to {media.MAX_DOCUMENTS} documents.")
+        if used_docs + len(out.data) > media.MAX_DOCUMENTS_TOTAL:
+            raise ApiError(413, "too_large", "Documents for one ticket are limited to 50 MB.")
+    elif used + len(out.data) > media.MAX_TOTAL:
         raise ApiError(413, "too_large", "Evidence for one ticket is limited to 35 MB.")
 
     key = media.new_key()
@@ -88,12 +98,15 @@ async def upload(ticket_id: uuid.UUID, request: Request, file: UploadFile = File
                      duration_ms=out.duration_ms)
     db.add(att)
     await db.flush()
-    add_event(db, t, p.user, "Evidence added", detail=att.original_name, public=True)
+    if att.kind == "document":
+        add_event(db, t, p.user, "Document added", detail=att.original_name, public=False)
+    else:
+        add_event(db, t, p.user, "Photo or video added", detail=att.original_name, public=True)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="attachment.uploaded", entity_type="attachment",
                  entity_id=att.id, after={"ticket": t.token, "kind": att.kind, "bytes": att.size_bytes, "sha256": att.sha256})
     await db.commit()
     return AttachmentOut(id=att.id, kind=att.kind, name=att.original_name, size_bytes=att.size_bytes, state=att.state,
-                         url=f"/api/v1/attachments/{att.id}/content" if att.state == "available" else None)
+                         uploaded_by=p.user.name, url=f"/api/v1/attachments/{att.id}/content" if att.state == "available" else None)
 
 
 @api.get("/attachments/{attachment_id}/content")
@@ -105,9 +118,16 @@ async def download(attachment_id: uuid.UUID, p: Principal = Depends(current_prin
     await get_visible(db, p, att.ticket_id)  # 404 if the ticket is not visible
     if att.state != "available":
         raise not_found()
+    if att.kind == "document" and not is_staff(p):
+        raise not_found()  # staff documents are internal
     path = media.store_path(att.storage_key)
     if not path.exists():
         raise not_found()
+    if att.kind == "document":
+        # Never rendered by the browser: always saved as a file.
+        return FileResponse(path, media_type=att.content_type, headers=SAFE_HEADERS,
+                            content_disposition_type="attachment",
+                            filename=f"document-{att.id.hex[:8]}.{media.DOCUMENT_TYPES[att.content_type]}")
     ext = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "video/mp4": "mp4", "video/webm": "webm"}[att.content_type]
     return FileResponse(path, media_type=att.content_type, headers=SAFE_HEADERS,
                         content_disposition_type="inline", filename=f"evidence-{att.id.hex[:8]}.{ext}")

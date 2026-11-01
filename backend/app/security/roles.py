@@ -7,27 +7,43 @@ recorded in docs/SECURITY.md:
   - Only Team OSSC uses a second factor (TOTP).
 Separation of duty for spending still holds for everyone, OSSC included:
 nobody can approve a proposal they requested or a ticket they reported.
+
+DBIT decisions (2026-10-30):
+  - A ticket marked Critical goes to the principal first. The principal
+    approves, rejects or escalates it to institute management, the higher
+    authority, who then decides.
+  - Messages and notes on a ticket are shared by staff only: the facility
+    manager, management, the principal and Team OSSC. Faculty never see them.
+  - All staff roles can report a problem and add photos and documents.
 """
 
 from typing import Final
 
-ROLES: Final = ("faculty", "ossc", "facility_manager", "management")
-ADMIN_PORTAL_ROLES: Final = frozenset({"ossc", "facility_manager", "management"})
+ROLES: Final = ("faculty", "ossc", "facility_manager", "management", "principal")
+ADMIN_PORTAL_ROLES: Final = frozenset({"ossc", "facility_manager", "management", "principal"})
 SECOND_FACTOR_ROLES: Final = frozenset({"ossc"})
 
 CAPABILITIES: Final = frozenset({
     "ticket.create", "ticket.track", "ticket.verify",
     "queue.view", "ticket.triage", "ticket.assign", "ticket.assess", "ticket.escalate", "ticket.close",
-    "cost.approve",
+    # ticket.attach: add photos and documents to any ticket (staff).
+    "ticket.attach",
+    # cost.principal: first decision on spending. cost.approve: institute management, after escalation.
+    "cost.principal", "cost.approve",
     "admin.users", "admin.catalogs", "admin.locations", "admin.settings", "admin.audit",
 })
 
+# Every staff role can report a problem and confirm the fix of one they reported.
+_REPORTER = ("ticket.create", "ticket.track", "ticket.verify")
+
 ROLE_CAPABILITIES: Final[dict[str, tuple[str, ...]]] = {
-    "faculty": ("ticket.create", "ticket.track", "ticket.verify"),
+    "faculty": _REPORTER,
     "facility_manager": (
-        "queue.view", "ticket.triage", "ticket.assign", "ticket.assess", "ticket.escalate", "ticket.close",
+        *_REPORTER, "queue.view", "ticket.triage", "ticket.assign", "ticket.assess", "ticket.escalate", "ticket.close",
+        "ticket.attach",
     ),
-    "management": ("queue.view", "cost.approve"),
+    "management": (*_REPORTER, "queue.view", "cost.approve", "ticket.attach"),
+    "principal": (*_REPORTER, "queue.view", "cost.principal", "ticket.attach"),
     "ossc": tuple(sorted(CAPABILITIES)),
 }
 

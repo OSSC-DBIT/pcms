@@ -107,9 +107,10 @@ def build_import_template() -> bytes:
         "PCMS people import",
         "",
         "Columns: email, name, role, password.",
-        "role is one of faculty, facility_manager or management. Leave it blank for faculty.",
+        "role is one of faculty, facility_manager, management, principal or ossc (super admin). "
+        "Leave it blank for faculty.",
         "password is the temporary password Team OSSC gives the person. It must be at least 10 characters.",
-        "Do not create OSSC accounts from this file. Add a super admin one at a time in People.",
+        "An ossc account must also set up an authenticator app at first sign-in.",
         "Emails must be unique. Existing emails are skipped, never updated or reset.",
         "If any line is wrong, the whole file is rejected and nothing is imported.",
         "After import, the system downloads a credentials file. Share each row only with that person.",

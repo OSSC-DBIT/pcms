@@ -291,7 +291,7 @@ export function Dialog({ open, onClose, title, children, footer, wide }: { open:
   )
 }
 
-export function errorMessage(err: unknown, fallback = 'Something went wrong. Try again.'): string {
+export function errorMessage(err: unknown, fallback = 'Something went wrong. Please try again.'): string {
   if (err && typeof err === 'object' && 'message' in err) {
     const e = err as { message: string; fieldErrors?: Record<string, string> | null }
     if (e.fieldErrors && Object.keys(e.fieldErrors).length) return `${e.message} ${Object.values(e.fieldErrors).join(' ')}`

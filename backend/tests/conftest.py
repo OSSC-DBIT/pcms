@@ -3,9 +3,13 @@ import os
 
 # Must run before app modules read settings.
 os.environ["PCMS_ENV"] = "test"
-os.environ["PCMS_DATABASE_URL"] = os.environ.get(
-    "PCMS_TEST_DATABASE_URL", "postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms_test"
-)
+# The suite wipes its database, so it must never run against the app database.
+# CI passes a full URL; in the dev stack the URL is built from PCMS_DB_* with the test database name.
+if os.environ.get("PCMS_TEST_DATABASE_URL"):
+    os.environ["PCMS_DATABASE_URL"] = os.environ["PCMS_TEST_DATABASE_URL"]
+else:
+    os.environ.pop("PCMS_DATABASE_URL", None)
+    os.environ["PCMS_DB_NAME"] = os.environ.get("PCMS_TEST_DB_NAME", "pcms_test")
 os.environ.setdefault("PCMS_SECRET_KEY", "test-secret-key-0123456789")
 os.environ.setdefault("PCMS_CREDENTIAL_KEY", "test-credential-key-0123456789abcdef")
 os.environ["PCMS_CLAMAV_REQUIRED"] = "false"
@@ -29,7 +33,9 @@ KEEP_TABLES = {"alembic_version"}
 
 def alembic_cfg() -> Config:
     cfg = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
-    cfg.attributes["database_url"] = os.environ["PCMS_DATABASE_URL"]
+    from app.config import get_settings
+
+    cfg.attributes["database_url"] = get_settings().database_url
     return cfg
 
 

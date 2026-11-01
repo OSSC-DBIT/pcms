@@ -30,11 +30,20 @@ from app.config import get_settings
 
 PHOTO_TYPES = {"image/jpeg": "JPEG", "image/png": "PNG", "image/webp": "WEBP"}
 VIDEO_TYPES = {"video/mp4", "video/webm"}
+# Staff documents: quotes, approvals, reports. They cannot be re-encoded, so they
+# rely on the virus scan, staff-only access and download-only delivery.
+DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DOCUMENT_TYPES = {"application/pdf": "pdf", DOCX: "docx", "application/msword": "doc"}
+# Containers whose real type needs the whole file, not just the first 4 KB.
+_CONTAINERS = {"application/zip", "application/x-ole-storage", "application/octet-stream", "application/CDFV2"}
 MAX_PHOTO = 5 * 1024 * 1024
 MAX_VIDEO = 20 * 1024 * 1024
+MAX_DOCUMENT = 10 * 1024 * 1024
 MAX_TOTAL = 35 * 1024 * 1024
+MAX_DOCUMENTS_TOTAL = 50 * 1024 * 1024
 MAX_PHOTOS = 3
 MAX_VIDEOS = 1
+MAX_DOCUMENTS = 5
 MAX_VIDEO_SECONDS = 30
 MAX_PIXELS = 40_000_000
 
@@ -138,8 +147,40 @@ async def _video(path: Path, mime: str) -> Processed:
                      int(video[0].get("height") or 0) or None, int(duration * 1000))
 
 
-async def process(raw: bytes, tmp_dir: Path) -> Processed:
+def _document(raw: bytes, mime: str) -> Processed:
+    """PDF and Word files are stored as uploaded (after these checks) and only ever downloaded."""
+    if len(raw) > MAX_DOCUMENT:
+        raise MediaRejected("Documents can be at most 10 MB.", 413)
+    if mime == "application/pdf":
+        if not raw.startswith(b"%PDF-"):
+            raise MediaRejected("The document content does not match its type.")
+        # Active content has no place in a quote or report.
+        if b"/JavaScript" in raw or b"/Launch" in raw:
+            raise MediaRejected("PDFs with scripts or launch actions are not accepted. Print it to a new PDF and try again.")
+    elif mime == DOCX:
+        import zipfile
+
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as z:
+                names = set(z.namelist())
+        except zipfile.BadZipFile as exc:
+            raise MediaRejected("This document could not be read.") from exc
+        if "word/document.xml" not in names:
+            raise MediaRejected("The document content does not match its type.")
+        if any(n.lower().endswith("vbaproject.bin") for n in names):
+            raise MediaRejected("Documents with macros are not accepted. Save it as .docx or PDF and try again.")
+    return Processed("document", mime, raw)
+
+
+async def process(raw: bytes, tmp_dir: Path, *, allow_documents: bool = False) -> Processed:
     mime = sniff(raw[:4096])
+    if mime in _CONTAINERS:
+        # Office files are zip or OLE containers; the type is only clear from the whole file.
+        mime = sniff(raw)
+    if mime in DOCUMENT_TYPES:
+        if not allow_documents:
+            raise MediaRejected("Only facilities staff can add documents. Send a photo or video instead.")
+        return await asyncio.to_thread(_document, raw, mime)
     if mime in PHOTO_TYPES:
         if len(raw) > MAX_PHOTO:
             raise MediaRejected("Photos can be at most 5 MB.", 413)
@@ -155,6 +196,8 @@ async def process(raw: bytes, tmp_dir: Path) -> Processed:
             tmp.unlink(missing_ok=True)
     if mime == "video/quicktime":
         raise MediaRejected("iPhone .MOV videos are not supported yet. In Camera settings choose 'Most Compatible', or send a photo.")
+    if allow_documents:
+        raise MediaRejected("Only JPEG, PNG or WebP photos, MP4 or WebM videos, and PDF or Word documents are accepted.")
     raise MediaRejected("Only JPEG, PNG or WebP photos and MP4 or WebM videos are accepted.")
 
 

@@ -141,23 +141,28 @@ BLOCK_B_DEPARTMENTS_KN = [
     "ಸೈಬರ್ ಭದ್ರತೆ ಮತ್ತು ಐಒಟಿ",
 ]
 
+# Every building with upper floors also has a terrace (DBIT, 2026-10-30).
 BUILDINGS = [
-    ("BLOCK_A", "Block A", "ब्लॉक ए", "ಬ್ಲಾಕ್ ಎ", ["Ground", "1", "2", "3"],
+    ("BLOCK_A", "Block A", "ब्लॉक ए", "ಬ್ಲಾಕ್ ಎ", ["Ground", "1", "2", "3", "Terrace"],
      BLOCK_A_DEPARTMENTS, BLOCK_A_DEPARTMENTS_KN),
-    ("BLOCK_B", "Block B", "ब्लॉक बी", "ಬ್ಲಾಕ್ ಬಿ", ["Ground", "1", "2", "3"],
+    ("BLOCK_B", "Block B", "ब्लॉक बी", "ಬ್ಲಾಕ್ ಬಿ", ["Ground", "1", "2", "3", "Terrace"],
      BLOCK_B_DEPARTMENTS, BLOCK_B_DEPARTMENTS_KN),
     ("MBA", "PG Block (MBA & Research)", "पीजी ब्लॉक (एमबीए और अनुसंधान)", "ಪಿಜಿ ಬ್ಲಾಕ್ (ಎಂಬಿಎ ಮತ್ತು ಸಂಶೋಧನೆ)",
-     ["Ground", "1", "2"],
+     ["Ground", "1", "2", "Terrace"],
      ["MBA Department", "Research Area", "Other Area"],
      ["ಎಂಬಿಎ ವಿಭಾಗ", "ಸಂಶೋಧನಾ ವಿಭಾಗ", "ಇತರ ಪ್ರದೇಶ"]),
-    ("PU", "PU Block", "पीयू ब्लॉक", "ಪಿಯು ಬ್ಲಾಕ್", ["Ground", "1", "2", "3"],
+    ("PU", "PU Block", "पीयू ब्लॉक", "ಪಿಯು ಬ್ಲಾಕ್", ["Ground", "1", "2", "3", "Terrace"],
      ["PU Classrooms", "Laboratories", "Staff Room", "Office", "Other Area"],
      ["ಪಿಯು ತರಗತಿ ಕೊಠಡಿಗಳು", "ಪ್ರಯೋಗಾಲಯಗಳು", "ಸಿಬ್ಬಂದಿ ಕೊಠಡಿ", "ಕಚೇರಿ", "ಇತರ ಪ್ರದೇಶ"]),
-    ("HOSTEL", "Hostel", "छात्रावास", "ಹಾಸ್ಟೆಲ್", ["Ground", "1", "2", "3"],
+    ("HOSTEL", "Hostel", "छात्रावास", "ಹಾಸ್ಟೆಲ್", ["Ground", "1", "2", "3", "Terrace"],
      ["Boys Hostel", "Girls Hostel"], ["ಬಾಲಕರ ಹಾಸ್ಟೆಲ್", "ಬಾಲಕಿಯರ ಹಾಸ್ಟೆಲ್"]),
-    ("ADMIN_BLOCK", "Administrator Block", "प्रशासक ब्लॉक", "ಆಡಳಿತಾಧಿಕಾರಿ ಬ್ಲಾಕ್", ["Ground", "1", "2"],
+    ("ADMIN_BLOCK", "Administrator Block", "प्रशासक ब्लॉक", "ಆಡಳಿತಾಧಿಕಾರಿ ಬ್ಲಾಕ್", ["Ground", "1", "2", "Terrace"],
      ADMIN_AREAS, ADMIN_AREAS_KN),
     ("SPORTS", "Sports Department", "खेल विभाग", "ಕ್ರೀಡಾ ವಿಭಾಗ", ["Ground"], [], []),
+    # Other amenities (DBIT, 2026-10-30).
+    ("CAFETERIA", "Cafeteria", "कैफेटेरिया", "ಕೆಫೆಟೇರಿಯಾ", ["Ground"], [], []),
+    ("CANTEEN", "Canteen", "कैंटीन", "ಕ್ಯಾಂಟೀನ್", ["Ground"], [], []),
+    ("PARKING", "Parking", "पार्किंग", "ಪಾರ್ಕಿಂಗ್", ["Ground"], [], []),
 ]
 
 

@@ -16,7 +16,7 @@ flowchart TB
         MV[("media volume<br/>private")]
         C["ClamAV"]
         B["backup<br/>nightly, encrypted"]
-        T["cloudflared tunnel"]
+        T["your tunnel<br/>(run by hand)"]
     end
     subgraph Internet
         TW["Twilio<br/>WhatsApp + SMS"]
@@ -40,8 +40,10 @@ flowchart TB
 ```
 
 - The API, database, ClamAV and jobs sit on an internal Docker network with no internet route.
-  Only `worker`, `clamav` (signature updates) and `tunnel` have egress.
-- The tunnel reaches nginx's port 8081 only. That listener serves exactly
+  Only `worker` and `clamav` (signature updates) have egress. nginx also joins a normal network,
+  because Docker cannot publish ports from a container that is only on an internal one.
+- PCMS does not run the tunnel. You run it on the host, pointed at nginx's public listener, which is
+  published on `127.0.0.1:PCMS_PUBLIC_PORT` (default 8081). That listener serves exactly
   `POST /webhooks/twilio`, `POST /webhooks/twilio/status` and `GET /media/public/<signed token>`.
   Everything else there is 404.
 - Provider calls never happen inside a database transaction. A ticket change and its
@@ -99,14 +101,17 @@ This is the flow DBIT confirmed on 18 October 2026.
 flowchart TD
     A[Faculty submits problem<br/>type, part, place, photos] --> B{Facility manager<br/>reviews}
     B -->|Reject with reason| R[Rejected<br/>reporter told why]
-    B -->|Accept + priority| C[Contact worker directly<br/>record optional name, mark Assigned]
+    B -->|Accept| C[Contact worker directly<br/>record optional name, mark Assigned]
     C --> D[Worker looks at it]
     D --> E{Flag}
     E -->|I Immediate| F[Fix, then mark as fixed]
-    E -->|C Critical| G[Sent to institute management<br/>reason + optional cost]
+    E -->|C Critical| G[Sent to the principal<br/>reason + optional cost]
     E -->|P Postpone| H[On hold<br/>reason + review date]
     G -->|Approve| F
-    G -->|Question / defer / reject| H
+    G -->|Reject| H
+    G -->|Escalate| M[Institute management decides]
+    M -->|Approve| F
+    M -->|Clarify / defer / reject| H
     H -->|Resume| C
     F --> I{Reporter checks}
     I -->|Yes, fixed| J[Closed<br/>reporter may rate once]
@@ -118,17 +123,18 @@ Status names used by the API:
 ```mermaid
 stateDiagram-v2
     [*] --> Submitted : faculty reports
-    Submitted --> Triaged : accept (priority)
+    Submitted --> Triaged : accept
     Submitted --> Rejected : reject (reason)
     Submitted --> Duplicate
     Triaged --> Assigned : manager records the worker (optional name)
     Assigned --> InProgress : manager marks work started
     Assigned --> Resolved : I, fixed
     InProgress --> Resolved : I, fixed
-    Assigned --> AwaitingApproval : C, sent to management
-    InProgress --> AwaitingApproval : C, sent to management
+    Assigned --> AwaitingApproval : C, sent to the principal
+    InProgress --> AwaitingApproval : C, sent to the principal
+    AwaitingApproval --> AwaitingApproval : principal escalates to management (next version)
     AwaitingApproval --> InProgress : approved
-    AwaitingApproval --> OnHold : question / defer / reject
+    AwaitingApproval --> OnHold : reject / clarify / defer
     Assigned --> OnHold : P, postponed
     InProgress --> OnHold : P, postponed
     OnHold --> Assigned : resume
@@ -146,6 +152,34 @@ simple form. For now the facility manager records it, because many workers do no
 
 Every action carries the ticket version the person saw; a stale version gets `409` and the screen reloads.
 
+**Severity, not priority.** The reporter picks red (urgent or unsafe), orange (soon) or green
+(routine). Staff never set a priority. The `ticket.priority` column remains only as the internal
+update-reminder clock, derived from the severity (red P1, orange P2, green P4), and is not in the API.
+
+**Spending stages.** Each proposal version has a `stage`: `principal` or `management`. A new
+request starts at `principal`. The principal (`cost.principal`) approves, rejects or escalates.
+Escalating records an `escalated` decision on the current version and creates the next version
+at the `management` stage, so every version still has exactly one decision. Institute management
+(`cost.approve`) then approves, asks for clarification, defers or rejects. Each stage can only be
+decided by its own role, and separation of duty applies at both.
+
+**Staff messages.** Messages on a ticket are a staff discussion: the facility manager, institute
+management, the principal and Team OSSC read and write them. Faculty neither see nor send them;
+the reporter follows progress through the public timeline and notifications.
+
+**Attachments.** Every staff role (`ticket.attach`) can add photos and PDF or Word documents; the
+reporter adds photos and video to their own ticket. Each attachment records who added it.
+Faculty see their own name, or "Facilities team" for staff uploads. Documents are internal: the
+API never returns them to the reporter, the timeline entry is internal, and downloads are always
+`Content-Disposition: attachment`.
+
+**Reports and expenditure.** Every report and download takes a From and a To date (whole days in
+Asia/Kolkata, both included). `GET /reports/expenditure` (and `.csv`, `.xlsx`) lists the requests
+raised in the period with requested, approved and awaiting amounts in INR; an escalated request is
+counted once, with its final decision. Only `cost.principal` and `cost.approve` see spending; for
+the facility manager `approvedPaise` is `null`. The ticket list can also be filtered by reporter
+name or email, reporter role and a From/To date.
+
 An **assessment** can be recorded while work is assigned or in progress. It says what the job
 needs (one person, more people, parts, money up front) and how it was reported, and lands in
 the timeline as an internal entry, so it never reaches the reporter.
@@ -162,18 +196,18 @@ show the count, average, 5-to-1 distribution and the ten newest low ratings.
 ## Listing, search and paging
 
 `GET /tickets` is the one list endpoint. It takes `scope` (`mine` or `queue`), `status`, `open`,
-`search`, `category`, `flag`, `priority`, `building`, `worker`, `sort`, `page` and `pageSize`,
+`search`, `category`, `flag`, `severity`, `building`, `worker`, `sort`, `page` and `pageSize`,
 and returns `{items, total, page, pageSize}`. The `worker` filter matches the optional free-text
 worker or vendor name and is available only on the staff queue.
 
 Every filter is applied in SQL, never in the browser. The client used to fetch a fixed 100 rows
 and filter them locally, which silently hid older tickets; it now sends the filters and renders
-the server's `total`. `sort` is one of `newest`, `oldest`, `priority` or `updated`, and each
+the server's `total`. `sort` is one of `newest`, `oldest`, `severity` (red, orange, green) or `updated`, and each
 order has an `id` tiebreaker so paging stays stable when timestamps collide.
 
 Search matches title, token and room with `ILIKE`. Wildcards `%` and `_` in the query are
 escaped, so a search for `100%` looks for that text instead of matching everything.
-Out-of-range values for `priority`, `flag` and `sort` are rejected rather than ignored.
+Out-of-range values for `severity`, `flag` and `sort` are rejected rather than ignored.
 
 `GET /catalogs` returns active types and places only, so a retired one cannot be picked on a new
 report. `GET /catalogs?includeInactive=true` is for the administration screens, which need to

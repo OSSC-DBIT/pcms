@@ -72,7 +72,7 @@ jobs:
           PCMS_ENV_FILE: ./pcms.env
         run: |
           cp .env.example pcms.env
-          mkdir -p secrets && touch secrets/db_password secrets/pgpass secrets/backup_recipient.txt
+          mkdir -p secrets && touch secrets/backup_recipient.txt
           docker compose -f compose.prod.yml --env-file pcms.env config --quiet
 
   e2e:

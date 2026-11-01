@@ -7,6 +7,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 | Plan v1.2 | PCMS now | Risk and mitigation |
 |---|---|---|
 | Second factor for all admin-portal roles | Authenticator (TOTP) only for the super admin (Team OSSC) | A stolen facility manager or management password is enough to sign in. Mitigations: 10-character minimum, sign-in throttling, sessions revoked on password change, campus-only access. Turning TOTP back on is a one-line change in `app/security/roles.py`. |
+| Management is the only spending approver | (30 October 2026) Critical spending goes to the principal first, who approves, rejects or escalates it to institute management for the final decision. The principal cannot triage or assign work | Each stage can only be decided by its own role, and separation of duty applies to both. The principal account is password-only like management; add it to `SECOND_FACTOR_ROLES` if DBIT wants TOTP for it. |
+| Reporter and staff exchange messages | (30 October 2026) Messages are a staff discussion; faculty neither see nor send them | The reporter is kept informed through the public timeline and notifications. |
 | OSSC administers but does not dispatch or approve | OSSC has every capability | Separation of duty still holds: nobody, OSSC included, can approve a cost they requested or a ticket they reported. All actions are audited. |
 | Facility manager views the worker directory | Workers are contacted directly; PCMS keeps only an optional free-text worker or vendor name on the ticket | There is no worker login, phone number field or directory. The name is staff-only and never appears in faculty responses or public timeline entries. |
 | Token `DB26C0123` | Token `C26-0123` | Tokens are references, not credentials; guessing one reveals nothing (404). |
@@ -41,7 +43,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 **Authorisation**
 - Checked by the server on every request.
 - Faculty only ever see their own tickets; anything else is 404.
-- Faculty responses never include internal notes, costs, worker names or staff names in the timeline.
+- Faculty responses never include staff messages, staff documents, costs, worker names or staff names.
+- Spending figures and the expenditure report are returned only to the principal, institute management and Team OSSC.
 - Only the reporter can rate a ticket, only after it is `Closed`. Another faculty member gets 404
   through the normal visibility check; staff get 403 because they can see the ticket but cannot rate.
 - A rating is a single immutable row per ticket, enforced by a unique constraint. The comment is
@@ -52,6 +55,10 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - The type is detected from the bytes, not the name or browser.
 - Photos are decoded and re-encoded, which drops EXIF and GPS. Videos are probed and remuxed without metadata.
 - Limits: 3 photos, 1 video of 20 MB and 30 s, 35 MB in total.
+- Staff documents (PDF, DOC, DOCX; any staff role): 10 MB each, 5 per ticket.
+  They cannot be re-encoded, so PDFs with `/JavaScript` or `/Launch` and Word files with macros are
+  refused, DOCX must contain `word/document.xml`, and they still pass ClamAV. They are never returned
+  to the reporter and are always served as downloads, never inline.
 - Files are stored under random keys in a private volume, held in quarantine until ClamAV clears
   them (production), and downloaded only after a permission check with `nosniff` and a sandbox CSP.
 

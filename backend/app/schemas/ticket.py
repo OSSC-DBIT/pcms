@@ -10,8 +10,8 @@ from app.schemas import CamelModel
 
 StatusName = Literal["Submitted", "Triaged", "Assigned", "InProgress", "OnHold", "AwaitingApproval",
                      "Resolved", "Closed", "Cancelled", "Rejected", "Duplicate"]
-ImpactName = Literal["safety", "class_interrupted", "multiple_areas", "routine"]
-PriorityName = Literal["P1", "P2", "P3", "P4"]
+# Severity the reporter picks: red (urgent or unsafe), orange (soon), green (routine).
+ImpactName = Literal["red", "orange", "green"]
 FlagName = Literal["I", "C", "P"]
 AssessmentName = Literal["simple", "workforce", "parts", "expenditure"]
 
@@ -96,6 +96,8 @@ class ProposalOut(CamelModel):
     requested_by_id: uuid.UUID
     remedy: str
     state: str
+    # "principal" or "management": who decides this version while it is pending.
+    stage: str = "principal"
     ceiling_paise: int | None = None
     conditions: str | None = None
     decided_by: str | None = None
@@ -123,9 +125,12 @@ class CommentOut(CamelModel):
 
 class AttachmentOut(CamelModel):
     id: uuid.UUID
-    kind: Literal["photo", "video"]
+    kind: Literal["photo", "video", "document"]
     name: str
     size_bytes: int
+    # Who added it. Faculty see their own name or "Facilities team", never a staff name.
+    uploaded_by: str = ""
+    uploaded_at: datetime | None = None
     state: Literal["pending", "scanning", "available", "failed"]
     failure_reason: str | None = None
     url: str | None = None
@@ -155,7 +160,6 @@ class TicketSummaryOut(CamelModel):
     location: LocationOut
     title: str
     impact: ImpactName
-    priority: PriorityName
     flag: FlagName | None = None
     assessments: list[AssessmentName]
     status: StatusName
@@ -195,11 +199,10 @@ class DuplicateOut(CamelModel):
 
 
 class TransitionIn(CamelModel):
-    action: Literal["triage", "set_priority", "set_flag", "recategorise", "hold", "resume", "assign", "start",
+    action: Literal["triage", "set_flag", "recategorise", "hold", "resume", "assign", "start",
                     "set_worker", "resolve", "verify", "dispute", "reopen", "duplicate", "reject", "cancel",
                     "close_unverified"]
     expected_version: int = Field(ge=1)
-    priority: PriorityName | None = None
     flag: FlagName | None = None
     category_code: str | None = Field(default=None, max_length=40)
     reason: str | None = Field(default=None, max_length=1000)
@@ -215,7 +218,8 @@ class TransitionIn(CamelModel):
 
 class CommentIn(CamelModel):
     body: str = Field(min_length=1, max_length=2000)
-    internal: bool = False
+    # Ignored: every message is staff-only since 2026-10-30. Kept so older clients still work.
+    internal: bool = True
 
     _c = field_validator("body", mode="after")(lambda v: _clean(v) or "")
 
@@ -235,7 +239,9 @@ class ProposalIn(CamelModel):
 
 
 class DecisionIn(CamelModel):
-    kind: Literal["approved", "rejected", "clarify", "defer"]
+    # The principal: approved, rejected or escalated (to institute management).
+    # Institute management: approved, rejected, clarify or defer.
+    kind: Literal["approved", "rejected", "clarify", "defer", "escalated"]
     proposal_version: int = Field(ge=1)
     ceiling_paise: int | None = Field(default=None, gt=0, le=10_000_000_000)
     conditions: str | None = Field(default=None, max_length=500)

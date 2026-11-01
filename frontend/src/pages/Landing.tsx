@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { BellRing, Camera, ClipboardCheck, Hammer, ShieldCheck, Smartphone } from 'lucide-react'
-import { CLUB, Footer, INSTITUTE, InstituteMark } from '../components/Brand'
+import { CLUB, Footer, INSTITUTE, InstituteMark, LanguageSwitcher } from '../components/Brand'
 import InstallCard from '../components/InstallCard'
 import { Button } from '../components/ui'
 import { useT } from '../lib/i18n'
@@ -18,7 +18,10 @@ export default function Landing() {
       <header className="safe-top border-b border-line bg-surface">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-3 md:px-8">
           <InstituteMark />
-          <Link to="/login"><Button size="sm">{t('landing.signIn')}</Button></Link>
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher compact />
+            <Link to="/login"><Button size="sm">{t('landing.signIn')}</Button></Link>
+          </div>
         </div>
       </header>
 

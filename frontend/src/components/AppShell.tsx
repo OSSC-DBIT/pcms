@@ -4,7 +4,7 @@ import { BarChart3, ClipboardList, Home, LayoutDashboard, PlusCircle, ScrollText
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../App'
 import NotificationPrompt from './NotificationPrompt'
-import { Footer, InstituteMark } from './Brand'
+import { Footer, InstituteMark, LanguageSwitcher } from './Brand'
 import { useT, type TKey } from '../lib/i18n'
 import { useOnline } from '../lib/hooks'
 import type { Capability } from '../lib/types'
@@ -20,9 +20,10 @@ const FACULTY: Item[] = [
 
 const STAFF: Item[] = [
   { to: '/staff', label: 'nav.queue', icon: LayoutDashboard, cap: 'queue.view', end: true },
-  { to: '/staff/approvals', label: 'nav.approvals', icon: Wallet, cap: 'cost.approve' },
+  { to: '/staff/approvals', label: 'nav.approvals', icon: Wallet, anyCap: ['cost.approve', 'cost.principal'] },
   { to: '/report', label: 'nav.report', icon: PlusCircle, cap: 'ticket.create' },
   // Secondary screens: reachable from the sidebar, but the phone tab bar has no room.
+  { to: '/tickets', label: 'nav.tickets', icon: ClipboardList, cap: 'ticket.create', mobile: false },
   { to: '/staff/reports', label: 'nav.reports', icon: BarChart3, cap: 'queue.view', mobile: false },
   { to: '/staff/audit', label: 'nav.audit', icon: ScrollText, cap: 'admin.audit', mobile: false },
   { to: '/staff/admin', label: 'nav.admin', icon: ShieldCheck, anyCap: ['admin.users', 'admin.catalogs', 'admin.locations', 'admin.audit'] },
@@ -40,17 +41,20 @@ export default function AppShell({ children }: { children: ReactNode }) {
     <div className="min-h-dvh md:flex">
       {user && <NotificationPrompt />}
       {/* Desktop sidebar */}
-      <aside className="hidden w-60 shrink-0 border-r border-line bg-surface md:flex md:flex-col">
+      {/* Pinned to the viewport so the footer stays at the bottom of the sidebar while the page scrolls. */}
+      <aside className="hidden w-60 shrink-0 border-r border-line bg-surface md:sticky md:top-0 md:flex md:h-dvh md:flex-col md:overflow-y-auto">
         <div className="px-5 py-5"><InstituteMark /></div>
         <nav aria-label="Main" className="flex-1 space-y-1 px-3">
           {items.map((i) => <SideLink key={i.to} item={i} label={t(i.label)} />)}
         </nav>
+        <div className="px-5 pb-3"><LanguageSwitcher /></div>
         {user && (
           <div className="border-t border-line px-5 py-4 text-[13px]">
             <p className="truncate font-medium">{user.name}</p>
             <p className="token text-muted">{user.email} · {t(`role.${user.role}`)}</p>
           </div>
         )}
+        <Footer compact />
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
@@ -60,12 +64,13 @@ export default function AppShell({ children }: { children: ReactNode }) {
             <img src="/pwa-64x64.png" alt="" width={24} height={24} className="rounded" />
             <span className="text-[15px] font-semibold">PCMS</span>
             <span className="text-[12.5px] text-muted">· DBIT Bengaluru</span>
-            {user && <span className="ml-auto truncate text-[12.5px] text-muted">{user.name}</span>}
+            <div className="ml-auto"><LanguageSwitcher compact /></div>
           </div>
         </header>
         {!online && <div role="status" className="bg-warn-soft px-4 py-2 text-center text-[13px]">{t('error.offline')}</div>}
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 pt-5 md:px-8 md:pt-8">{children}</main>
-        <Footer className="mt-8 pb-24 md:pb-5" />
+        {/* Phones have no sidebar, so the footer stays under the content there. */}
+        <Footer className="mt-8 pb-24 md:hidden" />
       </div>
 
       {/* Phone bottom tabs */}

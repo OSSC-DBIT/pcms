@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Building2, Camera, ImagePlus, Monitor, Wrench, X } from 'lucide-react'
 import { useAuth } from '../../App'
 import { Gallery, floorLabel } from '../../components/ticket'
-import { Alert, Button, Card, Checkbox, Field, Input, PageHeader, RadioList, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
+import { Alert, Button, Card, Checkbox, Field, Input, PageHeader, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, HttpError } from '../../lib/api'
 import { buildingDepartments, buildingName, buildings, categories, category, categoryName, categoryParts } from '../../lib/catalog'
 import { PrepareError, checkVideo, preparePhoto } from '../../lib/images'
 import { useT } from '../../lib/i18n'
-import { TERMINAL, type Draft, type Impact, type Status, type Ticket } from '../../lib/types'
+import { IMPACTS, TERMINAL, type Draft, type Impact, type Status, type Ticket } from '../../lib/types'
 import { uuid } from '../../lib/uuid'
 
 const DRAFT_KEY = 'pcms.drafts'
@@ -23,7 +23,7 @@ interface Media { id: string; file: File; kind: 'photo' | 'video'; preview?: str
 
 const emptyDraft = (): Draft => ({
   key: uuid(), savedAt: new Date().toISOString(), title: '', description: '', categoryCode: '',
-  location: { building: '', department: '', floor: '', room: '' }, impact: 'routine',
+  location: { building: '', department: '', floor: '', room: '' }, impact: 'green',
 })
 
 function loadDraft(): Draft {
@@ -32,8 +32,43 @@ function loadDraft(): Draft {
     const saved = d[0]
     if (!saved?.key) return emptyDraft()
     const empty = emptyDraft()
-    return { ...empty, ...saved, location: { ...empty.location, ...saved.location } }
+    return { ...empty, ...saved, impact: severityOf(saved.impact), location: { ...empty.location, ...saved.location } }
   } catch { return emptyDraft() }
+}
+
+/** Drafts saved before the red/orange/green severity used the old four answers. */
+function severityOf(v: string | undefined): Impact {
+  if (v === 'red' || v === 'orange' || v === 'green') return v
+  if (v === 'safety') return 'red'
+  if (v === 'class_interrupted' || v === 'multiple_areas') return 'orange'
+  return 'green'
+}
+
+const SEVERITY_STYLE: Record<Impact, { on: string; dot: string }> = {
+  red: { on: 'border-bad bg-bad-soft ring-2 ring-bad/25', dot: 'bg-bad' },
+  orange: { on: 'border-warn bg-warn-soft ring-2 ring-warn/25', dot: 'bg-warn' },
+  green: { on: 'border-ok bg-ok-soft ring-2 ring-ok/25', dot: 'bg-ok' },
+}
+
+/** Three colour-coded radio buttons. Native inputs, so keyboard and screen readers work as usual. */
+function SeverityPicker({ value, onChange }: { value: Impact; onChange: (v: Impact) => void }) {
+  const { t } = useT()
+  return (
+    <div role="radiogroup" aria-label={t('form.impact')} className="grid gap-2 sm:grid-cols-3">
+      {IMPACTS.map((v) => (
+        <label key={v} className={`flex min-h-12 cursor-pointer items-start gap-3 rounded-md border px-3.5 py-3 ${value === v ? SEVERITY_STYLE[v].on : 'border-line bg-surface hover:bg-subtle'}`}>
+          <input type="radio" name="impact" value={v} checked={value === v} onChange={() => onChange(v)} className="mt-0.5 h-5 w-5 accent-[var(--c-accent)]" />
+          <span>
+            <span className="flex items-center gap-2 text-[15px] font-medium">
+              <span className={`inline-block h-3 w-3 rounded-full ${SEVERITY_STYLE[v].dot}`} aria-hidden />
+              {t(`impact.${v}`)}
+            </span>
+            <span className="mt-0.5 block text-[13px] text-muted">{t(`impact.${v}Hint`)}</span>
+          </span>
+        </label>
+      ))}
+    </div>
+  )
 }
 
 function draftFromTicket(t: Ticket): Draft {
@@ -163,7 +198,7 @@ export default function Report() {
       const id = uuid()
       if (kind === 'video') {
         const bad = checkVideo(f)
-        setMedia((m) => [...m, { id, file: f, kind, error: bad ?? undefined, state: 'ready' }])
+        setMedia((m) => [...m, { id, file: f, kind, error: bad ? t(bad) : undefined, state: 'ready' }])
         continue
       }
       setMedia((m) => [...m, { id, file: f, kind, state: 'preparing' }])
@@ -171,7 +206,7 @@ export default function Report() {
         const prepared = await preparePhoto(f)
         setMedia((m) => m.map((x) => x.id === id ? { ...x, file: prepared, preview: URL.createObjectURL(prepared), state: 'ready' } : x))
       } catch (e) {
-        setMedia((m) => m.map((x) => x.id === id ? { ...x, error: e instanceof PrepareError ? e.message : t('form.photoReadError'), state: 'ready' } : x))
+        setMedia((m) => m.map((x) => x.id === id ? { ...x, error: e instanceof PrepareError ? t(e.key) : t('form.photoReadError'), state: 'ready' } : x))
       }
     }
   }
@@ -260,9 +295,6 @@ export default function Report() {
       setBusy(false)
     }
   }
-
-  const impacts = useMemo(() => (['safety', 'class_interrupted', 'multiple_areas', 'routine'] as Impact[])
-    .map((v) => ({ value: v, label: t(`impact.${v}`) })), [t])
 
   if (loading) return <Spinner />
   if (editing && unavailable) {
@@ -418,8 +450,8 @@ export default function Report() {
             </Field>
             <div>
               <p className="mb-1.5 text-[14px] font-medium">{t('form.impact')}</p>
-              <RadioList name="impact" value={d.impact} onChange={(v) => set({ impact: v })} options={impacts} />
-              {d.impact === 'safety' && <div className="mt-3"><Alert tone="bad">{t('form.safetyWarning')}</Alert></div>}
+              <SeverityPicker value={d.impact} onChange={(v) => set({ impact: v })} />
+              {d.impact === 'red' && <div className="mt-3"><Alert tone="bad">{t('form.safetyWarning')}</Alert></div>}
             </div>
             {!more
               ? <button type="button" className="text-left text-[14px] text-accent" onClick={() => setMore(true)}>+ {t('form.more')}</button>

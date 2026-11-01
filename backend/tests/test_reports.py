@@ -18,7 +18,7 @@ async def test_report_counts_and_permissions(client):
         await make_user("management@dbit.edu", "management")
         m = await sign_in(c, "management@dbit.edu")
         r = (await m.get(f"{API}/reports")).json()
-        assert r["untriaged"] == 2 and r["openByPriority"] == {"P2": 2}
+        assert r["untriaged"] == 2 and r["openBySeverity"] == {"orange": 2}
         assert r["repeatFaults"][0]["count"] == 2 and r["repeatFaults"][0]["room"] == "203"
 
 

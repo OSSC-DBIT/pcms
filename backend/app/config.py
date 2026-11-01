@@ -3,15 +3,23 @@
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="PCMS_", extra="ignore")
+    # Empty values in the env file mean "not set", so a blank placeholder keeps the default.
+    model_config = SettingsConfigDict(env_prefix="PCMS_", extra="ignore", env_ignore_empty=True)
 
     env: Literal["dev", "test", "prod"] = "dev"
-    database_url: str = "postgresql+asyncpg://pcms:pcms_dev@db:5432/pcms"
+    # Database login (PCMS_DB_*). The connection URL is built from these parts with the
+    # password escaped, so any character is safe. PCMS_DATABASE_URL, if set, is used instead.
+    database_url: str = ""
+    db_host: str = "db"
+    db_port: int = 5432
+    db_name: str = "pcms"
+    db_user: str = "pcms"
+    db_password: str = "pcms_dev"
     secret_key: str = Field(default="dev-only-change-me", min_length=16)
     # Encrypts the temporary passwords Team OSSC issues. Keep this separate from
     # secret_key. Chosen passwords are never stored reversibly.
@@ -49,7 +57,7 @@ class Settings(BaseSettings):
     clamav_required: bool = True
     public_media_ttl_seconds: int = 600
 
-    # Public base URL that Twilio can reach (cloudflared tunnel hostname).
+    # Public URL of the tunnel you run to nginx's public listener (webhooks and signed photos).
     public_base_url: str = "http://localhost:8081"
     # Campus URL people open (used in email links).
     public_app_url: str = "http://localhost:8080"
@@ -81,6 +89,17 @@ class Settings(BaseSettings):
     verify_reminder_days: int = 2
     auto_close_days: int = 5
 
+    @model_validator(mode="after")
+    def _database_url_from_parts(self) -> "Settings":
+        if not self.database_url:
+            from sqlalchemy.engine import URL
+
+            self.database_url = URL.create(
+                "postgresql+asyncpg", username=self.db_user, password=self.db_password,
+                host=self.db_host, port=self.db_port, database=self.db_name,
+            ).render_as_string(hide_password=False)
+        return self
+
     def check_production(self) -> list[str]:
         """Problems that must block a production start."""
         problems = []
@@ -92,8 +111,17 @@ class Settings(BaseSettings):
             problems.append("PCMS_CREDENTIAL_KEY must be a random value of at least 32 characters")
         if not self.cookie_secure:
             problems.append("PCMS_COOKIE_SECURE must be true (HTTPS only)")
-        if "pcms_dev" in self.database_url:
-            problems.append("PCMS_DATABASE_URL uses the development password")
+        from sqlalchemy.engine import make_url
+
+        try:
+            db_password = make_url(self.database_url).password
+        except Exception:  # noqa: BLE001 - any parse failure is a configuration error
+            db_password = None
+            problems.append("PCMS_DATABASE_URL is not a valid database URL")
+        if not db_password:
+            problems.append("PCMS_DB_PASSWORD is not set")
+        elif db_password in ("pcms_dev", "CHANGE_ME"):
+            problems.append("PCMS_DB_PASSWORD is still the development or placeholder value")
         if not self.clamav_required:
             problems.append("PCMS_CLAMAV_REQUIRED must be true")
         if self.messaging_provider == "fake":

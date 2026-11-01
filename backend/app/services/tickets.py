@@ -36,7 +36,8 @@ from app.security.deps import Principal
 from app.security.sessions import now
 from app.services import audit, notify
 
-PRIORITY_FROM_IMPACT = {"safety": "P1", "class_interrupted": "P2", "multiple_areas": "P3", "routine": "P4"}
+# The reporter's severity sets the internal reminder clock. Nobody sets a priority by hand.
+PRIORITY_FROM_IMPACT = {"red": "P1", "orange": "P2", "green": "P4"}
 # Gross next-update targets (plan 9.1). Service hours and holidays are a later refinement.
 NEXT_UPDATE = {"P1": timedelta(minutes=30), "P2": timedelta(hours=4), "P3": timedelta(days=2), "P4": timedelta(days=5)}
 
@@ -240,13 +241,13 @@ async def create_ticket(db: AsyncSession, p: Principal, body: TicketCreateIn) ->
             raise conflict("idempotency_conflict", "This request ID was already used for a different report.")
         return found, True
 
-    add_event(db, t, p.user, "Your report was received", to_status="Submitted")
+    add_event(db, t, p.user, "Report submitted", to_status="Submitted")
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.created", entity_type="ticket",
-                 entity_id=t.id, after={"token": t.token, "category": cat.code, "priority": priority, "impact": body.impact})
+                 entity_id=t.id, after={"token": t.token, "category": cat.code, "impact": body.impact})
     await notify.notify_reporter(db, t, template="receipt", title=f"Report received: {t.token}",
                                  body=f"{t.title}. Keep this token to track progress.")
     await notify.notify_role(db, "facility_manager", t, template="new_ticket",
-                             title=f"New {priority} report {t.token}", body=f"{cat.name_en}: {t.title}")
+                             title=f"New {body.impact} report {t.token}", body=f"{cat.name_en}: {t.title}")
     return t, False
 
 
@@ -274,7 +275,6 @@ def _edit_snapshot(t: Ticket, category_code: str | None) -> dict:
         "title": t.title,
         "description": t.description,
         "impact": t.impact,
-        "priority": t.priority,
         "accessNote": t.access_note,
         "altContact": t.alt_contact,
     }
@@ -373,7 +373,7 @@ def _summary_fields(t: Ticket, lk: Lookups, staff: bool) -> dict:
         proposal = ProposalOut(
             id=pr.id, version=pr.version, lines=[ProposalLineIO(label=ln.label, paise=ln.paise) for ln in lines],
             total_paise=pr.total_paise, requested_date=pr.requested_date, requested_by=lk.name(pr.requested_by),
-            requested_by_id=pr.requested_by, remedy=pr.remedy, state=pr.state,
+            requested_by_id=pr.requested_by, remedy=pr.remedy, state=pr.state, stage=pr.stage,
             ceiling_paise=d.ceiling_paise if d else None, conditions=d.conditions if d else None,
             decided_by=lk.name(d.decided_by) if d else None, decided_at=d.decided_at if d else None,
             reason=d.reason if d else None, review_date=d.review_date if d else None)
@@ -386,7 +386,7 @@ def _summary_fields(t: Ticket, lk: Lookups, staff: bool) -> dict:
         location=LocationOut(building=t.building_code or "", custom_location=t.custom_location,
                              department=t.department or "", floor=t.floor or "", room=t.room or "",
                              outdoors=t.outdoors, landmark=t.landmark),
-        title=t.title, impact=t.impact, priority=t.priority, flag=t.flag, assessments=t.assessments,
+        title=t.title, impact=t.impact, flag=t.flag, assessments=t.assessments,
         status=t.status, version=t.version, created_at=t.created_at, updated_at=t.updated_at,
         next_update_due=t.next_update_due if t.status not in TERMINAL else None,
         duplicate_of=t.duplicate_of_id, verified_by_reporter=t.verified_by_reporter,
@@ -405,10 +405,22 @@ async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
     cm_q = select(TicketComment).where(TicketComment.ticket_id == t.id).order_by(TicketComment.created_at)
     if not staff:
         ev_q = ev_q.where(TicketEvent.public)
-        cm_q = cm_q.where(TicketComment.internal.is_(False))
+    att_q = select(Attachment).where(Attachment.ticket_id == t.id).order_by(Attachment.created_at)
+    if not staff:
+        # Staff documents (quotes, approvals, reports) are internal.
+        att_q = att_q.where(Attachment.kind != "document")
     events = (await db.scalars(ev_q)).all()
-    comments = (await db.scalars(cm_q)).all()
-    atts = (await db.scalars(select(Attachment).where(Attachment.ticket_id == t.id).order_by(Attachment.created_at))).all()
+    # Messages are a staff discussion; faculty never receive them.
+    comments = (await db.scalars(cm_q)).all() if staff else []
+    atts = (await db.scalars(att_q)).all()
+    missing = {a.uploaded_by for a in atts} - set(lk.users)
+    if missing:
+        lk.users.update({u.id: u for u in (await db.scalars(select(User).where(User.id.in_(missing)))).all()})
+
+    def uploader(a: Attachment) -> str:
+        # Faculty see their own name, and the team rather than individual staff names.
+        return lk.name(a.uploaded_by) if staff or a.uploaded_by == p.user.id else "Facilities team"
+
     rating = await db.scalar(select(TicketRating).where(TicketRating.ticket_id == t.id))
     return TicketOut(
         **_summary_fields(t, lk, staff),
@@ -421,7 +433,7 @@ async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
                 for e in events],
         comments=[CommentOut(id=c.id, at=c.created_at, actor=c.author_label, body=c.body, internal=c.internal) for c in comments],
         attachments=[AttachmentOut(id=a.id, kind=a.kind, name=a.original_name, size_bytes=a.size_bytes, state=a.state,
-                                   failure_reason=a.failure_reason,
+                                   uploaded_by=uploader(a), uploaded_at=a.created_at, failure_reason=a.failure_reason,
                                    url=f"/api/v1/attachments/{a.id}/content" if a.state == "available" else None)
                      for a in atts],
     )

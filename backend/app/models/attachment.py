@@ -11,12 +11,14 @@ from app.db import Base
 from app.models.base import uuid_pk
 
 ATTACHMENT_STATES = ("pending", "scanning", "available", "failed")
+# Documents (PDF, Word) are added by staff and are never shown to the reporter.
+ATTACHMENT_KINDS = ("photo", "video", "document")
 
 
 class Attachment(Base):
     __tablename__ = "attachment"
     __table_args__ = (
-        CheckConstraint("kind IN ('photo', 'video')", name="attachment_kind_valid"),
+        CheckConstraint(f"kind IN ({', '.join(repr(k) for k in ATTACHMENT_KINDS)})", name="attachment_kind_valid"),
         CheckConstraint(f"state IN ({', '.join(repr(s) for s in ATTACHMENT_STATES)})", name="attachment_state_valid"),
         CheckConstraint("size_bytes > 0", name="attachment_size_positive"),
         Index("ix_attachment_ticket", "ticket_id"),
@@ -28,7 +30,7 @@ class Attachment(Base):
     uploaded_by: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id"), nullable=False)
     kind: Mapped[str] = mapped_column(String(8), nullable=False)
     original_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    content_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     storage_key: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)

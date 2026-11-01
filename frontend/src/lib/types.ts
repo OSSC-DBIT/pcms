@@ -1,4 +1,4 @@
-export type Role = 'faculty' | 'ossc' | 'facility_manager' | 'management'
+export type Role = 'faculty' | 'ossc' | 'facility_manager' | 'management' | 'principal'
 
 export interface User {
   id: string
@@ -11,7 +11,8 @@ export interface User {
 export type Capability =
   | 'ticket.create' | 'ticket.track' | 'ticket.verify'
   | 'queue.view' | 'ticket.triage' | 'ticket.assign' | 'ticket.assess' | 'ticket.escalate' | 'ticket.close'
-  | 'cost.approve'
+  | 'ticket.attach'
+  | 'cost.approve' | 'cost.principal'
   | 'admin.users' | 'admin.catalogs' | 'admin.locations' | 'admin.settings' | 'admin.audit'
 
 /** What the sign-in flow needs next. Protected screens work only once this is 'done'. */
@@ -31,10 +32,11 @@ export type Status =
 
 export const TERMINAL: Status[] = ['Closed', 'Cancelled', 'Rejected', 'Duplicate']
 
-export type Priority = 'P1' | 'P2' | 'P3' | 'P4'
 export type WorkFlag = 'I' | 'C' | 'P'
 export type Assessment = 'simple' | 'workforce' | 'parts' | 'expenditure'
-export type Impact = 'safety' | 'class_interrupted' | 'multiple_areas' | 'routine'
+/** Severity the reporter picks: red (urgent or unsafe), orange (soon), green (routine). */
+export type Impact = 'red' | 'orange' | 'green'
+export const IMPACTS: Impact[] = ['red', 'orange', 'green']
 export type Channel = 'whatsapp' | 'sms' | 'call' | 'card'
 
 export interface Location {
@@ -51,11 +53,15 @@ export interface Location {
 
 export interface Attachment {
   id: string
-  kind: 'photo' | 'video'
+  /** Documents (PDF, Word) are staff-only and never returned to faculty. */
+  kind: 'photo' | 'video' | 'document'
   name: string
   sizeBytes: number
   state: 'pending' | 'scanning' | 'available' | 'failed'
   failureReason?: string | null
+  /** Who added it. Faculty see their own name or "Facilities team", never a staff name. */
+  uploadedBy: string
+  uploadedAt?: string | null
   /** Authorised download URL; only set when state is 'available'. */
   url?: string | null
 }
@@ -77,7 +83,9 @@ export interface Comment {
   internal: boolean
 }
 
-export type DecisionKind = 'approved' | 'rejected' | 'clarify' | 'defer'
+export type DecisionKind = 'approved' | 'rejected' | 'clarify' | 'defer' | 'escalated'
+/** Who decides a pending proposal. Management may escalate to the principal. */
+export type ProposalStage = 'management' | 'principal'
 
 export interface Proposal {
   id: string
@@ -89,6 +97,7 @@ export interface Proposal {
   requestedById: string
   remedy: string
   state: 'pending' | DecisionKind | 'superseded'
+  stage: ProposalStage
   ceilingPaise?: number | null
   conditions?: string | null
   decidedBy?: string | null
@@ -109,7 +118,6 @@ export interface TicketSummary {
   location: Location
   title: string
   impact: Impact
-  priority: Priority
   flag?: WorkFlag | null
   assessments: Assessment[]
   status: Status
@@ -217,7 +225,7 @@ export interface Report {
   generatedAt: string
   days: number
   openByStatus: Record<string, number>
-  openByPriority: Record<string, number>
+  openBySeverity: Record<string, number>
   untriaged: number
   overdueUpdates: number
   pendingApprovals: number
@@ -227,13 +235,51 @@ export interface Report {
   repeatFaults: { building: string | null; room: string | null; category: string | null; count: number }[]
   triageTime: Percentiles
   resolutionTime: Percentiles
-  approvedPaise: number
+  /** Null for roles that do not decide spending (the facility manager). */
+  approvedPaise: number | null
   ratings: {
     count: number
     average: number | null
     distribution: Record<string, number>
     low: LowRating[]
   }
+}
+
+// ---------- expenditure ----------
+
+export type ExpenditureStatus =
+  | 'pending_principal' | 'pending_management' | 'approved' | 'rejected' | 'clarify' | 'defer' | 'superseded'
+
+/** One expenditure request. An escalated request is shown once, with its final decision. */
+export interface ExpenditureItem {
+  ticketId: string
+  token: string
+  title: string
+  category: string
+  building: string | null
+  department: string | null
+  raisedAt: string
+  requestedBy: string
+  estimatePaise: number
+  status: ExpenditureStatus
+  decidedBy: string | null
+  decidedAt: string | null
+  approvedPaise: number | null
+  escalated: boolean
+  note: string | null
+}
+
+export interface Expenditure {
+  period: string
+  requests: number
+  requestedPaise: number
+  approvedPaise: number
+  pendingPaise: number
+  approvedCount: number
+  pendingCount: number
+  rejectedCount: number
+  byCategory: { category: string; requests: number; requestedPaise: number; approvedPaise: number }[]
+  items: ExpenditureItem[]
 }
 
 // ---------- audit ----------
@@ -253,4 +299,4 @@ export interface AuditEvent {
 }
 
 /** Server-side sort order for the ticket list. */
-export type TicketSort = 'newest' | 'oldest' | 'priority' | 'updated'
+export type TicketSort = 'newest' | 'oldest' | 'severity' | 'updated'

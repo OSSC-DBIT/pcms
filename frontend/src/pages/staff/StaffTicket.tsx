@@ -1,26 +1,29 @@
 /**
  * Staff ticket page. The highlighted card is always the next step of the flow DBIT confirmed:
- *   1. Review: accept (with priority) or reject with a reason.
+ *   1. Review: accept or reject with a reason. The reporter's red/orange/green severity is shown;
+ *      there is no manual priority.
  *   2. Contact a worker directly and record the state. PCMS sends no worker messages.
  *   3. After the worker looks at it, choose the next step:
  *        Immediate  -> fix it now, then mark as fixed
  *        Critical   -> send to institute management (reason, optional cost)
  *        Postpone   -> on hold with a reason and review date
- *   4. Management decides critical tickets; the reporter confirms the fix and rates the repair.
+ *   4. Management decides critical tickets and may send them to the principal, who approves,
+ *      rejects or escalates. The reporter confirms the fix and rates the repair.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Clock, MessageSquare, Wrench } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog, type FormField } from '../../components/ActionDialog'
-import { Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, ago } from '../../components/ticket'
+import { Documents, Gallery, Messages, RatingSummary, TicketSummaryCard, Timeline, ago } from '../../components/ticket'
 import { Alert, Badge, Button, Card, Chips, Field, Input, Select, Spinner, Stack, Textarea, errorMessage } from '../../components/ui'
 import { api, formatPaise, HttpError, parseRupees, type TransitionAction } from '../../lib/api'
 import { categories, category, categoryName } from '../../lib/catalog'
 import { useT } from '../../lib/i18n'
-import { TERMINAL, type Assessment, type Channel, type DecisionKind, type Priority, type Ticket } from '../../lib/types'
+import { TERMINAL, type Assessment, type Channel, type DecisionKind, type Ticket } from '../../lib/types'
 
 type Run = (fn: () => Promise<Ticket>) => Promise<boolean>
+type DecideMode = 'management' | 'principal'
 interface Action { key: string; label: string; danger?: boolean; fields: FormField[]; description?: string; build: (v: Record<string, string>) => TransitionAction }
 
 export default function StaffTicket() {
@@ -51,7 +54,13 @@ export default function StaffTicket() {
   const s = ticket.status
   const p = ticket.proposal
   const approvedCritical = ticket.flag === 'C' && p?.state === 'approved'
-  const canDecide = can('cost.approve') && p?.state === 'pending' && p.requestedById !== user?.id && ticket.reporterId !== user?.id
+  // The principal decides first and may escalate to institute management. The server enforces the same rule.
+  const mode: DecideMode | null = p?.state !== 'pending' || p.requestedById === user?.id || ticket.reporterId === user?.id ? null
+    : p.stage === 'principal' && can('cost.principal') ? 'principal'
+      : p.stage === 'management' && can('cost.approve') ? 'management' : null
+  const canDecide = mode !== null
+  const withPrincipal = p?.state === 'pending' && p.stage === 'principal'
+  const withManagement = p?.state === 'pending' && p.stage === 'management'
 
   return (
     <Stack>
@@ -60,8 +69,9 @@ export default function StaffTicket() {
         <Stack>
           <TicketSummaryCard ticket={ticket}>
             <div className="mt-3 flex flex-wrap gap-2">
-              <Badge>{t('ticket.priority', { priority: ticket.priority })}</Badge>
               {approvedCritical && <Badge tone="ok">{t('ticket.spendingApproved')}</Badge>}
+              {withPrincipal && <Badge tone="warn">{t('ticket.stagePrincipal')}</Badge>}
+              {withManagement && <Badge tone="warn">{t('ticket.stageManagement')}</Badge>}
               {ticket.originalCategoryCode !== ticket.categoryCode && <Badge>{t('ticket.reportedAs', { name: categoryName(category(ticket.originalCategoryCode), lang) })}</Badge>}
               <Badge>{t('ticket.age', { age: ago(ticket.createdAt, t, lang) })}</Badge>
             </div>
@@ -78,18 +88,22 @@ export default function StaffTicket() {
           {can('ticket.assign') && s === 'Assigned' && <StartStep ticket={ticket} busy={busy} run={run} />}
           {can('ticket.assess') && (s === 'Assigned' || s === 'InProgress') && <AssessStep ticket={ticket} busy={busy} run={run} />}
           {can('ticket.triage') && (s === 'Assigned' || s === 'InProgress') && <FlagStep key={ticket.id} ticket={ticket} busy={busy} run={run} managerName={user?.name ?? 'Facilities'} approved={approvedCritical} />}
-          {s === 'AwaitingApproval' && !canDecide && <Alert tone="info" title={t('ticket.managementWaiting')}>{t('ticket.managementWaitingBody')}</Alert>}
-          {p && <ManagementCard ticket={ticket} busy={busy} run={run} canDecide={!!canDecide} />}
+          {s === 'AwaitingApproval' && !canDecide && (withManagement
+            ? <Alert tone="info" title={t('ticket.managementWaiting')}>{t('ticket.managementWaitingBody')}</Alert>
+            : <Alert tone="info" title={t('ticket.principalWaiting')}>{t('ticket.principalWaitingBody')}</Alert>)}
+          {/* Keyed by proposal so an escalated version starts with fresh choices. */}
+          {p && <ManagementCard key={p.id} ticket={ticket} busy={busy} run={run} mode={mode} />}
           {s === 'Resolved' && <Alert tone="info" title={t('ticket.reporterCheck')}>{t('ticket.reporterCheckBody')}</Alert>}
           <RatingCard ticket={ticket} />
 
-          <Card title={t('ticket.photosVideo')}><Gallery ticket={ticket} canAdd={!TERMINAL.includes(s)} onChanged={load} /></Card>
+          <Card title={t('ticket.photosVideo')}><Gallery ticket={ticket} canAdd={can('ticket.attach') && !TERMINAL.includes(s)} onChanged={load} /></Card>
+          <Card title={t('ticket.documents')}><Documents ticket={ticket} canAdd={can('ticket.attach') && !TERMINAL.includes(s)} onChanged={load} /></Card>
         </Stack>
 
         <Stack>
           <MoreActions ticket={ticket} onPick={setDialog} />
           <Card title={t('ticket.messagesNotes')}>
-            <Messages staff comments={ticket.comments} onSend={async (body, internal) => { setTicket(await api.addComment(ticket, body, internal)) }} />
+            <Messages comments={ticket.comments} onSend={async (body) => { setTicket(await api.addComment(ticket, body)) }} />
           </Card>
           <Card title={t('ticket.history')}><Timeline events={ticket.events} /></Card>
         </Stack>
@@ -111,20 +125,14 @@ function Next({ title, children }: { title: string; children: ReactNode }) {
 
 function ReviewStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run: Run }) {
   const { t } = useT()
-  const [priority, setPriority] = useState<Priority>(ticket.priority)
   const [rejecting, setRejecting] = useState(false)
   const [reason, setReason] = useState('')
   return (
     <Next title={t('ticket.step1')}>
       <Stack>
-        <div>
-          <p className="mb-1.5 text-[14px] font-medium">{t('ticket.priorityLabel')}</p>
-          <Chips label={t('ticket.priorityLabel')} value={priority} onChange={setPriority} options={[
-            { value: 'P1', label: t('priority.P1') }, { value: 'P2', label: t('priority.P2') }, { value: 'P3', label: t('priority.P3') }, { value: 'P4', label: t('priority.P4') }]} />
-        </div>
         {!rejecting ? (
           <div className="flex flex-wrap gap-2">
-            <Button loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'triage', priority }))}>{t('action.accept')}</Button>
+            <Button loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'triage' }))}>{t('action.accept')}</Button>
             <Button variant="danger" onClick={() => setRejecting(true)}>{t('action.reject')}</Button>
           </div>
         ) : (
@@ -330,9 +338,21 @@ function RatingCard({ ticket }: { ticket: Ticket }) {
   return <Card title={t('ticket.reporterRating')}><p className="text-[14px] text-muted">{t('ticket.notRated')}</p></Card>
 }
 
-function ManagementCard({ ticket, busy, run, canDecide }: { ticket: Ticket; busy: boolean; run: Run; canDecide: boolean }) {
+/**
+ * The principal: approve, reject, or escalate to institute management.
+ * Institute management (after escalation): approve, request clarification, defer or reject.
+ */
+function ManagementCard({ ticket, busy, run, mode }: { ticket: Ticket; busy: boolean; run: Run; mode: DecideMode | null }) {
   const { t } = useT()
   const p = ticket.proposal!
+  const canDecide = mode !== null
+  const kinds: { value: DecisionKind; label: string }[] = mode === 'principal'
+    ? [{ value: 'approved', label: t('decision.approved') }, { value: 'rejected', label: t('decision.rejected') },
+      { value: 'escalated', label: t('decision.escalated') }]
+    : [{ value: 'approved', label: t('decision.approved') }, { value: 'clarify', label: t('decision.clarify') },
+      { value: 'defer', label: t('decision.defer') }, { value: 'rejected', label: t('decision.rejected') }]
+  const reasonLabel = (k: DecisionKind) => k === 'clarify' ? t('ticket.questionForManager')
+    : k === 'escalated' ? t('ticket.escalateReason') : t('ticket.reasonNextStep')
   const [kind, setKind] = useState<DecisionKind>('approved')
   const [ceiling, setCeiling] = useState(p.totalPaise ? String(p.totalPaise / 100) : '')
   const [text, setText] = useState('')
@@ -353,8 +373,7 @@ function ManagementCard({ ticket, busy, run, canDecide }: { ticket: Ticket; busy
       )}
       {canDecide && (
         <Stack className="mt-4">
-          <Chips label={t('ticket.decision')} value={kind} onChange={setKind} options={[
-            { value: 'approved', label: t('decision.approved') }, { value: 'clarify', label: t('decision.clarify') }, { value: 'defer', label: t('decision.defer') }, { value: 'rejected', label: t('decision.rejected') }]} />
+          <Chips label={t('ticket.decision')} value={kind} onChange={setKind} options={kinds} />
           {kind === 'approved' && (
             <>
               <Field label={t('ticket.approvedUpTo')} optional={p.totalPaise === 0} hint={t('ticket.approvedUpToHint')}>
@@ -363,7 +382,7 @@ function ManagementCard({ ticket, busy, run, canDecide }: { ticket: Ticket; busy
               <Field label={t('ticket.conditions')} optional>{(id) => <Input id={id} maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />}</Field>
             </>
           )}
-          {kind !== 'approved' && <Field label={kind === 'clarify' ? t('ticket.questionForManager') : t('ticket.reasonNextStep')}>{(id) => <Textarea id={id} rows={2} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />}</Field>}
+          {kind !== 'approved' && <Field label={reasonLabel(kind)}>{(id) => <Textarea id={id} rows={2} maxLength={1000} value={text} onChange={(e) => setText(e.target.value)} />}</Field>}
           {kind === 'defer' && <Field label={t('ticket.reviewDate')}>{(id) => <Input id={id} type="date" value={review} onChange={(e) => setReview(e.target.value)} className="sm:w-56" />}</Field>}
           <Button className="self-start" loading={busy} disabled={!ok} variant={kind === 'rejected' ? 'danger' : 'primary'}
             onClick={() => run(() => api.decide(p, kind, kind === 'approved'
@@ -383,11 +402,6 @@ function MoreActions({ ticket, onPick }: { ticket: Ticket; onPick: (a: Action) =
   const s = ticket.status
   const reason = (label = t('action.reason')): FormField => ({ name: 'reason', label, type: 'textarea', required: true })
   const list: Action[] = []
-  if (can('ticket.triage') && !TERMINAL.includes(s) && s !== 'Submitted') {
-    list.push({ key: 'prio', label: t('ticket.changePriority'), fields: [{ name: 'priority', label: t('ticket.newPriority'), type: 'select', required: true,
-      options: (['P1', 'P2', 'P3', 'P4'] as const).filter((x) => x !== ticket.priority).map((x) => ({ value: x, label: x })) }, reason()],
-      build: (v) => ({ action: 'set_priority', priority: v.priority as Priority, reason: v.reason }) })
-  }
   if (can('ticket.triage') && ['Submitted', 'Triaged'].includes(s)) {
     list.push({ key: 'dup', label: t('ticket.markDuplicate'), fields: [{ name: 'token', label: t('ticket.originalToken'), required: true, placeholder: 'C26-0001' }],
       build: (v) => ({ action: 'duplicate', canonicalToken: v.token.toUpperCase() }) })

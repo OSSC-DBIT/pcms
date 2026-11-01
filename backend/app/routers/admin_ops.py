@@ -12,7 +12,7 @@ POST  /admin/categories   PATCH /admin/categories/{code}
 POST  /admin/buildings    PATCH /admin/buildings/{code}
 """
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 import uuid
 from typing import Literal
@@ -33,7 +33,7 @@ from app.models.ticket import TERMINAL, Ticket
 from app.models.user import User
 from app.models.worker import Worker
 from app.schemas import CamelModel
-from app.security.deps import Principal, require
+from app.security.deps import Principal, require, require_any
 from app.security.sessions import now
 from app.services import audit
 from app.services import reporting as rep
@@ -76,7 +76,7 @@ class ReportOut(CamelModel):
     generated_at: datetime
     days: int
     open_by_status: dict[str, int]
-    open_by_priority: dict[str, int]
+    open_by_severity: dict[str, int]
     untriaged: int
     overdue_updates: int
     pending_approvals: int
@@ -86,7 +86,8 @@ class ReportOut(CamelModel):
     repeat_faults: list[dict]
     triage_time: Percentiles
     resolution_time: Percentiles
-    approved_paise: int
+    # None for roles that do not decide spending (the facility manager).
+    approved_paise: int | None
     ratings: RatingReport
 
 
@@ -99,29 +100,40 @@ async def _percentiles(db: AsyncSession, expr: str, where: str, params: dict) ->
                        p90_hours=round(row[2], 2) if row[2] is not None else None)
 
 
+# Every report and download takes the same period: a From date and a To date
+# (whole days, both included). `days` remains for older callers.
+DaysQ = Query(None, ge=1, le=731)
+FromQ = Query(None, alias="from")
+ToQ = Query(None, alias="to")
+
+
 @router.get("/reports", response_model=ReportOut)
-async def report(days: int = Query(30, ge=1, le=366), building: str | None = Query(None, max_length=20),
+async def report(days: int | None = DaysQ, start: date | None = FromQ, end: date | None = ToQ,
+                 building: str | None = Query(None, max_length=20),
                  department: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
-                 _: Principal = Depends(require("queue.view")), db: AsyncSession = Depends(get_session)) -> ReportOut:
-    return await build_report(db, days, building, department, category)
+                 p: Principal = Depends(require("queue.view")), db: AsyncSession = Depends(get_session)) -> ReportOut:
+    since, until, _label = rep.window(days, start, end)
+    r = await build_report(db, since, until, building, department, category)
+    if not can_see_spending(p):
+        r.approved_paise = None  # spending is for the principal, management and Team OSSC
+    return r
 
 
-async def build_report(db: AsyncSession, days: int, building: str | None,
+async def build_report(db: AsyncSession, since: datetime, until: datetime, building: str | None,
                        department: str | None, category: str | None) -> ReportOut:
     """The dashboard the Reports page shows, reused by the PDF export."""
     await rep.validate_department(db, building, department)
     cid = await rep.category_id_of(db, category)
-    since = now() - timedelta(days=days)
     scope_flt = rep.ticket_filters(building, department, cid)
     scope_sql, scope_params = rep.raw_scope(building, department, cid)
-    params = {"since": since, **scope_params}
+    params = {"since": since, "until": until, **scope_params}
 
     flt = [Ticket.status.not_in(TERMINAL), *scope_flt]
-    window_where = "t.created_at >= :since" + scope_sql
+    window_where = "t.created_at >= :since AND t.created_at < :until" + scope_sql
     open_q = select(Ticket).where(*flt).subquery()
 
     by_status = dict((await db.execute(select(open_q.c.status, func.count()).group_by(open_q.c.status))).all())
-    by_priority = dict((await db.execute(select(open_q.c.priority, func.count()).group_by(open_q.c.priority))).all())
+    by_severity = dict((await db.execute(select(open_q.c.impact, func.count()).group_by(open_q.c.impact))).all())
     overdue = await db.scalar(select(func.count()).select_from(open_q).where(open_q.c.next_update_due < now())) or 0
     holds = [{"reason": r, "count": n} for r, n in (await db.execute(
         select(open_q.c.hold_reason, func.count()).where(open_q.c.status == "OnHold")
@@ -129,7 +141,7 @@ async def build_report(db: AsyncSession, days: int, building: str | None,
     disputes = await db.scalar(text(
         "SELECT count(*) FROM ticket_event e JOIN ticket t ON t.id = e.ticket_id "
         "WHERE e.to_status = 'Triaged' AND e.from_status IN ('Resolved','Closed') "
-        "AND e.at >= :since" + scope_sql), params) or 0
+        "AND e.at >= :since AND e.at < :until" + scope_sql), params) or 0
     failed = await db.scalar(select(func.count()).select_from(Outbox).where(Outbox.state == "action_required", Outbox.acknowledged.is_(False))) or 0
     repeat = [{"building": b, "room": r, "category": c, "count": n} for b, r, c, n in (await db.execute(text(f"""
         SELECT t.building_code, t.room, cat.code, count(*) FROM ticket t JOIN category cat ON cat.id = t.category_id
@@ -138,11 +150,12 @@ async def build_report(db: AsyncSession, days: int, building: str | None,
                                 window_where, params)
     resolution = await _percentiles(db, "t.resolved_at - t.created_at", window_where + " AND t.resolved_at IS NOT NULL", params)
     approved = await db.scalar(text("""
-        SELECT coalesce(sum(d.ceiling_paise), 0) FROM decision d WHERE d.kind = 'approved' AND d.decided_at >= :since"""),
-        {"since": since}) or 0
+        SELECT coalesce(sum(d.ceiling_paise), 0) FROM decision d
+        WHERE d.kind = 'approved' AND d.decided_at >= :since AND d.decided_at < :until"""),
+        {"since": since, "until": until}) or 0
 
     # Ratings are on closed tickets, so they use their own window and no open-status filter.
-    rating_flt = [TicketRating.created_at >= since, *scope_flt]
+    rating_flt = [TicketRating.created_at >= since, TicketRating.created_at < until, *scope_flt]
     rating_join = select(func.count()).select_from(TicketRating).join(
         Ticket, Ticket.id == TicketRating.ticket_id).where(*rating_flt)
     rating_count = await db.scalar(rating_join) or 0
@@ -162,7 +175,8 @@ async def build_report(db: AsyncSession, days: int, building: str | None,
                      created_at=tr.created_at, category=code, building=t.building_code, room=t.room)
            for tr, t, code in low_rows]
 
-    return ReportOut(generated_at=now(), days=days, open_by_status=by_status, open_by_priority=by_priority,
+    days = max(1, round((until - since).total_seconds() / 86400))
+    return ReportOut(generated_at=now(), days=days, open_by_status=by_status, open_by_severity=by_severity,
                      untriaged=by_status.get("Submitted", 0), overdue_updates=overdue,
                      pending_approvals=by_status.get("AwaitingApproval", 0), holds_by_reason=holds, disputes=disputes,
                      failed_notifications=failed, repeat_faults=repeat, triage_time=triage, resolution_time=resolution,
@@ -213,74 +227,79 @@ async def annual_report(year: int | None = Query(None, ge=2000, le=2100), buildi
 
 
 @router.get("/reports/tickets.csv")
-async def export_tickets(days: int = Query(90, ge=1, le=731), building: str | None = Query(None, max_length=20),
+async def export_tickets(days: int | None = DaysQ, start: date | None = FromQ, end: date | None = ToQ,
+                         building: str | None = Query(None, max_length=20),
                          department: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
                          p: Principal = Depends(require("queue.view")), db: AsyncSession = Depends(get_session)) -> Response:
     await rep.validate_department(db, building, department)
     cid = await rep.category_id_of(db, category)
-    since = now() - timedelta(days=days)
+    since, until, label = rep.window(days, start, end, default_days=90)
     rows = (await db.execute(
-        select(Ticket, Category.code, User.email, TicketRating.stars)
+        select(Ticket, Category.code, User.email, User.name, User.role, TicketRating.stars)
         .join(Category, Category.id == Ticket.category_id)
         .join(User, User.id == Ticket.reporter_id)
         .outerjoin(TicketRating, TicketRating.ticket_id == Ticket.id)
-        .where(Ticket.created_at >= since, *rep.ticket_filters(building, department, cid))
+        .where(Ticket.created_at >= since, Ticket.created_at < until, *rep.ticket_filters(building, department, cid))
         .order_by(Ticket.created_at))).all()
     body = to_csv(
         ["token", "created_at", "updated_at", "category", "subtype", "building", "department", "floor", "room",
-         "outdoors", "priority", "status", "title", "resolved_at", "resolution_hours", "closed_at",
-         "verified_by_reporter", "rating", "reporter_email"],
+         "outdoors", "severity", "status", "title", "resolved_at", "resolution_hours", "closed_at",
+         "verified_by_reporter", "rating", "reporter_name", "reporter_role", "reporter_email"],
         [[t.token, t.created_at.isoformat(), t.updated_at.isoformat(), code, t.subtype or "", t.building_code or "",
           t.department or ("" if t.outdoors else t.custom_location or ""), t.floor or "", t.room or t.landmark or "",
-          "yes" if t.outdoors else "", t.priority, t.status, t.title,
+          "yes" if t.outdoors else "", t.impact, t.status, t.title,
           t.resolved_at.isoformat() if t.resolved_at else "",
           f"{(t.resolved_at - t.created_at).total_seconds() / 3600.0:.1f}" if t.resolved_at else "",
           t.closed_at.isoformat() if t.closed_at else "",
           "" if t.verified_by_reporter is None else str(t.verified_by_reporter),
-          "" if stars is None else str(stars), email]
-         for t, code, email, stars in rows])
+          "" if stars is None else str(stars), name, role, email]
+         for t, code, email, name, role, stars in rows])
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.tickets", entity_type="export",
-                 entity_id="tickets", after={"days": days, "building": building, "department": department,
+                 entity_id="tickets", after={"period": label, "building": building, "department": department,
                                              "category": category, "rows": len(rows)})
     await db.commit()
     return Response(body, media_type="text/csv; charset=utf-8", headers={
-        "Content-Disposition": f'attachment; filename="PCMS_Report_{now():%Y-%m-%d}.csv"', "Cache-Control": "no-store"})
+        "Content-Disposition": f'attachment; filename="PCMS_Report_{rep.file_stamp(since, until)}.csv"',
+        "Cache-Control": "no-store"})
 
 
 @router.get("/reports/export.xlsx")
-async def export_xlsx(days: int = Query(90, ge=1, le=731), building: str | None = Query(None, max_length=20),
+async def export_xlsx(days: int | None = DaysQ, start: date | None = FromQ, end: date | None = ToQ,
+                      building: str | None = Query(None, max_length=20),
                       department: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
                       p: Principal = Depends(require("queue.view")), db: AsyncSession = Depends(get_session)) -> Response:
     """A styled multi-sheet workbook of the same filtered dataset as the CSV."""
     await rep.validate_department(db, building, department)
     cid = await rep.category_id_of(db, category)
-    since = now() - timedelta(days=days)
+    since, until, label = rep.window(days, start, end, default_days=90)
     scope_flt = rep.ticket_filters(building, department, cid)
     scope_sql, params = rep.raw_scope(building, department, cid)
+    params = {**params, "since": since, "until": until}
     date_col = "AT TIME ZONE '%s'" % get_settings().timezone  # fixed constant, safe to inline
 
     details = (await db.execute(
-        select(Ticket, Category, User.email, TicketRating.stars)
+        select(Ticket, Category, User.email, User.name, User.role, TicketRating.stars)
         .join(Category, Category.id == Ticket.category_id)
         .join(User, User.id == Ticket.reporter_id)
         .outerjoin(TicketRating, TicketRating.ticket_id == Ticket.id)
-        .where(Ticket.created_at >= since, *scope_flt).order_by(Ticket.created_at))).all()
+        .where(Ticket.created_at >= since, Ticket.created_at < until, *scope_flt).order_by(Ticket.created_at))).all()
     sheet_details = ([["token", "created_at", "updated_at", "category", "subtype", "building", "department",
-                       "floor", "room", "outdoors", "priority", "status", "title",
-                       "resolved_at", "closed_at", "rating", "reporter_email"]]
+                       "floor", "room", "outdoors", "severity", "status", "title",
+                       "resolved_at", "closed_at", "rating", "reporter_name", "reporter_role", "reporter_email"]]
                      + [[t.token, ist_stamp(t.created_at), ist_stamp(t.updated_at), cat.name_en, t.subtype or "",
                          t.building_code or "", t.department or ("" if t.outdoors else t.custom_location or ""),
-                         t.floor or "", t.room or t.landmark or "", "yes" if t.outdoors else "", t.priority, t.status,
+                         t.floor or "", t.room or t.landmark or "", "yes" if t.outdoors else "", t.impact, t.status,
                          t.title, ist_stamp(t.resolved_at) if t.resolved_at else "", ist_stamp(t.closed_at) if t.closed_at else "",
-                         "" if stars is None else str(stars), email]
-                        for t, cat, email, stars in details])
+                         "" if stars is None else str(stars), name, role, email]
+                        for t, cat, email, name, role, stars in details])
 
     month_created = dict((await db.execute(text(f"""
         SELECT to_char(t.created_at {date_col}, 'YYYY-MM') AS m, count(*)
-        FROM ticket t WHERE t.created_at >= :since{scope_sql} GROUP BY 1 ORDER BY 1"""), {"since": since, **params})).all())
+        FROM ticket t WHERE t.created_at >= :since AND t.created_at < :until{scope_sql} GROUP BY 1 ORDER BY 1"""),
+        params)).all())
     month_resolved = dict((await db.execute(text(f"""
         SELECT to_char(t.resolved_at {date_col}, 'YYYY-MM') AS m, count(*)
-        FROM ticket t WHERE t.resolved_at IS NOT NULL AND t.resolved_at >= :since{scope_sql}
+        FROM ticket t WHERE t.resolved_at IS NOT NULL AND t.resolved_at >= :since AND t.resolved_at < :until{scope_sql}
         GROUP BY 1 ORDER BY 1"""), {"since": since, **params})).all())
     months = sorted(set(month_created) | set(month_resolved))
     sheet_months = ([["month", "created", "resolved"]]
@@ -288,17 +307,17 @@ async def export_xlsx(days: int = Query(90, ge=1, le=731), building: str | None 
 
     by_category = (await db.execute(text(f"""
         SELECT cat.code, cat.name_en, count(*) FROM ticket t JOIN category cat ON cat.id = t.category_id
-        WHERE t.created_at >= :since{scope_sql} GROUP BY 1, 2 ORDER BY 3 DESC"""), {"since": since, **params})).all()
+        WHERE t.created_at >= :since AND t.created_at < :until{scope_sql} GROUP BY 1, 2 ORDER BY 3 DESC"""), {"since": since, **params})).all()
     sheet_category = ([["category_code", "category", "reports"]]
                       + [[code, name, str(n)] for code, name, n in by_category])
 
     by_place = (await db.execute(text(f"""
         SELECT coalesce(t.building_code, 'CUSTOM') AS b, coalesce(t.department, '') AS d, count(*)
-        FROM ticket t WHERE t.created_at >= :since{scope_sql} GROUP BY 1, 2 ORDER BY 3 DESC"""), {"since": since, **params})).all()
+        FROM ticket t WHERE t.created_at >= :since AND t.created_at < :until{scope_sql} GROUP BY 1, 2 ORDER BY 3 DESC"""), {"since": since, **params})).all()
     sheet_place = ([["building", "department", "reports"]]
                    + [[b_code, dept, str(n)] for b_code, dept, n in by_place])
 
-    rating_flt = [TicketRating.created_at >= since, *scope_flt]
+    rating_flt = [TicketRating.created_at >= since, TicketRating.created_at < until, *scope_flt]
     rating_count = await db.scalar(select(func.count()).select_from(TicketRating).join(
         Ticket, Ticket.id == TicketRating.ticket_id).where(*rating_flt)) or 0
     rating_avg = await db.scalar(select(func.avg(TicketRating.stars)).join(
@@ -310,16 +329,23 @@ async def export_xlsx(days: int = Query(90, ge=1, le=731), building: str | None 
     sheet_ratings = ([["total_rated", "average_stars"], [str(rating_count), f"{rating_avg:.2f}" if rating_avg is not None else ""]]
                      + [[f"{s} stars", str(dist[str(s)])] for s in range(5, 0, -1)])
 
-    wb_bytes = build_report_workbook([
-        ("Ticket Details", tuple(sheet_details[0]), sheet_details[1:], (18, 20, 20, 16, 28, 12, 34, 9, 18, 9, 9, 14, 40, 20, 20, 8, 30)),
+    sheets = [
+        ("Ticket Details", tuple(sheet_details[0]), sheet_details[1:],
+         (18, 20, 20, 16, 28, 12, 34, 9, 18, 9, 9, 14, 40, 20, 20, 8, 24, 16, 30)),
         ("Monthly Summary", tuple(sheet_months[0]), sheet_months[1:], (14, 11, 11)),
         ("Category Summary", tuple(sheet_category[0]), sheet_category[1:], (16, 34, 11)),
         ("Building and Department Summary", tuple(sheet_place[0]), sheet_place[1:], (18, 38, 10)),
         ("Ratings Summary", tuple(sheet_ratings[0]), sheet_ratings[1:], (16, 14)),
-    ])
-    stamp = now().strftime("%Y-%m-%d")
+    ]
+    # Spending is shown to those who decide it: the principal, institute management and Team OSSC.
+    if can_see_spending(p):
+        exp = await rep.expenditure(db, since, until, building, department, cid)
+        sheets.append(("Expenditure", rep.EXPENDITURE_COLUMNS,
+                       [rep.expenditure_cells(i) for i in exp["items"]], rep.EXPENDITURE_WIDTHS))
+    wb_bytes = build_report_workbook(sheets)
+    stamp = rep.file_stamp(since, until)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.tickets", entity_type="export",
-                 entity_id="report.xlsx", after={"days": days, "building": building, "department": department,
+                 entity_id="report.xlsx", after={"period": label, "building": building, "department": department,
                                                  "category": category, "rows": len(details)})
     await db.commit()
     return Response(wb_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -328,7 +354,8 @@ async def export_xlsx(days: int = Query(90, ge=1, le=731), building: str | None 
 
 
 @router.get("/reports/export.pdf")
-async def export_pdf(days: int = Query(90, ge=1, le=731), building: str | None = Query(None, max_length=20),
+async def export_pdf(days: int | None = DaysQ, start: date | None = FromQ, end: date | None = ToQ,
+                     building: str | None = Query(None, max_length=20),
                      department: str | None = Query(None, max_length=120), category: str | None = Query(None, max_length=40),
                      p: Principal = Depends(require("queue.view")), db: AsyncSession = Depends(get_session)) -> Response:
     """A management-ready sheet of the dashboard KPIs, the year's monthly chart and period breakdowns."""
@@ -336,20 +363,20 @@ async def export_pdf(days: int = Query(90, ge=1, le=731), building: str | None =
     ist = ZoneInfo(get_settings().timezone)
     cid = await rep.category_id_of(db, category)
     b_row = (await db.scalar(select(Building).where(Building.code == building))) if building else None
-    r = await build_report(db, days, building, department, category)
-    since = gen - timedelta(days=days)
+    since, until, label = rep.window(days, start, end, default_days=90)
+    r = await build_report(db, since, until, building, department, category)
     scope_flt = rep.ticket_filters(building, department, cid)
-    created_in = await db.scalar(
-        select(func.count()).select_from(Ticket).where(Ticket.created_at >= since, *scope_flt)) or 0
-    resolved_in = await db.scalar(
-        select(func.count()).select_from(Ticket).where(Ticket.resolved_at >= since, *scope_flt)) or 0
+    created_in = await db.scalar(select(func.count()).select_from(Ticket).where(
+        Ticket.created_at >= since, Ticket.created_at < until, *scope_flt)) or 0
+    resolved_in = await db.scalar(select(func.count()).select_from(Ticket).where(
+        Ticket.resolved_at >= since, Ticket.resolved_at < until, *scope_flt)) or 0
 
     doc = ReportPDF()
     doc.text("PCMS - Campus Maintenance", 9, gray=True)
     doc.text("Don Bosco Institute of Technology, Bengaluru", 12, bold=True)
     doc.rule()
     doc.text("Maintenance Report", 16, bold=True)
-    doc.text(f"Period: {rep.period_label(days, gen)}   Place: {rep.filter_label(b_row, building, department)}"
+    doc.text(f"Period: {label}   Place: {rep.filter_label(b_row, building, department)}"
              + (f"   Type: {category}" if category else ""), 10, gray=True)
     doc.text(f"Generated {gen.astimezone(ist):%d %b %Y, %H:%M IST} by {p.user.name}. Open-ticket counts are the "
              "current snapshot; created and resolved counts cover the period above.", 9, gray=True)
@@ -365,13 +392,13 @@ async def export_pdf(days: int = Query(90, ge=1, le=731), building: str | None =
         ["Untriaged (snapshot)", str(r.untriaged)],
         ["Update overdue (snapshot)", str(r.overdue_updates)],
         ["Waiting approval (snapshot)", str(r.pending_approvals)],
-        ["Disputed fixes in period", str(r.disputes)],
-        ["Approved spend in period", f"Rs {r.approved_paise / 100:.2f}"],
-        ["Fixes rated in period", str(r.ratings.count)],
+        ["Reopened by the reporter in period", str(r.disputes)],
+        *([["Approved expenditure in period", f"Rs {r.approved_paise / 100:,.2f}"]] if can_see_spending(p) else []),
+        ["Repairs rated in period", str(r.ratings.count)],
         ["Average rating", stars_fmt()],
     ], [250, 120])
     doc.text(f"Time to triage - median {_h(r.triage_time.median_hours)}, 90th percentile {_h(r.triage_time.p90_hours)}.", 10)
-    doc.text(f"Time to fix - median {_h(r.resolution_time.median_hours)}, 90th percentile {_h(r.resolution_time.p90_hours)}.", 10)
+    doc.text(f"Time to complete - median {_h(r.resolution_time.median_hours)}, 90th percentile {_h(r.resolution_time.p90_hours)}.", 10)
 
     year = ist_year()
     counts, _, _ = await rep.annual_counts(db, year, building, department, cid)
@@ -383,14 +410,17 @@ async def export_pdf(days: int = Query(90, ge=1, le=731), building: str | None =
 
     doc.text("Open by status (snapshot)", 12, bold=True)
     doc.table(["Status", "Tickets"], sorted((s, str(n)) for s, n in r.open_by_status.items()), [250, 90])
-    doc.text("Open by priority (snapshot)", 12, bold=True)
-    doc.table(["Priority", "Tickets"], sorted((s, str(n)) for s, n in r.open_by_priority.items()), [250, 90])
+    doc.text("Open by severity (snapshot)", 12, bold=True)
+    rank = {"red": 0, "orange": 1, "green": 2}
+    doc.table(["Severity", "Tickets"], [(s.capitalize(), str(n)) for s, n in sorted(
+        r.open_by_severity.items(), key=lambda kv: rank.get(kv[0], 9))], [250, 90])
 
     scope_sql, scope_params = rep.raw_scope(building, department, cid)
+    scope_params = {**scope_params, "since": since, "until": until}
     by_type = (await db.execute(text(f"""
         SELECT cat.name_en, count(*) FROM ticket t JOIN category cat ON cat.id = t.category_id
-        WHERE t.created_at >= :since{scope_sql}
-        GROUP BY 1 ORDER BY 2 DESC"""), {"since": since, **scope_params})).all()
+        WHERE t.created_at >= :since AND t.created_at < :until{scope_sql}
+        GROUP BY 1 ORDER BY 2 DESC"""), scope_params)).all()
     doc.text("Reports by type (period)", 12, bold=True)
     if by_type:
         doc.table(["Category", "Reports"], [[name, str(n)] for name, n in by_type], [250, 90])
@@ -400,8 +430,8 @@ async def export_pdf(days: int = Query(90, ge=1, le=731), building: str | None =
     where_sql, where_params = scope_sql, scope_params
     by_place = (await db.execute(text(f"""
         SELECT coalesce(t.building_code, 'CUSTOM'), coalesce(t.department, ''), count(*)
-        FROM ticket t WHERE t.created_at >= :since{where_sql} GROUP BY 1, 2 ORDER BY 1, 3 DESC"""),
-        {"since": since, **where_params})).all()
+        FROM ticket t WHERE t.created_at >= :since AND t.created_at < :until{where_sql} GROUP BY 1, 2 ORDER BY 1, 3 DESC"""),
+        where_params)).all()
     doc.text("Reports by building and department (period)", 12, bold=True)
     if by_place:
         doc.table(["Building", "Department", "Reports"],
@@ -418,16 +448,150 @@ async def export_pdf(days: int = Query(90, ge=1, le=731), building: str | None =
             doc.table(["Token", "Type", "Stars", "Comment"], [[l.token, l.category, str(l.stars), l.comment or "-"]
                                                               for l in rr.low], [90, 110, 40, 210])
 
+    if can_see_spending(p):
+        exp = await rep.expenditure(db, since, until, building, department, cid)
+        _expenditure_pdf(doc, exp)
+
     doc.rule()
     doc.text("Every export is recorded in the audit log. PCMS serves DBIT Bengaluru.", 8.5, gray=True)
     pdf_bytes = doc.bytes()
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.tickets", entity_type="export",
-                 entity_id="report.pdf", after={"days": days, "building": building, "department": department,
+                 entity_id="report.pdf", after={"period": label, "building": building, "department": department,
                                                 "category": category, "kpi_created": created_in,
                                                 "kpi_resolved": resolved_in})
     await db.commit()
     return Response(pdf_bytes, media_type="application/pdf", headers={
-        "Content-Disposition": f'attachment; filename="PCMS_Report_{gen:%Y-%m-%d}.pdf"', "Cache-Control": "no-store"})
+        "Content-Disposition": f'attachment; filename="PCMS_Report_{rep.file_stamp(since, until)}.pdf"',
+        "Cache-Control": "no-store"})
+
+
+def _expenditure_pdf(doc: ReportPDF, exp: dict) -> None:
+    doc.text("Expenditure (period)", 12, bold=True)
+    doc.table(["Measure", "Value"], [
+        ["Requests raised", str(exp["requests"])],
+        ["Amount requested", f"Rs {exp['requested_paise'] / 100:,.2f}"],
+        ["Amount approved", f"Rs {exp['approved_paise'] / 100:,.2f} ({exp['approved_count']} requests)"],
+        ["Awaiting a decision", f"Rs {exp['pending_paise'] / 100:,.2f} ({exp['pending_count']} requests)"],
+        ["Not approved", str(exp["rejected_count"])],
+    ], [250, 200])
+    if exp["items"]:
+        doc.table(["Token", "Raised", "Estimate (Rs)", "Status", "Approved (Rs)"],
+                  [[c[0], c[5], c[7] or "-", c[8], c[11] or "-"]
+                   for c in (rep.expenditure_cells(i) for i in exp["items"][:150])], [80, 70, 80, 150, 80])
+
+
+# ---------- expenditure ----------
+
+def can_see_spending(p: Principal) -> bool:
+    """Spending figures are for those who decide them: the principal, institute management and Team OSSC."""
+    return p.can("cost.approve") or p.can("cost.principal")
+
+
+class ExpenditureItem(CamelModel):
+    ticket_id: uuid.UUID
+    token: str
+    title: str
+    category: str
+    building: str | None
+    department: str | None
+    raised_at: datetime
+    requested_by: str
+    estimate_paise: int
+    status: str
+    decided_by: str | None
+    decided_at: datetime | None
+    approved_paise: int | None
+    escalated: bool
+    note: str | None
+
+
+class ExpenditureCategory(CamelModel):
+    category: str
+    requests: int
+    requested_paise: int
+    approved_paise: int
+
+
+class ExpenditureOut(CamelModel):
+    period: str
+    requests: int
+    requested_paise: int
+    approved_paise: int
+    pending_paise: int
+    approved_count: int
+    pending_count: int
+    rejected_count: int
+    by_category: list[ExpenditureCategory]
+    items: list[ExpenditureItem]
+
+
+SpendingQ = require_any("cost.approve", "cost.principal")
+
+
+@router.get("/reports/expenditure", response_model=ExpenditureOut)
+async def expenditure_report(start: date | None = FromQ, end: date | None = ToQ, days: int | None = DaysQ,
+                             building: str | None = Query(None, max_length=20),
+                             department: str | None = Query(None, max_length=120),
+                             category: str | None = Query(None, max_length=40),
+                             _: Principal = Depends(SpendingQ), db: AsyncSession = Depends(get_session)) -> ExpenditureOut:
+    """Expenditure requests raised in the period: requested, approved and awaiting amounts in INR."""
+    await rep.validate_department(db, building, department)
+    cid = await rep.category_id_of(db, category)
+    since, until, label = rep.window(days, start, end)
+    exp = await rep.expenditure(db, since, until, building, department, cid)
+    return ExpenditureOut(period=label, **exp)
+
+
+async def _expenditure_export(start, end, days, building, department, category, p, db):
+    await rep.validate_department(db, building, department)
+    cid = await rep.category_id_of(db, category)
+    since, until, label = rep.window(days, start, end, default_days=90)
+    exp = await rep.expenditure(db, since, until, building, department, cid)
+    return since, until, label, exp
+
+
+@router.get("/reports/expenditure.csv")
+async def export_expenditure_csv(start: date | None = FromQ, end: date | None = ToQ, days: int | None = DaysQ,
+                                 building: str | None = Query(None, max_length=20),
+                                 department: str | None = Query(None, max_length=120),
+                                 category: str | None = Query(None, max_length=40),
+                                 p: Principal = Depends(SpendingQ), db: AsyncSession = Depends(get_session)) -> Response:
+    since, until, label, exp = await _expenditure_export(start, end, days, building, department, category, p, db)
+    body = to_csv(rep.EXPENDITURE_COLUMNS, [rep.expenditure_cells(i) for i in exp["items"]])
+    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.expenditure", entity_type="export",
+                 entity_id="expenditure.csv", after={"period": label, "rows": len(exp["items"])})
+    await db.commit()
+    return Response(body, media_type="text/csv; charset=utf-8", headers={
+        "Content-Disposition": f'attachment; filename="PCMS_Expenditure_{rep.file_stamp(since, until)}.csv"',
+        "Cache-Control": "no-store"})
+
+
+@router.get("/reports/expenditure.xlsx")
+async def export_expenditure_xlsx(start: date | None = FromQ, end: date | None = ToQ, days: int | None = DaysQ,
+                                  building: str | None = Query(None, max_length=20),
+                                  department: str | None = Query(None, max_length=120),
+                                  category: str | None = Query(None, max_length=40),
+                                  p: Principal = Depends(SpendingQ), db: AsyncSession = Depends(get_session)) -> Response:
+    since, until, label, exp = await _expenditure_export(start, end, days, building, department, category, p, db)
+    summary = [["Period", label], ["Requests raised", str(exp["requests"])],
+               ["Amount requested (INR)", rep.inr(exp["requested_paise"])],
+               ["Amount approved (INR)", rep.inr(exp["approved_paise"])],
+               ["Awaiting a decision (INR)", rep.inr(exp["pending_paise"])],
+               ["Requests approved", str(exp["approved_count"])], ["Requests awaiting", str(exp["pending_count"])],
+               ["Requests not approved", str(exp["rejected_count"])]]
+    by_cat = [[c["category"], str(c["requests"]), rep.inr(c["requested_paise"]), rep.inr(c["approved_paise"])]
+              for c in exp["by_category"]]
+    wb_bytes = build_report_workbook([
+        ("Summary", ("measure", "value"), summary, (30, 30)),
+        ("Requests", rep.EXPENDITURE_COLUMNS, [rep.expenditure_cells(i) for i in exp["items"]], rep.EXPENDITURE_WIDTHS),
+        ("By Category", ("category", "requests", "requested_inr", "approved_inr"), by_cat, (24, 11, 16, 16)),
+    ])
+    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.expenditure", entity_type="export",
+                 entity_id="expenditure.xlsx", after={"period": label, "rows": len(exp["items"])})
+    await db.commit()
+    return Response(wb_bytes, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": f'attachment; filename="PCMS_Expenditure_{rep.file_stamp(since, until)}.xlsx"',
+                             "Cache-Control": "no-store"})
 
 
 def _h(hours: float | None) -> str:

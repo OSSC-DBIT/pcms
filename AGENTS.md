@@ -18,12 +18,12 @@ Start with `docs/ARCHITECTURE.md` for the flow and `docs/SECURITY.md` for the ru
 
 ## The flow (confirmed by DBIT, 18 October 2026)
 
-1. Faculty submit a problem (type, part, "Other" needs a description, place, title, photos). The token is `<letter><yy>-<serial>`, for example `C26-0001`.
-2. The facility manager reviews it: **accept** with a priority, or **reject** with a reason.
+1. Faculty submit a problem (type, part, "Other" needs a description, place, title, a red/orange/green severity, photos). The token is `<letter><yy>-<serial>`, for example `C26-0001`.
+2. The facility manager reviews it: **accept**, or **reject** with a reason. There is no manual priority (DBIT, 30 October 2026); the queue sorts and filters by the reporter's severity.
 3. The facility manager **contacts a worker directly** (call, WhatsApp or in person), records an optional worker or vendor name, and marks the ticket Assigned. No message is sent by PCMS.
 4. After the worker looks at it, the facility manager sets the flag:
    - **I Immediate**: fix it and mark it fixed.
-   - **C Critical**: send it to institute management (reason, optional cost). Management approves, asks a question, defers or rejects.
+   - **C Critical**: send it to the **principal** (reason, optional cost). The principal approves, rejects, or escalates it to **institute management**, who make the final decision: approve, ask for clarification, defer or reject.
    - **P Postpone**: on hold with a reason and review date.
 5. The reporter confirms the fix, or disputes it within 7 days. After the ticket is closed, the reporter may rate the repair once (1-5 stars and an optional comment).
 
@@ -46,7 +46,9 @@ Before you say something works, run the tests above. Add a regression test for e
 ## Rules
 
 - **Server decides.** Every permission check lives in the API (`app/security/deps.py`, `require(...)`). UI checks are cosmetic.
-- **Faculty see only their own tickets**, and never internal notes, costs, worker names or staff names. Return 404, not 403, for objects a user may not see.
+- **Faculty see only their own tickets**, and never staff messages, staff documents, costs, worker names or staff names. Return 404, not 403, for objects a user may not see.
+- **Messages are staff-only** (facility manager, management, principal, Team OSSC). Every staff role can also report a problem and add photos and documents.
+- **Spending figures** (approved amounts, the expenditure report and its exports) are for `cost.principal` and `cost.approve` only, never the facility manager.
 - **No free-form status changes.** State changes go through `services/lifecycle.py` or `services/workflow.py` with `expected_version`.
 - **Nobody approves their own spending** (`workflow.decide`).
 - **History is append-only** (triggers on `ticket_event`, `ticket_comment`, `decision`, `delivery_attempt`, `audit_event`). Every change writes `audit.record(...)`.

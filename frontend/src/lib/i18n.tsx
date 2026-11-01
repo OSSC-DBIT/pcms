@@ -8,10 +8,11 @@ export type TKey = keyof typeof en
 export type TParams = Record<string, string | number>
 export type TFunc = (key: TKey, params?: TParams) => string
 
+// Order DBIT asked for: English (default), then Kannada, then Hindi.
 export const LANGS: { code: Lang; label: string }[] = [
   { code: 'en', label: 'English' },
-  { code: 'hi', label: 'हिन्दी' },
   { code: 'kn', label: 'ಕನ್ನಡ' },
+  { code: 'hi', label: 'हिन्दी' },
 ]
 
 export const LOCALE: Record<Lang, string> = {
