@@ -36,7 +36,7 @@ async def test_session_cookie_flags(client):
     cookies = r.headers.get_list("set-cookie")
     sess = next(c for c in cookies if c.startswith("pcms_session="))
     csrf = next(c for c in cookies if c.startswith("pcms_csrf="))
-    assert "HttpOnly" in sess and "SameSite=lax" in sess
+    assert "HttpOnly" in sess and "SameSite=strict" in sess and "SameSite=strict" in csrf
     assert "HttpOnly" not in csrf
 
 

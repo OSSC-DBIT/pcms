@@ -1,0 +1,4 @@
+# Labels of the self-hosted runner on the OSSC server (docs/DEPLOYMENT.md, Continuous deployment).
+self-hosted-runner:
+  labels:
+    - pcms

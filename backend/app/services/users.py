@@ -30,13 +30,27 @@ from app.services.accounts import (
 )
 from app.services.xlsx import read_people_workbook
 
-EMAIL_RE = re.compile(r"^[^@\s<>\"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$")
+# A practical email check: a plain local part (no quotes, spaces or angle brackets, no leading,
+# trailing or double dot), then a domain of proper labels and a letters-only top-level domain.
+EMAIL_RE = re.compile(
+    r"^(?=.{6,254}$)(?!\.)(?!.*\.\.)[A-Za-z0-9._%+'-]{1,64}(?<!\.)"
+    r"@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}$")
 _CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 # Every role can be imported, Team OSSC included. An imported admin still has to set up an
 # authenticator app at first sign-in, like one created by hand.
 IMPORT_ROLES = ROLES
-IMPORT_COLUMNS = ("email", "name", "role", "password")
+IMPORT_COLUMNS = ("email", "name", "role", "department", "position", "password")
+# Headers people commonly use in an HR sheet, mapped to ours (after lowercasing and
+# turning spaces and hyphens into underscores).
+IMPORT_ALIASES = {
+    "email_id": "email", "e_mail": "email", "email_address": "email", "mail": "email", "mail_id": "email",
+    "full_name": "name", "employee_name": "name", "staff_name": "name",
+    "dept": "department", "department_name": "department",
+    "designation": "position", "job_title": "position", "post": "position",
+    "temporary_password": "password",
+}
+DIRECTORY_MAX = 120
 
 # Argon2 hashing is CPU bound and releases the GIL; hash imports in parallel.
 _hash_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="pwhash")
@@ -70,9 +84,11 @@ async def active_ossc_count(db: AsyncSession) -> int:
 
 
 async def create_user(db: AsyncSession, actor: User, *, email: str, name: str, role: str,
-                      password: str) -> tuple[User, str]:
+                      password: str, department: str | None = None, position: str | None = None) -> tuple[User, str]:
     email = normalise_email(email)
     name = clean_name(name)
+    department = clean_name(department or "") or None
+    position = clean_name(position or "") or None
     errs = validate_identity(email, name, role)
     if errs:
         raise validation("Some fields need attention.", errs)
@@ -84,6 +100,7 @@ async def create_user(db: AsyncSession, actor: User, *, email: str, name: str, r
 
     hashed = await asyncio.get_running_loop().run_in_executor(_hash_pool, hash_password, password)
     user = User(id=uuid.uuid4(), email=email, name=name, role=role, active=True,
+                department=department, position=position,
                 totp_enabled=False, recovery_code_hashes=[])
     set_temporary_password(user, password, hashed)
     db.add(user)
@@ -175,6 +192,10 @@ class ImportRow:
     name: str
     role: str
     password: str
+    department: str | None = None
+    position: str | None = None
+    # True when the file left the password blank and PCMS generated one.
+    generated: bool = False
 
 
 @dataclass
@@ -200,14 +221,18 @@ def parse_import(data: bytes, filename: str | None = None) -> list[ImportRow]:
     else:
         raw_rows = _read_csv(data)
 
-    header = [h.strip().lower().replace(" ", "_") for h in raw_rows[0][1]] if raw_rows else []
-    missing = [c for c in ("email", "name", "password") if c not in header]
+    header = [IMPORT_ALIASES.get(k, k) for k in
+              (h.strip().lower().replace(" ", "_").replace("-", "_") for h in raw_rows[0][1])] if raw_rows else []
+    missing = [c for c in ("email", "name") if c not in header]
     if missing:
-        raise validation("The header row must include email, name and password.",
+        raise validation("The header row must include email and name.",
                          {"file": f"Missing: {', '.join(missing)}"})
     unknown = [c for c in header if c and c not in IMPORT_COLUMNS]
     if unknown:
         raise validation("The header row has unknown columns.", {"file": f"Unknown: {', '.join(unknown)}"})
+    repeated = sorted({c for c in header if c and header.count(c) > 1})
+    if repeated:
+        raise validation("A column appears twice in the header row.", {"file": f"Repeated: {', '.join(repeated)}"})
     idx = {c: header.index(c) for c in IMPORT_COLUMNS if c in header}
 
     rows: list[ImportRow] = []
@@ -221,13 +246,21 @@ def parse_import(data: bytes, filename: str | None = None) -> list[ImportRow]:
 
         def get(c: str) -> str:
             i = idx.get(c)
-            return str(values[i]).strip() if i is not None and i < len(values) else ""
+            # Cap every cell before any work, so one huge cell cannot cost CPU or memory.
+            return str(values[i]).strip()[:512] if i is not None and i < len(values) else ""
 
         email = normalise_email(get("email"))
+        password = get("password")
+        generated = not password
         row = ImportRow(line=line, email=email, name=clean_name(get("name")),
-                        role=(get("role") or "faculty").lower(), password=get("password"))
+                        role=(get("role") or "faculty").lower().replace(" ", "_"),
+                        password=password or generate_temporary_password(), generated=generated,
+                        department=clean_name(get("department")) or None, position=clean_name(get("position")) or None)
         errs = validate_identity(row.email, row.name, row.role, IMPORT_ROLES)
-        pw_error = _password_error(row.password, row.email)
+        for key in ("department", "position"):
+            if len(getattr(row, key) or "") > DIRECTORY_MAX:
+                errs[key] = f"At most {DIRECTORY_MAX} characters."
+        pw_error = None if generated else _password_error(row.password, row.email)
         if pw_error:
             errs["password"] = pw_error
         if email in seen:
@@ -280,6 +313,7 @@ async def import_users(db: AsyncSession, actor: User, rows: list[ImportRow]) -> 
 
     for row, hashed in zip(new_rows, hashes, strict=True):
         user = User(id=uuid.uuid4(), email=row.email, name=row.name, role=row.role, active=True,
+                    department=row.department, position=row.position,
                     totp_enabled=False, recovery_code_hashes=[])
         set_temporary_password(user, row.password, hashed)
         db.add(user)

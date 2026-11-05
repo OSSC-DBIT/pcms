@@ -1845,7 +1845,9 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "integer"
+                  "type": "integer",
+                  "maximum": 9223372036854775807,
+                  "minimum": 1
                 },
                 {
                   "type": "null"
@@ -1881,81 +1883,6 @@
                 }
               }
             }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/notifications": {
-      "get": {
-        "tags": [
-          "reports",
-          "admin"
-        ],
-        "summary": "Failed Notifications",
-        "operationId": "failed_notifications_api_v1_admin_notifications_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/NotificationOut"
-                  },
-                  "type": "array",
-                  "title": "Response Failed Notifications Api V1 Admin Notifications Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/admin/notifications/{outbox_id}/{op}": {
-      "post": {
-        "tags": [
-          "reports",
-          "admin"
-        ],
-        "summary": "Act On Notification",
-        "operationId": "act_on_notification_api_v1_admin_notifications__outbox_id___op__post",
-        "parameters": [
-          {
-            "name": "outbox_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Outbox Id"
-            }
-          },
-          {
-            "name": "op",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "enum": [
-                "retry",
-                "dismiss"
-              ],
-              "type": "string",
-              "title": "Op"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -2953,6 +2880,53 @@
         }
       }
     },
+    "/api/v1/tickets/{ticket_id}/remove": {
+      "post": {
+        "tags": [
+          "tickets"
+        ],
+        "summary": "Remove",
+        "description": "Team OSSC removes a ticket. Its history is kept; it disappears from every list and report.",
+        "operationId": "remove_api_v1_tickets__ticket_id__remove_post",
+        "parameters": [
+          {
+            "name": "ticket_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Ticket Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RemoveIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/translate": {
       "post": {
         "tags": [
@@ -3164,6 +3138,28 @@
             "type": "string",
             "title": "Role"
           },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
+          },
           "active": {
             "type": "boolean",
             "title": "Active"
@@ -3320,6 +3316,7 @@
           },
           "expectedVersion": {
             "type": "integer",
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Expectedversion"
           }
@@ -4107,13 +4104,13 @@
           "email": {
             "type": "string",
             "maxLength": 254,
-            "minLength": 3,
+            "minLength": 6,
             "title": "Email"
           },
           "name": {
             "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
+            "maxLength": 120,
+            "minLength": 2,
             "title": "Name"
           },
           "role": {
@@ -4132,6 +4129,30 @@
             "maxLength": 128,
             "minLength": 1,
             "title": "Password"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "position": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position"
           }
         },
         "type": "object",
@@ -4188,6 +4209,7 @@
           },
           "proposalVersion": {
             "type": "integer",
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Proposalversion"
           },
@@ -4247,6 +4269,70 @@
           "proposalVersion"
         ],
         "title": "DecisionIn"
+      },
+      "DepartmentRow": {
+        "properties": {
+          "building": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "open": {
+            "type": "integer",
+            "title": "Open"
+          },
+          "fixed": {
+            "type": "integer",
+            "title": "Fixed"
+          },
+          "overdue": {
+            "type": "integer",
+            "title": "Overdue"
+          },
+          "actualPaise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actualpaise"
+          }
+        },
+        "type": "object",
+        "required": [
+          "building",
+          "department",
+          "total",
+          "open",
+          "fixed",
+          "overdue"
+        ],
+        "title": "DepartmentRow",
+        "description": "Tickets raised in the period for one building and department (DBIT, 2026-11-04)."
       },
       "DuplicateOut": {
         "properties": {
@@ -4378,6 +4464,69 @@
         ],
         "title": "ExpenditureCategory"
       },
+      "ExpenditureDepartment": {
+        "properties": {
+          "building": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Building"
+          },
+          "department": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Department"
+          },
+          "requests": {
+            "type": "integer",
+            "title": "Requests"
+          },
+          "requestedPaise": {
+            "type": "integer",
+            "title": "Requestedpaise"
+          },
+          "approvedPaise": {
+            "type": "integer",
+            "title": "Approvedpaise"
+          },
+          "pendingPaise": {
+            "type": "integer",
+            "title": "Pendingpaise"
+          },
+          "repairs": {
+            "type": "integer",
+            "title": "Repairs"
+          },
+          "actualPaise": {
+            "type": "integer",
+            "title": "Actualpaise"
+          }
+        },
+        "type": "object",
+        "required": [
+          "building",
+          "department",
+          "requests",
+          "requestedPaise",
+          "approvedPaise",
+          "pendingPaise",
+          "repairs",
+          "actualPaise"
+        ],
+        "title": "ExpenditureDepartment",
+        "description": "Spending for one building and department in the period (DBIT, 2026-11-04)."
+      },
       "ExpenditureItem": {
         "properties": {
           "ticketId": {
@@ -4470,6 +4619,17 @@
             ],
             "title": "Approvedpaise"
           },
+          "actualPaise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actualpaise"
+          },
           "escalated": {
             "type": "boolean",
             "title": "Escalated"
@@ -4528,6 +4688,14 @@
             "type": "integer",
             "title": "Pendingpaise"
           },
+          "actualPaise": {
+            "type": "integer",
+            "title": "Actualpaise"
+          },
+          "actualCount": {
+            "type": "integer",
+            "title": "Actualcount"
+          },
           "approvedCount": {
             "type": "integer",
             "title": "Approvedcount"
@@ -4547,6 +4715,13 @@
             "type": "array",
             "title": "Bycategory"
           },
+          "byDepartment": {
+            "items": {
+              "$ref": "#/components/schemas/ExpenditureDepartment"
+            },
+            "type": "array",
+            "title": "Bydepartment"
+          },
           "items": {
             "items": {
               "$ref": "#/components/schemas/ExpenditureItem"
@@ -4562,6 +4737,8 @@
           "requestedPaise",
           "approvedPaise",
           "pendingPaise",
+          "actualPaise",
+          "actualCount",
           "approvedCount",
           "pendingCount",
           "rejectedCount",
@@ -4977,86 +5154,6 @@
         "title": "MonthPoint",
         "description": "One calendar month of the annual overview. Buckets use Asia/Kolkata."
       },
-      "NotificationOut": {
-        "properties": {
-          "id": {
-            "type": "integer",
-            "title": "Id"
-          },
-          "channel": {
-            "type": "string",
-            "title": "Channel"
-          },
-          "template": {
-            "type": "string",
-            "title": "Template"
-          },
-          "state": {
-            "type": "string",
-            "title": "State"
-          },
-          "attempts": {
-            "type": "integer",
-            "title": "Attempts"
-          },
-          "lastError": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Lasterror"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Createdat"
-          },
-          "ticketId": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ticketid"
-          },
-          "ticketToken": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tickettoken"
-          },
-          "recipient": {
-            "type": "string",
-            "title": "Recipient"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "channel",
-          "template",
-          "state",
-          "attempts",
-          "lastError",
-          "createdAt",
-          "ticketId",
-          "ticketToken",
-          "recipient"
-        ],
-        "title": "NotificationOut"
-      },
       "Percentiles": {
         "properties": {
           "count": {
@@ -5117,6 +5214,7 @@
           },
           "expectedVersion": {
             "type": "integer",
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Expectedversion"
           }
@@ -5406,6 +5504,29 @@
         ],
         "title": "RatingReport"
       },
+      "RemoveIn": {
+        "properties": {
+          "expectedVersion": {
+            "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
+            "title": "Expectedversion"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "expectedVersion",
+          "reason"
+        ],
+        "title": "RemoveIn",
+        "description": "Team OSSC removes a ticket. The reason is kept in the audit log."
+      },
       "ReportOut": {
         "properties": {
           "generatedAt": {
@@ -5486,6 +5607,20 @@
           },
           "ratings": {
             "$ref": "#/components/schemas/RatingReport"
+          },
+          "byDepartment": {
+            "items": {
+              "$ref": "#/components/schemas/DepartmentRow"
+            },
+            "type": "array",
+            "title": "Bydepartment"
+          },
+          "byType": {
+            "items": {
+              "$ref": "#/components/schemas/TypeRow"
+            },
+            "type": "array",
+            "title": "Bytype"
           }
         },
         "type": "object",
@@ -5536,7 +5671,7 @@
           "email": {
             "type": "string",
             "maxLength": 254,
-            "minLength": 3,
+            "minLength": 6,
             "title": "Email"
           },
           "password": {
@@ -6073,6 +6208,17 @@
                 "type": "null"
               }
             ]
+          },
+          "actualCostPaise": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actualcostpaise"
           }
         },
         "type": "object",
@@ -6411,6 +6557,7 @@
           },
           "expectedVersion": {
             "type": "integer",
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Expectedversion"
           }
@@ -6484,6 +6631,7 @@
           },
           "expectedVersion": {
             "type": "integer",
+            "maximum": 2147483647.0,
             "minimum": 1.0,
             "title": "Expectedversion"
           },
@@ -6598,6 +6746,19 @@
               }
             ],
             "title": "Workername"
+          },
+          "actualCostPaise": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 10000000000.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actualcostpaise"
           }
         },
         "type": "object",
@@ -6663,17 +6824,49 @@
         ],
         "title": "TranslateOut"
       },
+      "TypeRow": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "open": {
+            "type": "integer",
+            "title": "Open"
+          },
+          "fixed": {
+            "type": "integer",
+            "title": "Fixed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "total",
+          "open",
+          "fixed"
+        ],
+        "title": "TypeRow",
+        "description": "Tickets raised in the period for one type."
+      },
       "UpdateUserIn": {
         "properties": {
           "expectedVersion": {
             "type": "integer",
+            "maximum": 2147483647.0,
+            "minimum": 1.0,
             "title": "Expectedversion"
           },
           "email": {
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 254
+                "maxLength": 254,
+                "minLength": 6
               },
               {
                 "type": "null"
@@ -6685,7 +6878,8 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 200
+                "maxLength": 120,
+                "minLength": 2
               },
               {
                 "type": "null"

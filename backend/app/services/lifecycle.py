@@ -16,7 +16,6 @@ from app.config import get_settings
 from app.errors import ApiError, forbidden, validation
 from app.models.catalog import Category
 from app.models.ticket import TERMINAL, Ticket
-from app.models.worker import Assignment
 from app.schemas.ticket import TransitionIn
 from app.security.deps import Principal
 from app.security.sessions import now
@@ -63,12 +62,6 @@ def _need(**fields) -> None:
         raise validation("Some details are missing for this action.", missing)
 
 
-async def _release_all(db: AsyncSession, t: Ticket, reason: str) -> None:
-    for a in (await db.scalars(select(Assignment).where(Assignment.ticket_id == t.id, Assignment.released_at.is_(None)))).all():
-        a.released_at = now()
-        a.release_reason = reason[:500]
-
-
 async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: TransitionIn) -> None:
     rule = RULES[body.action]
     is_reporter = t.reporter_id == p.user.id
@@ -80,10 +73,12 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
     check_version(t, body.expected_version)
     if t.status not in rule.from_states:
         raise ApiError(409, "invalid_transition", f"That action is not possible while the ticket is {t.status}.")
+    if body.actual_cost_paise is not None and body.action != "resolve":
+        raise validation("The actual cost is recorded when the work is marked fixed.", {"actualCostPaise": "Not allowed"})
 
     s = get_settings()
     before = {"status": t.status, "priority": t.priority, "flag": t.flag, "category_id": t.category_id,
-              "worker_name": t.worker_name}
+              "worker_name": t.worker_name, "actual_cost_paise": t.actual_cost_paise}
     old = t.status
     new = old
     detail: str | None = None
@@ -124,6 +119,8 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             new, detail = "OnHold", f"Postponed: {reason}. Review on {body.review_date.isoformat()}"
         case "resume":
             new = "Assigned"
+            if t.flag == "P":
+                t.flag = None
             t.hold_reason = t.hold_owner = t.hold_next_action = None
             t.hold_review_date = None
         case "assign":
@@ -139,10 +136,15 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             t.worker_name = body.worker_name
             detail, public = (f"Worker: {t.worker_name}" if t.worker_name else "Worker name cleared"), False
         case "resolve":
-            _need(note=body.note)
-            new, detail = "Resolved", body.note
+            # DBIT, 2026-11-04: the closing note and the exact cost are both optional.
+            # Unless it went to the principal as Critical, finished work counts as Immediate.
+            new, detail = "Resolved", body.note or None
+            if t.flag != "C":
+                t.flag = "I"
             t.resolved_at = now()
             t.verified_by_reporter = None
+            if body.actual_cost_paise is not None:
+                t.actual_cost_paise = body.actual_cost_paise
         case "verify":
             new = "Closed"
             t.verified_by_reporter = True
@@ -163,7 +165,8 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             t.verified_by_reporter = None
         case "duplicate":
             _need(canonicalToken=body.canonical_token)
-            canonical = await db.scalar(select(Ticket).where(Ticket.token == body.canonical_token.upper()))
+            canonical = await db.scalar(select(Ticket).where(Ticket.token == body.canonical_token.upper(),
+                                                             Ticket.deleted_at.is_(None)))
             if canonical is None or canonical.id == t.id or canonical.status == "Duplicate":
                 raise validation("No other open ticket carries that token.", {"canonicalToken": "Unknown token"})
             t.duplicate_of_id = canonical.id
@@ -171,7 +174,6 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
         case "reject" | "cancel":
             _need(reason=reason)
             new, detail = ("Rejected" if body.action == "reject" else "Cancelled"), reason
-            await _release_all(db, t, f"Ticket {body.action}ed")
             t.closed_at = now()
         case "close_unverified":
             _need(reason=reason)
@@ -191,10 +193,14 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
     if body.action == "assign" and body.worker_name:
         add_event(db, t, p.user, "Worker assigned", detail=body.worker_name, public=False,
                   from_status=old, to_status=new)
+    if body.action == "triage" and body.note:
+        # An optional note on accepting. Internal, like every staff note.
+        add_event(db, t, p.user, "Note on accepting", detail=body.note, public=False,
+                  from_status=old, to_status=new)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action=f"ticket.{body.action}", entity_type="ticket",
                  entity_id=t.id, before=before,
                  after={"status": t.status, "priority": t.priority, "flag": t.flag, "category_id": t.category_id,
-                        "worker_name": t.worker_name},
+                        "worker_name": t.worker_name, "actual_cost_paise": t.actual_cost_paise},
                  reason=reason)
     if public and new != old and not is_reporter:
         await notify.notify_reporter(db, t, template=f"status_{new.lower()}", title=f"{t.token}: {LABEL.get(new, new)}",
@@ -206,3 +212,28 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
 def _label(action: str) -> str:
     return {"set_flag": "Work type set", "recategorise": "Type changed",
             "set_worker": "Worker updated"}.get(action, "Updated")
+
+
+async def remove_ticket(db: AsyncSession, p: Principal, t: Ticket, *, expected_version: int, reason: str) -> None:
+    """Team OSSC removes a ticket (DBIT, 2026-11-04).
+
+    History is append-only, so nothing is deleted: the ticket is closed as Cancelled if it
+    was still open, marked removed, and hidden from every list, report and export. The
+    audit log keeps who removed it and why."""
+    if not p.can("admin.tickets"):
+        raise forbidden()
+    check_version(t, expected_version)
+    _need(reason=reason)
+    old = t.status
+    if old not in TERMINAL:
+        t.status = "Cancelled"
+        t.closed_at = now()
+        t.next_update_due = None
+    t.deleted_at = now()
+    t.deleted_by = p.user.id
+    t.delete_reason = reason[:500]
+    bump(t)
+    add_event(db, t, p.user, "Removed by Team OSSC", detail=reason, public=False, from_status=old, to_status=t.status)
+    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.removed", entity_type="ticket",
+                 entity_id=t.id, before={"status": old, "token": t.token}, after={"status": t.status, "removed": True},
+                 reason=reason)

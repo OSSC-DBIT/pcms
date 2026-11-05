@@ -1,8 +1,7 @@
 # Production stack for the college server. See docs/DEPLOYMENT.md.
 #   docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env up -d
-# Only nginx publishes ports. PostgreSQL, the API, ClamAV and the jobs are on an
-# internal network. The public listener (webhooks and signed photos only) is
-# published on 127.0.0.1 so a tunnel you run on this host can reach it.
+# Only nginx publishes ports (HTTP, which only redirects, and HTTPS). PostgreSQL, the API,
+# ClamAV and the jobs are on an internal network. Nothing else is reachable from outside.
 # The database login and every host port come from pcms.env.
 name: pcms
 
@@ -100,8 +99,6 @@ services:
     ports:
       - "${PCMS_HTTP_PORT:-80}:8080"
       - "${PCMS_HTTPS_PORT:-443}:8443"
-      # Webhooks and signed photos only. Run your tunnel to http://127.0.0.1:PCMS_PUBLIC_PORT.
-      - "${PCMS_PUBLIC_BIND:-127.0.0.1}:${PCMS_PUBLIC_PORT:-8081}:8081"
     volumes:
       - ${PCMS_CERT_DIR:-./certs}:/etc/nginx/certs:ro
     depends_on: { api: { condition: service_healthy } }

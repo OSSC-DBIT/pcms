@@ -59,15 +59,15 @@ def set_cookies(response: Response, token: str, csrf: str) -> None:
     s = get_settings()
     max_age = s.session_hours * 3600
     response.set_cookie(s.session_cookie, token, max_age=max_age, httponly=True,
-                        secure=s.cookie_secure, samesite="lax", path="/")
+                        secure=s.cookie_secure, samesite="strict", path="/")
     response.set_cookie(s.csrf_cookie, csrf, max_age=max_age, httponly=False,
-                        secure=s.cookie_secure, samesite="lax", path="/")
+                        secure=s.cookie_secure, samesite="strict", path="/")
 
 
 def clear_cookies(response: Response) -> None:
     s = get_settings()
-    response.delete_cookie(s.session_cookie, path="/")
-    response.delete_cookie(s.csrf_cookie, path="/")
+    response.delete_cookie(s.session_cookie, path="/", secure=s.cookie_secure, httponly=True, samesite="strict")
+    response.delete_cookie(s.csrf_cookie, path="/", secure=s.cookie_secure, samesite="strict")
 
 
 async def load_session(db: AsyncSession, token: str | None) -> tuple[UserSession, User] | None:

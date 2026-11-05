@@ -45,6 +45,20 @@ export async function pushState(): Promise<PushState> {
 
 /** Call only from a user gesture (button tap). */
 export async function enablePush(): Promise<PushState> {
+  setOptedOut(false)
+  return subscribe()
+}
+
+/** Remembered per device: the person turned notifications off here, so never re-subscribe on open. */
+const OPT_OUT_KEY = 'pcms.push.optedOut'
+function optedOut(): boolean {
+  try { return localStorage.getItem(OPT_OUT_KEY) === '1' } catch { return false }
+}
+function setOptedOut(v: boolean): void {
+  try { if (v) localStorage.setItem(OPT_OUT_KEY, '1'); else localStorage.removeItem(OPT_OUT_KEY) } catch { /* private mode */ }
+}
+
+async function subscribe(): Promise<PushState> {
   const cfg = await request<{ enabled: boolean; publicKey: string | null }>('GET', '/push/config')
   if (!cfg.enabled || !cfg.publicKey) return 'disabled-on-server'
   const permission = await Notification.requestPermission()
@@ -65,6 +79,7 @@ export async function enablePush(): Promise<PushState> {
 }
 
 export async function disablePush(): Promise<PushState> {
+  setOptedOut(true)
   await unsubscribeThisDevice()
   return 'off'
 }
@@ -90,10 +105,56 @@ export async function sendTestPush(): Promise<{ sent: number; failed: number }> 
  */
 export async function syncPushOnOpen(): Promise<PushState> {
   const state = await pushState()
+  // Turned off on this device: respect it until the person turns it back on.
+  if (optedOut()) return state === 'on' ? 'on' : 'off'
   if (state === 'on' || (state === 'off' && typeof Notification !== 'undefined' && Notification.permission === 'granted')) {
-    return enablePush()
+    // Permission is already granted, so this needs no user gesture.
+    return subscribe()
   }
   return state
+}
+
+/** True when the person turned notifications off on this device (the prompt should stay quiet). */
+export function pushOptedOut(): boolean {
+  return optedOut()
+}
+
+// ---------- keep the server's copy of this device's subscription current ----------
+
+/** Re-save at most this often while the app stays open (it is also saved on every app open). */
+const RESYNC_MS = 60 * 60 * 1000
+let started = false
+let lastSync = 0
+let inFlight: Promise<PushState> | null = null
+
+function resync(force = false): Promise<PushState> {
+  if (inFlight) return inFlight
+  if (!force && Date.now() - lastSync < RESYNC_MS) return Promise.resolve('on')
+  inFlight = syncPushOnOpen()
+    .finally(() => { lastSync = Date.now(); inFlight = null })
+  return inFlight
+}
+
+/**
+ * Called once after sign-in (from NotificationPrompt). Saves this device's push
+ * subscription now, again whenever the app comes back to the foreground (at most
+ * hourly), and immediately when the browser replaces the subscription (the service
+ * worker reports `pushsubscriptionchange`). So the server always holds a working
+ * subscription for every device a person uses, without them doing anything.
+ */
+export function startPushSync(onState?: (s: PushState) => void): void {
+  const report = (p: Promise<PushState>) => { p.then((s) => onState?.(s)).catch(() => undefined) }
+  report(resync(true))
+  if (started) return
+  started = true
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') report(resync())
+  })
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      if ((event.data as { type?: string } | null)?.type === 'PCMS_PUSH_RESUBSCRIBE') report(resync(true))
+    })
+  }
 }
 
 function sameKey(a: Uint8Array, b: Uint8Array): boolean {

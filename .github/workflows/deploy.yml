@@ -1,0 +1,69 @@
+name: Deploy
+
+# Continuous deployment to the OSSC server:
+#   push to dev  -> CI -> staging     (https://pcms-staging.webuildnow.in)
+#   push to main -> CI -> production
+# A deploy runs only after the whole CI (backend tests, frontend, compose check, browser
+# test) passes on GitHub-hosted runners. The deploy itself runs on a self-hosted runner on
+# the server, so nothing on the server is exposed to the internet and no server secret is
+# stored in GitHub. See docs/DEPLOYMENT.md, "Continuous deployment".
+
+on:
+  push:
+    branches: [dev, main]
+  # Redeploy by hand (Actions > Deploy > Run workflow). Production only from main.
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Where to deploy the selected branch
+        type: choice
+        options: [staging, production]
+        default: staging
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: CI
+    uses: ./.github/workflows/ci.yml
+
+  target:
+    name: Pick the environment
+    runs-on: ubuntu-24.04
+    outputs:
+      environment: ${{ steps.pick.outputs.environment }}
+    steps:
+      - id: pick
+        env:
+          REF: ${{ github.ref }}
+          EVENT: ${{ github.event_name }}
+          WANTED: ${{ inputs.environment }}
+        run: |
+          if [ "$EVENT" = workflow_dispatch ]; then env="$WANTED"
+          elif [ "$REF" = refs/heads/main ]; then env=production
+          elif [ "$REF" = refs/heads/dev ]; then env=staging
+          else echo "::error::no environment for $REF"; exit 1; fi
+          if [ "$env" = production ] && [ "$REF" != refs/heads/main ]; then
+            echo "::error::production deploys only from main (this run is on $REF)"; exit 1
+          fi
+          echo "environment=$env" >> "$GITHUB_OUTPUT"
+          echo "Deploying $REF to $env"
+
+  deploy:
+    name: Deploy to ${{ needs.target.outputs.environment }}
+    needs: [ci, target]
+    # The runner registered on the OSSC server with the label "pcms".
+    runs-on: [self-hosted, linux, pcms]
+    timeout-minutes: 45
+    # One deploy per environment at a time; a deploy in progress is never cancelled
+    # halfway, the next one waits.
+    concurrency:
+      group: deploy-${{ needs.target.outputs.environment }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          clean: true
+      - name: Deploy
+        run: bash ops/deploy/deploy.sh "${{ needs.target.outputs.environment }}" "$GITHUB_SHA"

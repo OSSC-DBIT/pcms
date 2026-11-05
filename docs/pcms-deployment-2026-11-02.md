@@ -1,8 +1,9 @@
-# PCMS staging deployment - 2 November 2026
+# PCMS staging deployment - 2 November 2026 (updated 5 November 2026)
 
 What we did to get PCMS running in Docker on the OSSC server and public at
 https://pcms-staging.webuildnow.in, what went wrong, and how each problem was fixed.
-It ends with how to open and clear the database.
+It ends with how to open and clear the database, and (5 November) how continuous deployment
+and the production configuration are set up.
 
 ## Result
 
@@ -37,7 +38,8 @@ Ports PCMS uses now (set in `pcms.env`):
 |---|---|---|
 | 676 | nginx HTTPS (the app) | all interfaces |
 | 8082 | nginx HTTP (only redirects to HTTPS) | all interfaces |
-| 8081 | nginx public listener (Twilio webhooks, signed photos) | 127.0.0.1 |
+
+Port 8081 (the old public listener for Twilio webhooks and signed photos) is gone since 4 November 2026.
 
 PostgreSQL, the API, ClamAV and the job containers are not published on the host at all.
 
@@ -189,11 +191,10 @@ effectively root access to the machine.
       then delete it here. It is the only key that can decrypt the backups.
 - [ ] Stop the old dev stack, which is still running on 5173 and 8025:
       `sudo docker compose -f compose.dev.yml down`.
-- [ ] Email: `smtp.dbit.edu.in` does not resolve from this server, so no email is sent.
-      Get the right SMTP host from college IT.
-- [ ] Push notifications: `PCMS_VAPID_*` keys are empty. Generate them with
-      `sudo docker compose -f compose.prod.yml exec api python -m app.cli vapid-keys`, put them
-      in `pcms.env`, then `up -d`.
+- [x] ~~Email: `smtp.dbit.edu.in` does not resolve from this server.~~ Not needed: email was removed on
+      4 November 2026. Web push is the only notification channel.
+- [ ] Push notifications: `PCMS_VAPID_*` keys are empty, and since 4 November the stack refuses to start
+      without them. See "Update, 5 November 2026" below.
 - [ ] Rate limiting: all tunnel traffic reaches nginx from one address, so every visitor
       shares one rate limit (sign-in: 30 per minute). nginx should read Cloudflare's
       `CF-Connecting-IP` header (code change in `nginx/snippets/http.conf`).
@@ -203,6 +204,126 @@ effectively root access to the machine.
       On campus the app is at `https://<server-ip>:676`.
 - [ ] Before real use: confirm a nightly backup appears in `/srv/pcms/backups` and do a
       restore drill (`docs/DEPLOYMENT.md` section 7).
+
+## Update, 5 November 2026: continuous deployment and the production configuration
+
+From now on nobody runs `docker compose ... up` by hand on this server. A push deploys itself after CI passes:
+
+| Branch | Environment | URL | Compose project | Env file | HTTPS port |
+|---|---|---|---|---|---|
+| `dev` | staging | https://pcms-staging.webuildnow.in | `pcms` (the existing volumes) | `/srv/server-data/pcms/pcms.env` | 676 |
+| `main` | production | (to be decided) | `pcms-prod` | `/srv/pcms-prod/pcms.env` | 677 (or any free port) |
+
+Both use `compose.prod.yml`. The dev stack (`compose.dev.yml`) is only for laptops and CI's tests; stop it here
+if it still runs: `sudo docker compose -f compose.dev.yml down`.
+
+Staging keeps the project name `pcms` on purpose: its database and uploads are in the volumes `pcms_pgdata`
+and `pcms_media`. A different name would start an empty database.
+
+### 1. Fix staging's `pcms.env` first
+
+`sudo nano /srv/server-data/pcms/pcms.env`, then:
+
+**Delete these lines** (removed features; ignored if left, but they confuse the next person):
+
+```
+PCMS_SMTP_HOST  PCMS_SMTP_PORT  PCMS_SMTP_STARTTLS  PCMS_SMTP_USERNAME  PCMS_SMTP_PASSWORD  PCMS_SMTP_FROM
+PCMS_MESSAGING_PROVIDER
+PCMS_TWILIO_ACCOUNT_SID  PCMS_TWILIO_AUTH_TOKEN  PCMS_TWILIO_WHATSAPP_FROM  PCMS_TWILIO_SMS_FROM
+PCMS_TWILIO_JOB_CONTENT_SID  PCMS_TWILIO_JOB_MEDIA_CONTENT_SID  PCMS_FACILITIES_DESK_PHONE
+PCMS_PUBLIC_BASE_URL  PCMS_PUBLIC_PORT  PCMS_PUBLIC_BIND
+PCMS_ACCEPT_TIMEOUT_MINUTES
+PCMS_ADMIN_1_* and PCMS_ADMIN_2_* (already on the to-do list: the admins have signed in)
+```
+
+**Make sure these are set** (`.env.example` has every line with a comment):
+
+```
+PCMS_PUBLIC_APP_URL=https://pcms-staging.webuildnow.in
+PCMS_HTTP_PORT=8082
+PCMS_HTTPS_PORT=676
+PCMS_CERT_DIR=/srv/pcms/certs
+PCMS_SECRETS_DIR=/srv/pcms/secrets
+PCMS_BACKUP_DIR=/srv/pcms/backups
+PCMS_VAPID_PUBLIC_KEY=...      # generate below
+PCMS_VAPID_PRIVATE_KEY=...
+PCMS_VAPID_SUBJECT=mailto:<a real OSSC address>
+# Only if people on campus also open https://<server-ip>:676 (otherwise those requests are refused):
+PCMS_ALLOWED_ORIGINS=https://<server-ip>:676
+PCMS_ALLOWED_HOSTS=<server-ip>
+```
+
+Generate the push keys once and keep them:
+`sudo docker compose -f compose.prod.yml exec api python -m app.cli vapid-keys`.
+The three folder paths must be absolute, and the backup folder must belong to the backup container's
+user: `sudo chown 70:70 /srv/pcms/backups`. Without that, backups fail with "permission denied", and a
+production deploy refuses to run without a backup.
+
+In Cloudflare Zero Trust, delete any tunnel route that pointed at `localhost:8081`. The app route
+(`https://localhost:676`, No TLS Verify) stays as it is.
+
+### 2. Install the self-hosted runner
+
+The deploy runs on this machine through a GitHub Actions runner. The runner connects out to GitHub, so
+nothing new is opened to the internet and no password or SSH key goes into GitHub.
+
+```sh
+sudo useradd -m -s /bin/bash gh-runner
+sudo usermod -aG docker gh-runner              # docker group = root on this machine; runner use only
+sudo apt-get install -y git curl util-linux
+sudo install -d -o gh-runner -g gh-runner /srv/actions-runner /var/lib/pcms-deploy
+```
+
+In GitHub: `OSSC-DBIT/pcms`, Settings, Actions, Runners, **New self-hosted runner**, Linux x64. Run the
+commands it shows as `gh-runner` inside `/srv/actions-runner` (`sudo -iu gh-runner`). When `config.sh` asks
+for labels, type `pcms`. Then, back as your own user:
+
+```sh
+cd /srv/actions-runner && sudo ./svc.sh install gh-runner && sudo ./svc.sh start
+```
+
+Let the runner read the env file without making it world-readable:
+
+```sh
+sudo groupadd -f pcms && sudo usermod -aG pcms gh-runner
+sudo chown root:pcms /srv/server-data/pcms/pcms.env && sudo chmod 640 /srv/server-data/pcms/pcms.env
+sudo ./svc.sh stop && sudo ./svc.sh start       # pick up the new groups
+```
+
+### 3. Tell the deploy where staging lives
+
+```sh
+sudo install -d /etc/pcms
+sudo cp /srv/server-data/pcms/ops/deploy/staging.conf.example /etc/pcms/staging.conf
+sudo chmod 644 /etc/pcms/staging.conf
+```
+
+The example already holds staging's values: project `pcms`, env file `/srv/server-data/pcms/pcms.env`, and
+health check `https://127.0.0.1:676/api/v1/health/ready`.
+
+### 4. Branches
+
+Create `dev` from `main` and push it. Protect `main` and `dev` in Settings, Branches: require a pull request,
+require the CI checks, and block force pushes. Work goes feature branch, then a pull request to `dev`
+(deploys staging), then a pull request from `dev` to `main` (deploys production).
+
+### 5. First deploy
+
+Push to `dev`, or run it by hand: GitHub, Actions, **Deploy**, Run workflow, branch `dev`, environment
+`staging`. Watch the log. A good run ends with `deployed staging-<sha> and healthy`. To go back one release:
+`sudo bash /srv/actions-runner/_work/pcms/pcms/ops/deploy/rollback.sh staging`.
+
+### Production, later
+
+Production gets its **own** everything, so it can never touch staging's data:
+- `/srv/pcms-prod/` with `pcms.env` (new database password, `PCMS_SECRET_KEY`, `PCMS_CREDENTIAL_KEY`, VAPID
+  keys, admins, the production `PCMS_PUBLIC_APP_URL`, ports such as 8083 and 677) and `certs/`, `secrets/`,
+  `backups/` (`chown 70:70`).
+- `/etc/pcms/production.conf` from `ops/deploy/production.conf.example` (project `pcms-prod`).
+- Its own Cloudflare tunnel hostname pointing at its HTTPS port.
+- Then merge `dev` into `main`. A production deploy refuses to continue if the backup before it fails.
+
+`docs/DEPLOYMENT.md` section 8 explains every step the deploy takes.
 
 ## The database
 

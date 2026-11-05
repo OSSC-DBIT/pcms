@@ -13,7 +13,7 @@ export type Capability =
   | 'queue.view' | 'ticket.triage' | 'ticket.assign' | 'ticket.assess' | 'ticket.escalate' | 'ticket.close'
   | 'ticket.attach'
   | 'cost.approve' | 'cost.principal'
-  | 'admin.users' | 'admin.catalogs' | 'admin.locations' | 'admin.settings' | 'admin.audit'
+  | 'admin.users' | 'admin.catalogs' | 'admin.locations' | 'admin.settings' | 'admin.audit' | 'admin.tickets'
 
 /** What the sign-in flow needs next. Protected screens work only once this is 'done'. */
 export type SignInStep = 'totp' | 'change_password' | 'enrol_totp' | 'done'
@@ -151,6 +151,8 @@ export interface Ticket extends TicketSummary {
   holdReason?: string | null
   holdReviewDate?: string | null
   rating?: Rating | null
+  /** What the repair actually cost, recorded when it was marked fixed. Always null for faculty. */
+  actualCostPaise?: number | null
 }
 
 export interface LowRating {
@@ -187,6 +189,8 @@ export interface AdminUser {
   email: string
   name: string
   role: Role
+  department?: string | null
+  position?: string | null
   active: boolean
   mustChangePassword: boolean
   tempPasswordExpiresAt: string | null
@@ -245,6 +249,21 @@ export interface Report {
     distribution: Record<string, number>
     low: LowRating[]
   }
+  /** Tickets raised in the period per building and department. */
+  byDepartment: DepartmentRow[]
+  /** Tickets raised in the period per type (category code). */
+  byType: { category: string; total: number; open: number; fixed: number }[]
+}
+
+export interface DepartmentRow {
+  building: string | null
+  department: string | null
+  total: number
+  open: number
+  fixed: number
+  overdue: number
+  /** Sum of recorded actual costs. Null for roles that do not see spending. */
+  actualPaise: number | null
 }
 
 // ---------- expenditure ----------
@@ -267,6 +286,8 @@ export interface ExpenditureItem {
   decidedBy: string | null
   decidedAt: string | null
   approvedPaise: number | null
+  /** What the repair actually cost, if recorded when it was marked fixed. */
+  actualPaise: number | null
   escalated: boolean
   note: string | null
 }
@@ -277,11 +298,27 @@ export interface Expenditure {
   requestedPaise: number
   approvedPaise: number
   pendingPaise: number
+  /** Every repair marked fixed in the period with a recorded actual cost, with or without a request. */
+  actualPaise: number
+  actualCount: number
   approvedCount: number
   pendingCount: number
   rejectedCount: number
   byCategory: { category: string; requests: number; requestedPaise: number; approvedPaise: number }[]
+  /** Spending per building and department in the period: requests raised, and actual costs of repairs fixed. */
+  byDepartment: ExpenditureDepartment[]
   items: ExpenditureItem[]
+}
+
+export interface ExpenditureDepartment {
+  building: string | null
+  department: string | null
+  requests: number
+  requestedPaise: number
+  approvedPaise: number
+  pendingPaise: number
+  repairs: number
+  actualPaise: number
 }
 
 // ---------- audit ----------

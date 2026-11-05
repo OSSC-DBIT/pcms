@@ -21,7 +21,7 @@ export function Pager({ page, pageCount, total, pageSize, onPage, onPageSize }: 
         {t('common.showing', { first, last, total })}
         {pageCount > 1 && <span className="ml-2">{t('common.page', { page, pages: pageCount })}</span>}
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         {onPageSize && (
           <label className="flex items-center gap-1.5 text-muted">
             <span>{t('common.perPage')}</span>

@@ -61,7 +61,7 @@ def can_see(p: Principal, t: Ticket) -> bool:
 
 async def get_visible(db: AsyncSession, p: Principal, ticket_id: uuid.UUID, *, lock: bool = False) -> Ticket:
     t = await db.get(Ticket, ticket_id, with_for_update=lock)
-    if t is None or not can_see(p, t):
+    if t is None or t.deleted_at is not None or not can_see(p, t):
         raise not_found("Ticket not found.")
     return t
 
@@ -247,7 +247,8 @@ async def create_ticket(db: AsyncSession, p: Principal, body: TicketCreateIn) ->
     await notify.notify_reporter(db, t, template="receipt", title=f"Report received: {t.token}",
                                  body=f"{t.title}. Keep this token to track progress.")
     await notify.notify_role(db, "facility_manager", t, template="new_ticket",
-                             title=f"New {body.impact} report {t.token}", body=f"{cat.name_en}: {t.title}")
+                             title=f"New {body.impact} report {t.token}", body=f"{cat.name_en}: {t.title}",
+                             exclude_user=p.user.id)
     return t, False
 
 
@@ -451,6 +452,7 @@ async def ticket_out(db: AsyncSession, p: Principal, t: Ticket) -> TicketOut:
         hold_reason=t.hold_reason if t.status == "OnHold" else None,
         hold_review_date=t.hold_review_date if t.status == "OnHold" else None,
         rating=RatingOut(stars=rating.stars, comment=rating.comment, created_at=rating.created_at) if rating else None,
+        actual_cost_paise=t.actual_cost_paise if staff else None,
         events=[EventOut(id=str(e.id), at=e.at, actor=e.actor_label if staff or e.actor_id == p.user.id else _public_actor(e),
                          action=e.action, detail=e.detail, delegated_worker=e.delegated_worker if staff else None)
                 for e in events],

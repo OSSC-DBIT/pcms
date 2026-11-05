@@ -55,33 +55,16 @@ class Settings(BaseSettings):
     clamav_host: str = "clamav"
     clamav_port: int = 3310
     clamav_required: bool = True
-    public_media_ttl_seconds: int = 600
 
-    # Public URL of the tunnel you run to nginx's public listener (webhooks and signed photos).
-    public_base_url: str = "http://localhost:8081"
-    # Campus URL people open (used in email links).
+    # Campus URL people open. Its origin is the only one the API accepts.
     public_app_url: str = "http://localhost:8080"
+    # Extra origins and hosts, comma-separated, if the campus site is reached by more than one name.
+    allowed_origins: str = ""
+    allowed_hosts: str = ""
 
-    # Email
-    smtp_host: str = "mailpit"
-    smtp_port: int = 1025
-    smtp_from: str = "PCMS <pcms@localhost>"
-    smtp_starttls: bool = False
-    smtp_username: str | None = None
-    smtp_password: str | None = None
-
-    # Messaging provider: "twilio" sends for real; "none" disables worker messaging
-    # (dispatch by call and job card only); "fake" records sends and is for tests.
-    messaging_provider: Literal["fake", "twilio", "none"] = "none"
-    twilio_account_sid: str | None = None
-    twilio_auth_token: str | None = None
-    twilio_whatsapp_from: str | None = None  # e.g. whatsapp:+14155238886
-    twilio_sms_from: str | None = None  # E.164 number or a Messaging Service SID (MG...)
-    # Content Template Builder SIDs (HX...). Variables: 1 token, 2 type, 3 plan, 4 location, 5 flag.
-    twilio_job_content_sid: str | None = None  # twilio/quick-reply: Accept, Done, Need help
-    twilio_job_media_content_sid: str | None = None  # twilio/card with media {6} = signed photo token
-    twilio_validate_signature: bool = True
-    facilities_desk_phone: str | None = None  # shown in SMS fallback
+    # Notifications are web push only (VAPID settings above). Email and Twilio were removed
+    # on 4 November 2026; leftover PCMS_SMTP_*, PCMS_TWILIO_* and PCMS_MESSAGING_PROVIDER
+    # values in an env file are ignored.
 
     # Translation of typed text (titles, descriptions, messages, reasons) between English,
     # Kannada and Hindi, done by the worker. "mymemory" is the free public MyMemory API and
@@ -94,8 +77,6 @@ class Settings(BaseSettings):
     translation_fallback: Literal["google", "none"] = "google"
 
     # Workflow timing
-
-    accept_timeout_minutes: int = 30
     dispute_window_days: int = 7
     verify_reminder_days: int = 2
     auto_close_days: int = 5
@@ -137,10 +118,16 @@ class Settings(BaseSettings):
             problems.append("PCMS_CLAMAV_REQUIRED must be true")
         if self.translation_provider == "fake":
             problems.append("PCMS_TRANSLATION_PROVIDER=fake is for tests; use mymemory or none")
-        if self.messaging_provider == "fake":
-            problems.append("PCMS_MESSAGING_PROVIDER=fake is for tests; use twilio or none")
-        if self.messaging_provider == "twilio" and not (self.twilio_account_sid and self.twilio_auth_token):
-            problems.append("Twilio credentials are missing")
+        from urllib.parse import urlsplit
+
+        parts = urlsplit(self.public_app_url)
+        if parts.scheme != "https" or not parts.hostname or parts.hostname in ("localhost", "127.0.0.1"):
+            problems.append(f"PCMS_PUBLIC_APP_URL must be the public https address, not {self.public_app_url!r}")
+        if not (self.vapid_public_key and self.vapid_private_key):
+            problems.append("PCMS_VAPID_PUBLIC_KEY and PCMS_VAPID_PRIVATE_KEY must be set: web push is the "
+                            "only notification channel (generate them with: python -m app.cli vapid-keys)")
+        if not self.vapid_subject.startswith(("mailto:", "https://")) or self.vapid_subject.endswith("@localhost"):
+            problems.append("PCMS_VAPID_SUBJECT must be a real mailto: or https: contact for the push services")
         return problems
 
 

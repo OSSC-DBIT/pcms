@@ -1,9 +1,11 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  # Every pull request. Pushes to dev and main run this through deploy.yml, which deploys
+  # only after it passes, so it is not triggered twice for them.
   pull_request:
+  workflow_call:
+  workflow_dispatch:
 
 permissions:
   contents: read

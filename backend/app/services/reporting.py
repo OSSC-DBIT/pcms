@@ -12,7 +12,7 @@ notes or worker names.
 from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, text
+from sqlalchemy import any_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
@@ -49,16 +49,22 @@ def window(days: int | None, start: date | None, end: date | None,
 
 
 async def validate_department(db: AsyncSession, building: str | None, department: str | None) -> None:
-    """A department filter is only meaningful with its building (and must exist).
+    """A department filter must name a configured department.
 
-    Retired buildings stay filterable: reports must keep answering questions
-    about historical tickets, so only the department must belong to the
-    building's stored catalog.
+    With a building, the department must belong to that building. Without one
+    (DBIT, 2026-11-04: department-wise reports), it must belong to some building,
+    and the filter then covers that department wherever it appears. Retired
+    buildings stay filterable: reports must keep answering questions about
+    historical tickets.
     """
     if not department:
         return
     if not building:
-        raise validation("Choose a building before filtering by department.", {"department": "Needs building"})
+        known = await db.scalar(select(Building.code).where(any_(Building.departments) == department).limit(1))
+        if known is None:
+            raise validation("That department or area is not configured for any building.",
+                             {"department": "Unknown"})
+        return
     b = await db.scalar(select(Building).where(Building.code == building))
     if b is None:
         raise not_found()
@@ -68,8 +74,9 @@ async def validate_department(db: AsyncSession, building: str | None, department
 
 
 def ticket_filters(building: str | None, department: str | None, category_id: int | None):
-    """ORM filters for the Ticket model shared by dashboard queries and exports."""
-    flt = []
+    """ORM filters for the Ticket model shared by dashboard queries and exports.
+    Tickets removed by Team OSSC never appear in a report."""
+    flt = [Ticket.deleted_at.is_(None)]
     if building:
         flt.append(Ticket.building_code == building)
     if department:
@@ -80,8 +87,9 @@ def ticket_filters(building: str | None, department: str | None, category_id: in
 
 
 def raw_scope(building: str | None, department: str | None, category_id: int | None) -> tuple[str, dict]:
-    """WHERE fragments for raw SQL over `ticket t`, for joins into ticket_event."""
-    clauses, params = [], {}
+    """WHERE fragments for raw SQL over `ticket t`, for joins into ticket_event.
+    Always excludes tickets removed by Team OSSC."""
+    clauses, params = ["t.deleted_at IS NULL"], {}
     if building:
         clauses.append("t.building_code = :b")
         params["b"] = building
@@ -111,7 +119,7 @@ async def category_id_of(db: AsyncSession, category: str | None) -> int | None:
 async def available_years(db: AsyncSession) -> list[int]:
     """Calendar years that actually contain tickets, oldest first."""
     rows = (await db.execute(text(
-        "SELECT DISTINCT extract(year FROM created_at %s)::int AS y FROM ticket ORDER BY 1" % year_expr()),
+        "SELECT DISTINCT extract(year FROM created_at %s)::int AS y FROM ticket WHERE deleted_at IS NULL ORDER BY 1" % year_expr()),
         {"tz": get_settings().timezone})).all()
     return [r[0] for r in rows]
 
@@ -213,13 +221,14 @@ def file_stamp(since: datetime, until: datetime) -> str:
 # management), so it is shown once: on the version that holds the final
 # decision, dated from when the request was first raised.
 #
-# PCMS records the amount each request was approved up to, not invoices, so
-# "approved" means the authorised limit.
+# "approved" is the limit each request was approved up to. "actual" is what the
+# facility manager recorded the repair really cost when marking it fixed
+# (DBIT, 2026-11-04), so the two can be compared per request.
 
 EXPENDITURE_COLUMNS = ("token", "title", "category", "building", "department", "raised_on", "requested_by",
                        "estimate_inr", "status", "decided_by", "decided_on", "approved_limit_inr",
-                       "escalated_to_management", "note")
-EXPENDITURE_WIDTHS = (14, 36, 18, 14, 30, 12, 22, 14, 30, 22, 12, 18, 12, 40)
+                       "actual_cost_inr", "escalated_to_management", "note")
+EXPENDITURE_WIDTHS = (14, 36, 18, 14, 30, 12, 22, 14, 30, 22, 12, 18, 14, 12, 40)
 STATUS_TEXT = {"pending_principal": "Awaiting the principal", "pending_management": "Awaiting institute management",
                "approved": "Approved", "rejected": "Rejected", "clarify": "Clarification requested",
                "defer": "Deferred", "superseded": "Superseded"}
@@ -238,7 +247,7 @@ async def expenditure(db: AsyncSession, since: datetime, until: datetime, buildi
         SELECT t.id, t.token, t.title, cat.name_en, t.building_code, t.department,
                coalesce(prev.created_at, pr.created_at) AS raised_at, req.name,
                pr.total_paise, pr.state, pr.stage, dby.name, d.decided_at, d.ceiling_paise,
-               prev.id IS NOT NULL, coalesce(d.reason, d.conditions, pd.reason)
+               prev.id IS NOT NULL, coalesce(d.reason, d.conditions, pd.reason), t.actual_cost_paise
         FROM proposal pr
         JOIN ticket t ON t.id = pr.ticket_id
         JOIN category cat ON cat.id = t.category_id
@@ -256,24 +265,70 @@ async def expenditure(db: AsyncSession, since: datetime, until: datetime, buildi
 
     items, cats = [], {}
     for (tid, token, title, cat, bcode, dept, raised, req, total, state, stage, dec_name, dec_at, ceiling,
-         escalated, note) in rows:
+         escalated, note, actual) in rows:
         status = f"pending_{stage}" if state == "pending" else state
         approved = (ceiling or 0) if state == "approved" else None
         items.append(dict(ticket_id=tid, token=token, title=title, category=cat, building=bcode, department=dept,
                           raised_at=raised, requested_by=req, estimate_paise=total, status=status,
                           decided_by=dec_name, decided_at=dec_at, approved_paise=approved, escalated=escalated,
-                          note=note))
+                          note=note, actual_paise=actual))
         c = cats.setdefault(cat, {"category": cat, "requests": 0, "requested_paise": 0, "approved_paise": 0})
         c["requests"] += 1
         c["requested_paise"] += total
         c["approved_paise"] += approved or 0
     pending = [i for i in items if i["status"].startswith("pending")]
+    # Every repair marked fixed in the period with a recorded cost, whether or not it needed approval.
+    actual_count, actual_total = (await db.execute(text(f"""
+        SELECT count(*), coalesce(sum(t.actual_cost_paise), 0) FROM ticket t
+        WHERE t.actual_cost_paise IS NOT NULL AND t.resolved_at >= :since AND t.resolved_at < :until{where}
+    """), params)).one()
+
+    # Department-wise spending (DBIT, 2026-11-04): requests raised in the period and actual costs of
+    # repairs fixed in the period, per building and department, on the same rules as the totals above.
+    depts: dict[tuple[str | None, str | None], dict] = {}
+
+    def dept(b: str | None, d: str | None) -> dict:
+        return depts.setdefault((b, d or None), {
+            "building": b, "department": d or None, "requests": 0, "requested_paise": 0, "approved_paise": 0,
+            "pending_paise": 0, "repairs": 0, "actual_paise": 0})
+
+    for i in items:
+        row = dept(i["building"], i["department"])
+        row["requests"] += 1
+        row["requested_paise"] += i["estimate_paise"]
+        row["approved_paise"] += i["approved_paise"] or 0
+        if i["status"].startswith("pending"):
+            row["pending_paise"] += i["estimate_paise"]
+    for b, d, n, total in (await db.execute(text(f"""
+        SELECT t.building_code, nullif(t.department, ''), count(*), coalesce(sum(t.actual_cost_paise), 0)
+        FROM ticket t
+        WHERE t.actual_cost_paise IS NOT NULL AND t.resolved_at >= :since AND t.resolved_at < :until{where}
+        GROUP BY 1, 2
+    """), params)).all():
+        row = dept(b, d)
+        row["repairs"] += n
+        row["actual_paise"] += int(total)
+    by_department = sorted(depts.values(), key=lambda r: (-r["actual_paise"], -r["approved_paise"],
+                                                         -r["requested_paise"], r["building"] or "", r["department"] or ""))
     return dict(requests=len(items), requested_paise=sum(i["estimate_paise"] for i in items),
                 approved_paise=sum(i["approved_paise"] or 0 for i in items),
                 pending_paise=sum(i["estimate_paise"] for i in pending),
+                actual_paise=int(actual_total), actual_count=actual_count,
                 approved_count=sum(i["status"] == "approved" for i in items), pending_count=len(pending),
                 rejected_count=sum(i["status"] == "rejected" for i in items),
-                by_category=sorted(cats.values(), key=lambda c: -c["requested_paise"]), items=items)
+                by_category=sorted(cats.values(), key=lambda c: -c["requested_paise"]),
+                by_department=by_department, items=items)
+
+
+DEPARTMENT_SPEND_COLUMNS = ("building", "department", "requests", "requested_inr", "approved_inr",
+                            "awaiting_inr", "repairs_with_cost", "actual_cost_inr")
+DEPARTMENT_SPEND_WIDTHS = (16, 40, 10, 16, 16, 16, 16, 16)
+
+
+def department_spend_cells(r: dict) -> list[str]:
+    return [r["building"] or "Other location", r["department"] or "", str(r["requests"]),
+            inr(r["requested_paise"]), inr(r["approved_paise"]), inr(r["pending_paise"]), str(r["repairs"]),
+            inr(r["actual_paise"])]
 
 
 def expenditure_cells(i: dict) -> list[str]:
@@ -284,5 +339,5 @@ def expenditure_cells(i: dict) -> list[str]:
 
     return [i["token"], i["title"], i["category"], i["building"] or "", i["department"] or "", day(i["raised_at"]),
             i["requested_by"], inr(i["estimate_paise"]), STATUS_TEXT.get(i["status"], i["status"]),
-            i["decided_by"] or "", day(i["decided_at"]), inr(i["approved_paise"]),
+            i["decided_by"] or "", day(i["decided_at"]), inr(i["approved_paise"]), inr(i["actual_paise"]),
             "yes" if i["escalated"] else "", i["note"] or ""]

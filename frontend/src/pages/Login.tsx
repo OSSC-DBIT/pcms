@@ -77,7 +77,7 @@ function Credentials({ password, onStep }: { password: React.MutableRefObject<st
   })
   return (
     <form onSubmit={submit} className="space-y-4">
-      <Field label={t('login.email')}>{(id) => <Input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" inputMode="email" autoCapitalize="none" spellCheck={false} maxLength={254} required />}</Field>
+      <Field label={t('login.email')}>{(id) => <Input id={id} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" inputMode="email" autoCapitalize="none" spellCheck={false} minLength={6} maxLength={254} required />}</Field>
       <Field label={t('login.password')}>{(id) => <PasswordInput id={id} value={pw} onChange={(e) => setPw(e.target.value)} autoComplete="current-password" maxLength={256} required />}</Field>
       {error && <Alert tone="bad">{error}</Alert>}
       <Button type="submit" full loading={busy}>{t('login.submit')}</Button>

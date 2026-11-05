@@ -40,7 +40,7 @@ export function SearchBox({ value, onSearch, placeholder, id }: { value: string;
     <form role="search" className="relative min-w-0 flex-1 basis-full sm:basis-0" onSubmit={(e) => { e.preventDefault(); onSearch(text.trim()) }}>
       <label htmlFor={id} className="sr-only">{t('action.search')}</label>
       <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted" aria-hidden />
-      <Input id={id} value={text} placeholder={placeholder} autoComplete="off" className="pl-9 pr-9" type="search"
+      <Input id={id} value={text} placeholder={placeholder} autoComplete="off" className="pl-9 pr-9" type="search" maxLength={120}
         onChange={(e) => {
           const v = e.target.value
           setText(v)

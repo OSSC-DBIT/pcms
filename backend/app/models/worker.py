@@ -1,4 +1,8 @@
-"""Worker directory (no logins) and ticket assignments."""
+"""Legacy worker directory and assignments (no logins).
+
+Nothing writes these tables any more: facility managers contact workers directly and record
+an optional name on the ticket, and Twilio messaging was removed on 4 November 2026. The
+models stay so the history in these tables remains intact and migrations stay consistent."""
 
 import uuid
 from datetime import datetime

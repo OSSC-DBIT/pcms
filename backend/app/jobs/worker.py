@@ -5,7 +5,7 @@ import logging
 import signal
 
 from app.config import get_settings
-from app.services import outbox, translate
+from app.services import outbox, translate, webpush
 
 log = logging.getLogger("pcms.worker")
 
@@ -19,8 +19,8 @@ async def main() -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
-    log.info("outbox worker started (provider=%s, translation=%s)", get_settings().messaging_provider,
-             get_settings().translation_provider)
+    log.info("outbox worker started (web push %s, translation=%s)",
+             "on" if webpush.is_configured() else "OFF: set PCMS_VAPID_* keys", get_settings().translation_provider)
     while not stop.is_set():
         try:
             n = await outbox.run_once()

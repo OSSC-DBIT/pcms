@@ -51,6 +51,9 @@ class Ticket(Base):
         CheckConstraint("char_length(description) <= 2000", name="ticket_description_length"),
         CheckConstraint("version >= 1", name="ticket_version_positive"),
         CheckConstraint("duplicate_of_id IS NULL OR duplicate_of_id <> id", name="ticket_not_own_duplicate"),
+        CheckConstraint("actual_cost_paise IS NULL OR actual_cost_paise >= 0", name="ticket_actual_cost_non_negative"),
+        CheckConstraint("deleted_at IS NULL OR (deleted_by IS NOT NULL AND delete_reason IS NOT NULL)",
+                        name="ticket_deleted_has_reason"),
         UniqueConstraint("reporter_id", "client_request_id", name="ticket_reporter_request_unique"),
         Index("ix_ticket_status", "status"),
         Index("ix_ticket_reporter", "reporter_id", "created_at"),
@@ -58,6 +61,7 @@ class Ticket(Base):
         Index("ix_ticket_location", "building_code", "room"),
         Index("ix_ticket_next_update_due", "next_update_due", postgresql_where=text("status NOT IN ('Closed','Cancelled','Rejected','Duplicate')")),
         Index("ix_ticket_created", "created_at"),
+        Index("ix_ticket_live", "created_at", postgresql_where=text("deleted_at IS NULL")),
     )
 
     id: Mapped[uuid.UUID] = uuid_pk()
@@ -89,6 +93,9 @@ class Ticket(Base):
     assessments: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
     # Free text recorded by the facility manager. It is internal: staff only, no login or phone.
     worker_name: Mapped[str | None] = mapped_column(String(120))
+    # What the repair actually cost, in paise. Optional, recorded by the facility manager when marking it fixed.
+    # A spending figure: never returned to faculty.
+    actual_cost_paise: Mapped[int | None] = mapped_column(BigInteger)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="Submitted")
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
 
@@ -106,6 +113,12 @@ class Ticket(Base):
 
     duplicate_of_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("ticket.id"))
     parent_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("ticket.id"))
+
+    # Removed by Team OSSC (DBIT, 2026-11-04). History is append-only, so the row stays;
+    # a removed ticket is hidden from every list, report and export and returns 404.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    deleted_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("app_user.id", name="fk_ticket_deleted_by"))
+    delete_reason: Mapped[str | None] = mapped_column(String(500))
 
     # Reporter-scoped idempotency (plan section 6).
     client_request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)

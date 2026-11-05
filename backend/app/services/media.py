@@ -5,21 +5,16 @@
     trailing payload. Videos are probed with ffprobe and remuxed without metadata.
   - Files get random storage keys on a private volume, outside any web root.
   - New files wait in quarantine until ClamAV reports them clean.
-  - Downloads are authorised per request; signed public links exist only for
-    Twilio to fetch a job photo and expire within minutes.
+  - Downloads are authorised per request. There are no public links.
 """
 
 import asyncio
-import base64
 import hashlib
-import hmac
 import io
 import json
 import os
 import secrets
 import struct
-import time
-import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -284,30 +279,3 @@ async def clamav_scan(path: Path) -> tuple[bool, str]:
     if reply.endswith("OK"):
         return True, reply
     return False, reply
-
-
-# ---------- signed public links (Twilio fetches job photos) ----------
-
-def _sig(payload: bytes) -> str:
-    key = hashlib.sha256(b"pcms-media:" + get_settings().secret_key.encode()).digest()
-    return base64.urlsafe_b64encode(hmac.new(key, payload, hashlib.sha256).digest()[:20]).rstrip(b"=").decode()
-
-
-def public_token(attachment_id: uuid.UUID, ttl: int | None = None) -> str:
-    exp = int(time.time()) + (ttl or get_settings().public_media_ttl_seconds)
-    payload = attachment_id.bytes + struct.pack("!Q", exp)
-    return base64.urlsafe_b64encode(payload).rstrip(b"=").decode() + "." + _sig(payload)
-
-
-def verify_public_token(token: str) -> uuid.UUID | None:
-    try:
-        body, sig = token.split(".", 1)
-        payload = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4))
-    except (ValueError, TypeError):
-        return None
-    if len(payload) != 24 or not hmac.compare_digest(sig, _sig(payload)):
-        return None
-    (exp,) = struct.unpack("!Q", payload[16:])
-    if exp < time.time():
-        return None
-    return uuid.UUID(bytes=payload[:16])

@@ -17,9 +17,10 @@ from app.config import get_settings
 from app.errors import validation
 
 CREDENTIAL_HEADERS = (
-    "email", "name", "role", "status", "password", "password_changed_at",
+    "email", "name", "role", "department", "position", "status", "password", "password_changed_at",
     "last_login_at", "temp_password_expires_at", "notes",
 )
+IMPORT_HEADERS = ("email", "name", "role", "department", "position", "password")
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -97,23 +98,25 @@ def build_import_template() -> bytes:
     wb = Workbook()
     ws = wb.active
     ws.title = "People"
-    headers = ("email", "name", "role", "password")
-    _style_header(ws, headers, (34, 28, 22, 26))
-    ws.append(["", "", "", ""])
+    _style_header(ws, IMPORT_HEADERS, (34, 28, 20, 30, 24, 26))
+    ws.append([""] * len(IMPORT_HEADERS))
 
     note = wb.create_sheet("Read me")
     note.column_dimensions["A"].width = 110
     lines = [
         "PCMS people import",
         "",
-        "Columns: email, name, role, password.",
+        "Columns: email, name, role, department, position, password. Only email and name are required.",
+        "Common HR headers also work: Email ID, Full Name, Dept, Designation.",
         "role is one of faculty, facility_manager, management, principal or ossc (super admin). "
-        "Leave it blank for faculty.",
-        "password is the temporary password Team OSSC gives the person. It must be at least 10 characters.",
+        "Leave it blank for faculty. The position never changes what a person can do; only role does.",
+        "password is optional. Leave it blank and PCMS generates a strong temporary password. "
+        "If you give one, it must be at least 10 characters.",
         "An ossc account must also set up an authenticator app at first sign-in.",
         "Emails must be unique. Existing emails are skipped, never updated or reset.",
         "If any line is wrong, the whole file is rejected and nothing is imported.",
-        "After import, the system downloads a credentials file. Share each row only with that person.",
+        "After import, the system downloads a credentials file with every temporary password. "
+        "Share each row only with that person.",
         "Delete the downloaded credentials file after sharing it.",
     ]
     for i, line in enumerate(lines, start=1):
@@ -126,7 +129,7 @@ def build_credentials_workbook(rows, *, generated_by: str, generated_at: datetim
     wb = Workbook()
     ws = wb.active
     ws.title = "Credentials"
-    _style_header(ws, CREDENTIAL_HEADERS, (34, 26, 18, 26, 24, 24, 22, 24, 48))
+    _style_header(ws, CREDENTIAL_HEADERS, (34, 26, 18, 30, 24, 26, 24, 24, 22, 24, 48))
 
     for r, row in enumerate(rows, start=2):
         values = [row.get(h, "") for h in CREDENTIAL_HEADERS]

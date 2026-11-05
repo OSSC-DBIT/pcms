@@ -1,8 +1,7 @@
-"""Legacy Twilio delivery, webhook signatures and scheduled reminders.
+"""Notifications: web push is the only channel (DBIT, 2026-11-04: email and Twilio removed).
 
-Worker dispatch is retired, but messages sent before the cutover must still
-drain and their Accept buttons must still work. Everything else here covers
-the pieces that remain in use: outbox rollback and verification reminders.
+Covers the outbox transaction rule, push delivery to every device, dead subscriptions,
+retries, the scheduled reminders, and that retired channels are never sent.
 """
 
 from datetime import timedelta
@@ -11,30 +10,31 @@ from sqlalchemy import select, update
 
 from app.config import get_settings
 from app.db import sessionmaker
-from app.models import Assignment, Outbox, Ticket, User, Worker
+from app.models import DeliveryAttempt, Outbox, PushSubscription, Ticket
 from app.security.sessions import now
-from app.services import outbox, scheduler
-from tests.factories import API, make_user, new_client, sign_in, ticket_body
-
-AUTH = "test-twilio-auth-token"
-PUBLIC = "https://pcms-hooks.example.org"
+from app.services import outbox, scheduler, webpush
+from app.services.webpush import PushResult, generate_vapid_keys
+from tests.factories import API, make_user, sign_in, subscribe_push, ticket_body
 
 
-def _twilio(monkeypatch):
-    s = get_settings()
-    monkeypatch.setattr(s, "twilio_auth_token", AUTH)
-    monkeypatch.setattr(s, "twilio_validate_signature", True)
-    monkeypatch.setattr(s, "public_base_url", PUBLIC)
+def _enable_push(monkeypatch, results: dict[str, PushResult] | None = None) -> list[tuple[str, dict]]:
+    """Turn push on with a fake push service. Returns the list of (endpoint, payload) sent."""
+    pub, priv = generate_vapid_keys()
+    monkeypatch.setattr(get_settings(), "vapid_public_key", pub)
+    monkeypatch.setattr(get_settings(), "vapid_private_key", priv)
+    sent: list[tuple[str, dict]] = []
 
+    async def fake_send(endpoint, p256dh, auth, payload, ttl=86_400):
+        sent.append((endpoint, payload))
+        return (results or {}).get(endpoint, PushResult(ok=True, status=201))
 
-def _signed(path: str, params: dict) -> dict:
-    from twilio.request_validator import RequestValidator
-
-    return {"X-Twilio-Signature": RequestValidator(AUTH).compute_signature(PUBLIC + path, params)}
+    monkeypatch.setattr(webpush, "send", fake_send)
+    return sent
 
 
 async def test_rollback_drops_notification_intent(client):
-    await make_user("faculty@dbit.edu", "faculty")
+    u = await make_user("faculty@dbit.edu", "faculty")
+    await subscribe_push(u)
     fac = await sign_in(client, "faculty@dbit.edu")
     r = await fac.post(f"{API}/tickets", json=ticket_body(title="no"))
     assert r.status_code == 400
@@ -42,66 +42,92 @@ async def test_rollback_drops_notification_intent(client):
         assert (await db.scalars(select(Outbox))).first() is None
 
 
-async def test_webhook_signature_required(client, monkeypatch):
-    _twilio(monkeypatch)
-    params = {"MessageSid": "SM1", "MessageStatus": "delivered"}
-    assert (await client.post("/webhooks/twilio/status", data=params)).status_code == 403
-    bad = {"X-Twilio-Signature": "AAAA"}
-    assert (await client.post("/webhooks/twilio/status", data=params, headers=bad)).status_code == 403
-    ok = await client.post("/webhooks/twilio/status", data=params, headers=_signed("/webhooks/twilio/status", params))
-    assert ok.status_code == 200 and ok.headers["content-type"].startswith("text/xml")
+async def test_push_goes_to_every_device_and_records_the_attempt(client, monkeypatch):
+    sent = _enable_push(monkeypatch)
+    u = await make_user("faculty@dbit.edu", "faculty")
+    await subscribe_push(u, "https://fcm.googleapis.com/fcm/send/phone")
+    await subscribe_push(u, "https://updates.push.services.mozilla.com/wpush/v2/laptop")
+    fac = await sign_in(client, "faculty@dbit.edu")
+    token = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["token"]
+
+    assert await outbox.run_once() == 1
+    assert sorted(e for e, _ in sent) == ["https://fcm.googleapis.com/fcm/send/phone",
+                                         "https://updates.push.services.mozilla.com/wpush/v2/laptop"]
+    payload = sent[0][1]
+    assert payload["title"] == f"Report received: {token}" and payload["tag"] == token
+    assert payload["url"].startswith("/t/") and set(payload) == {"title", "body", "url", "tag"}
+    async with sessionmaker()() as db:
+        o = await db.scalar(select(Outbox))
+        assert o.state == "sent" and o.channel == "webpush"
+        attempts = (await db.scalars(select(DeliveryAttempt).where(DeliveryAttempt.outbox_id == o.id))).all()
+        assert len(attempts) == 1 and attempts[0].ok
 
 
-async def test_legacy_accept_button_still_works(client, monkeypatch):
-    """A job sent before the cutover can still be accepted from WhatsApp."""
-    _twilio(monkeypatch)
+async def test_dead_subscriptions_are_removed_and_retries_back_off(client, monkeypatch):
+    gone = "https://fcm.googleapis.com/fcm/send/gone"
+    flaky = "https://fcm.googleapis.com/fcm/send/flaky"
+    _enable_push(monkeypatch, {gone: PushResult(ok=False, gone=True, status=410),
+                               flaky: PushResult(ok=False, retryable=True, status=503, error="busy")})
+    u = await make_user("faculty@dbit.edu", "faculty")
+    await subscribe_push(u, gone)
+    await subscribe_push(u, flaky)
+    fac = await sign_in(client, "faculty@dbit.edu")
+    await fac.post(f"{API}/tickets", json=ticket_body())
+
+    await outbox.run_once()
+    async with sessionmaker()() as db:
+        endpoints = (await db.scalars(select(PushSubscription.endpoint))).all()
+        o = await db.scalar(select(Outbox))
+    assert endpoints == [flaky]  # the 410 device was deleted
+    assert o.state == "pending" and o.next_attempt_at > now() + timedelta(seconds=30) and "busy" in o.last_error
+
+
+async def test_a_person_whose_every_device_is_gone_is_not_retried(client, monkeypatch):
+    gone = "https://fcm.googleapis.com/fcm/send/gone"
+    _enable_push(monkeypatch, {gone: PushResult(ok=False, gone=True, status=404)})
+    u = await make_user("faculty@dbit.edu", "faculty")
+    await subscribe_push(u, gone)
+    fac = await sign_in(client, "faculty@dbit.edu")
+    await fac.post(f"{API}/tickets", json=ticket_body())
+    await outbox.run_once()
+    async with sessionmaker()() as db:
+        o = await db.scalar(select(Outbox))
+    assert o.state == "expired" and o.last_error == "push subscriptions expired"
+
+
+async def test_nothing_is_queued_for_people_without_push(client):
     await make_user("faculty@dbit.edu", "faculty")
     await make_user("manager@dbit.edu", "facility_manager")
     fac = await sign_in(client, "faculty@dbit.edu")
-    created = (await fac.post(f"{API}/tickets", json=ticket_body())).json()
+    assert (await fac.post(f"{API}/tickets", json=ticket_body())).status_code == 201
+    async with sessionmaker()() as db:
+        assert (await db.scalars(select(Outbox))).all() == []
 
-    mc = new_client()
-    try:
-        mgr = await sign_in(mc, "manager@dbit.edu")
-        t = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
-                            json={"action": "triage", "flag": "I", "expectedVersion": 1})).json()
-        t = (await mgr.post(f"{API}/tickets/{created['id']}/transitions",
-                            json={"action": "assign", "workerName": "Legacy Worker", "expectedVersion": t["version"]})).json()
-        async with sessionmaker()() as db:
-            manager_id = await db.scalar(select(User.id).where(User.email == "manager@dbit.edu"))
-            w = Worker(name="Legacy Worker", phone_e164="+919876500077", area="Campus", language="kn",
-                       mode="whatsapp", kind="employee", active=True, version=1)
-            db.add(w)
-            await db.flush()
-            a = Assignment(ticket_id=t["id"], worker_id=w.id, lead=True, channel="whatsapp", delivery="sent",
-                           assigned_by=manager_id, ack_due_at=now() + timedelta(minutes=30))
-            db.add(a)
-            await db.flush()
-            db.add(Outbox(event_key=f"job_dispatch:{a.id}:whatsapp", channel="whatsapp", template="job_dispatch",
-                          worker_id=w.id, ticket_id=t["id"], assignment_id=a.id, payload={"token": t["token"]},
-                          state="sent", attempts=1, next_attempt_at=now(), acknowledged=False, provider_id="SMlegacy1"))
-            await db.commit()
-            aid, phone = a.id, w.phone_e164
 
-        params = {"MessageSid": "SMin-legacy", "From": f"whatsapp:{phone}", "ButtonPayload": "accept",
-                  "ButtonText": "Accept", "OriginalRepliedMessageSid": "SMlegacy1"}
-        for _ in range(2):  # duplicate webhook delivery is harmless
-            r = await client.post("/webhooks/twilio", data=params, headers=_signed("/webhooks/twilio", params))
-            assert r.status_code == 200
-        tk = (await mgr.get(f"{API}/tickets/{t['id']}")).json()
-        assert tk["status"] == "InProgress"
-        async with sessionmaker()() as db:
-            assert (await db.get(Assignment, aid)).accepted_at is not None
-    finally:
-        await mc.aclose()
+async def test_old_email_and_whatsapp_rows_expire_unsent(client, monkeypatch):
+    sent = _enable_push(monkeypatch)
+    u = await make_user("faculty@dbit.edu", "faculty")
+    async with sessionmaker()() as db:
+        for ch in ("email", "sms"):
+            db.add(Outbox(event_key=f"legacy:{ch}", channel=ch, template="receipt", user_id=u.id, payload={},
+                          state="pending", attempts=0, next_attempt_at=now(), acknowledged=False))
+        await db.commit()
+    assert await outbox.run_once() == 2
+    async with sessionmaker()() as db:
+        rows = (await db.scalars(select(Outbox))).all()
+    assert {o.state for o in rows} == {"expired"} and sent == []
+    assert all("no longer sent" in o.last_error for o in rows)
+
+
+async def test_webhook_routes_are_gone(client):
+    for path in ("/webhooks/twilio", "/webhooks/twilio/status"):
+        assert (await client.post(path, data={"MessageSid": "SM1"})).status_code == 404
 
 
 async def test_verification_reminder_once_per_resolution(client):
     u = await make_user("faculty@dbit.edu", "faculty")
-    async with sessionmaker()() as db:
-        (await db.get(type(u), u.id)).email = "f@example.edu"
-        await db.commit()
-    fac = await sign_in(client, "f@example.edu")
+    await subscribe_push(u)
+    fac = await sign_in(client, "faculty@dbit.edu")
     tid = (await fac.post(f"{API}/tickets", json=ticket_body())).json()["id"]
     async with sessionmaker()() as db:
         await db.execute(update(Ticket).where(Ticket.id == tid).values(status="Resolved", resolved_at=now() - timedelta(days=3)))
@@ -110,4 +136,4 @@ async def test_verification_reminder_once_per_resolution(client):
     await scheduler.verification_reminders()
     async with sessionmaker()() as db:
         rows = (await db.scalars(select(Outbox).where(Outbox.template == "verify_reminder"))).all()
-    assert len(rows) == 1
+    assert len(rows) == 1 and rows[0].channel == "webpush"

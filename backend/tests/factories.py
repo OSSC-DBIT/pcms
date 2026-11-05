@@ -62,6 +62,17 @@ def totp_code(secret: str, offset: int = 0) -> str:
     return pyotp.TOTP(secret).at(time.time() + offset)
 
 
+async def subscribe_push(user: User, endpoint: str | None = None) -> None:
+    """Give a test user a web push subscription. Push is the only notification channel, so
+    notifications are queued only for people who turned them on."""
+    from app.models.push import PushSubscription
+
+    async with sessionmaker()() as s:
+        s.add(PushSubscription(user_id=user.id, endpoint=endpoint or f"https://fcm.googleapis.com/fcm/send/{uuid.uuid4().hex}",
+                               p256dh="B" * 87, auth="a" * 22, user_agent="test", failure_count=0))
+        await s.commit()
+
+
 def new_client():
     import httpx
 

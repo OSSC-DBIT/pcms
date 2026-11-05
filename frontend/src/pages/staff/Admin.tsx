@@ -95,7 +95,7 @@ function People() {
       </div>
       <div className="flex flex-wrap gap-3">
         <div className="w-full sm:w-64">
-          <Input value={q} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder={t('admin.searchPeople')} aria-label={t('admin.searchPeopleLabel')} />
+          <Input value={q} maxLength={80} onChange={(e) => { setQ(e.target.value); setPage(1) }} placeholder={t('admin.searchPeople')} aria-label={t('admin.searchPeopleLabel')} />
         </div>
         <div className="w-48">
           <Select aria-label={t('admin.filterRole')} value={role} onChange={(e) => { setRole(e.target.value as Role | ''); setPage(1) }}>
@@ -114,6 +114,7 @@ function People() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[15px] font-medium">{u.name}</p>
                     <p className="token text-[13px] text-muted">{u.email} · {t(`role.${u.role}`)}</p>
+                    {(u.position || u.department) && <p className="text-[13px] text-muted">{[u.position, u.department].filter(Boolean).join(' · ')}</p>}
                     <p className="mt-0.5 text-[12px] text-muted">
                       {u.mustChangePassword
                         ? (u.tempPasswordExpiresAt ? t('admin.tempExpires', { date: new Date(u.tempPasswordExpiresAt).toLocaleString(LOCALE[lang], IST) }) : t('admin.noTemp'))
@@ -151,14 +152,14 @@ function People() {
       )}
       {(action?.kind === 'suspend' || action?.kind === 'reactivate') && (
         <ActionDialog open title={`${action.kind === 'suspend' ? t('admin.suspendTitle', { email: action.user.email }) : t('admin.reactivateTitle', { email: action.user.email })}`} danger={action.kind === 'suspend'}
-          confirmLabel={action.kind === 'suspend' ? t('admin.suspend') : t('admin.reactivate')} fields={[{ name: 'reason', label: t('admin.reason'), type: 'textarea', required: true }]}
+          confirmLabel={action.kind === 'suspend' ? t('admin.suspend') : t('admin.reactivate')} fields={[{ name: 'reason', label: t('admin.reason'), type: 'textarea', required: true, maxLength: 500 }]}
           onClose={() => setAction(null)}
           onSubmit={async (v) => replace(await api.updateUser(action.user, { active: action.kind === 'reactivate', reason: v.reason }))} />
       )}
       {action?.kind === 'role' && (
         <ActionDialog open title={t('admin.changeRoleTitle', { email: action.user.email })} confirmLabel={t('admin.changeRoleConfirm')} description={t('admin.changeRoleDesc')}
           fields={[{ name: 'role', label: t('admin.newRole'), type: 'select', required: true, options: ROLES.filter((r) => r !== action.user.role).map((r) => ({ value: r, label: t(`role.${r}`) })) },
-            { name: 'reason', label: t('admin.reason'), type: 'textarea', required: true }]}
+            { name: 'reason', label: t('admin.reason'), type: 'textarea', required: true, maxLength: 500 }]}
           onClose={() => setAction(null)}
           onSubmit={async (v) => replace(await api.updateUser(action.user, { role: v.role as Role, reason: v.reason }))} />
       )}
@@ -191,20 +192,30 @@ function AddPerson({ open, onClose, onCreated }: { open: boolean; onClose: () =>
   const [name, setName] = useState('')
   const [password, setPassword] = useState(() => suggestPassword())
   const [role, setRole] = useState<Role>('faculty')
+  const [department, setDepartment] = useState('')
+  const [position, setPosition] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  const close = () => { setEmail(''); setName(''); setPassword(suggestPassword()); setRole('faculty'); setError(null); onClose() }
+  const close = () => { setEmail(''); setName(''); setDepartment(''); setPosition(''); setPassword(suggestPassword()); setRole('faculty'); setError(null); onClose() }
   async function save(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true); setError(null)
-    try { onCreated(await api.createUser({ email: email.trim(), name, role, password })); close() }
+    try {
+      onCreated(await api.createUser({ email: email.trim(), name, role, password,
+        department: department.trim() || undefined, position: position.trim() || undefined }))
+      close()
+    }
     catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
   return (
     <Dialog open={open} onClose={close} title={t('admin.addPersonTitle')}>
       <form onSubmit={save} className="space-y-4">
         <Field label={t('admin.collegeEmail')}>{(id) => <Input id={id} type="email" className="token" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="off" maxLength={254} required />}</Field>
-        <Field label={t('admin.fullName')}>{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" maxLength={120} required />}</Field>
+        <Field label={t('admin.fullName')}>{(id) => <Input id={id} value={name} onChange={(e) => setName(e.target.value)} autoComplete="off" minLength={2} maxLength={120} required />}</Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label={t('admin.personDepartment')} optional>{(id) => <Input id={id} value={department} onChange={(e) => setDepartment(e.target.value)} autoComplete="off" maxLength={120} />}</Field>
+          <Field label={t('admin.position')} optional>{(id) => <Input id={id} value={position} onChange={(e) => setPosition(e.target.value)} autoComplete="off" maxLength={120} />}</Field>
+        </div>
         <Field label={t('admin.tempPassword')} hint={t('admin.tempPasswordHint')}>
           {(id, d) => (
             <div className="flex gap-2">

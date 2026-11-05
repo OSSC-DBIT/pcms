@@ -3,15 +3,15 @@
  *   1. Review: accept or reject with a reason. The reporter's red/orange/green severity is shown;
  *      there is no manual priority.
  *   2. Contact a worker directly and record the state. PCMS sends no worker messages.
- *   3. After the worker looks at it, choose the next step:
- *        Immediate  -> fix it now, then mark as fixed
- *        Critical   -> send to institute management (reason, optional cost)
+ *   3. After the worker looks at it, write a note and, only if needed, choose:
+ *        Critical   -> send to the principal (reason, optional cost)
  *        Postpone   -> on hold with a reason and review date
- *   4. Management decides critical tickets and may send them to the principal, who approves,
- *      rejects or escalates. The reporter confirms the fix and rates the repair.
+ *      With neither chosen the work is Immediate: mark it complete, optionally with the exact cost.
+ *   4. The principal approves, rejects or escalates critical spending to institute management,
+ *      who decide. The reporter confirms the fix and rates the repair.
  */
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Clock, MessageSquare, Wrench } from 'lucide-react'
 import { useAuth } from '../../App'
 import { ActionDialog, type FormField } from '../../components/ActionDialog'
@@ -24,10 +24,16 @@ import { TERMINAL, type Assessment, type Channel, type DecisionKind, type Ticket
 
 type Run = (fn: () => Promise<Ticket>) => Promise<boolean>
 type DecideMode = 'management' | 'principal'
-interface Action { key: string; label: string; danger?: boolean; fields: FormField[]; description?: string; build: (v: Record<string, string>) => TransitionAction }
+interface Action {
+  key: string; label: string; danger?: boolean; fields: FormField[]; description?: string
+  build?: (v: Record<string, string>) => TransitionAction
+  /** For actions that are not a status transition (Team OSSC removal). */
+  submit?: (v: Record<string, string>) => Promise<void>
+}
 
 export default function StaffTicket() {
   const { id } = useParams()
+  const navigate = useNavigate()
   const { user, can } = useAuth()
   const { t, lang } = useT()
   const [ticket, setTicket] = useState<Ticket | null | undefined>(undefined)
@@ -74,6 +80,7 @@ export default function StaffTicket() {
               {withManagement && <Badge tone="warn">{t('ticket.stageManagement')}</Badge>}
               {ticket.originalCategoryCode !== ticket.categoryCode && <Badge>{t('ticket.reportedAs', { name: categoryName(category(ticket.originalCategoryCode), lang) })}</Badge>}
               <Badge>{t('ticket.age', { age: ago(ticket.createdAt, t, lang) })}</Badge>
+              {ticket.actualCostPaise != null && <Badge>{t('ticket.actualCostBadge', { amount: formatPaise(ticket.actualCostPaise) })}</Badge>}
             </div>
             {(ticket.accessNote || ticket.altContact) && (
               <p className="mt-3 text-[14px]">{ticket.accessNote && <>{t('ticket.access', { note: ticket.accessNote })} </>}{ticket.altContact && <>{t('ticket.contact', { contact: ticket.altContact })}</>}</p>
@@ -112,7 +119,10 @@ export default function StaffTicket() {
 
       {dialog && (
         <ActionDialog open title={dialog.label} description={dialog.description} fields={dialog.fields} confirmLabel={dialog.label} danger={dialog.danger}
-          onClose={() => setDialog(null)} onSubmit={async (v) => setTicket(await api.transition(ticket, dialog.build(v)))} />
+          onClose={() => setDialog(null)} onSubmit={async (v) => {
+            if (dialog.submit) { await dialog.submit(v); navigate('/staff', { replace: true }); return }
+            setTicket(await api.transition(ticket, dialog.build!(v)))
+          }} />
       )}
     </Stack>
   )
@@ -256,17 +266,26 @@ function AssessStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run:
   )
 }
 
-// ---------- 4. next step ----------
+// ---------- 3. next step ----------
 
+/**
+ * One note box, and under it two choices: Critical (send to the principal) and Postpone
+ * (on hold with a review date). DBIT, 2026-11-04: with neither chosen, the work is
+ * Immediate, so the facility manager just marks it complete, optionally with the exact cost.
+ */
 function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket: Ticket; busy: boolean; run: Run; managerName: string; approved?: boolean }) {
   const { t } = useT()
-  const [flag, setFlag] = useState<'I' | 'C' | 'P' | null>(approved || ticket.flag === 'I' ? 'I' : null)
+  const [choice, setChoice] = useState<'C' | 'P' | null>(null)
   const [note, setNote] = useState('')
   const [cost, setCost] = useState('')
+  const [actual, setActual] = useState('')
   const [review, setReview] = useState(() => new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10))
+  const [today] = useState(() => new Date().toISOString().slice(0, 10))
   const paise = cost.trim() ? parseRupees(cost) : 0
-  const options = [
-    { v: 'I' as const, icon: Wrench, title: t('ticket.immediate'), body: approved ? t('ticket.immediateApproved') : t('ticket.immediateBody') },
+  const actualPaise = actual.trim() ? parseRupees(actual) : undefined
+  const toggle = (v: 'C' | 'P') => setChoice((c) => (c === v ? null : v))
+  const noteLabel = choice === 'C' ? t('ticket.whyCritical') : choice === 'P' ? t('ticket.whyPostpone') : t('ticket.whatDone')
+  const choices = [
     { v: 'C' as const, icon: AlertTriangle, title: t('ticket.critical'), body: approved ? t('ticket.criticalApproved') : t('ticket.criticalBody') },
     { v: 'P' as const, icon: Clock, title: t('ticket.postpone'), body: t('ticket.postponeBody') },
   ]
@@ -278,43 +297,51 @@ function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket
             {t('ticket.approvedHelp')}
           </Alert>
         )}
-        <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label={t('ticket.nextStep')}>
-          {options.map((o) => (
-            <button key={o.v} type="button" role="radio" aria-checked={flag === o.v} onClick={() => setFlag(o.v)}
-              className={`flex items-start gap-3 rounded-md border px-3.5 py-3 text-left ${flag === o.v ? 'border-accent bg-accent-soft' : 'border-line hover:bg-subtle'}`}>
-              <o.icon size={20} className="mt-0.5 shrink-0" aria-hidden />
-              <span><span className="block text-[15px] font-semibold">{o.title}</span><span className="block text-[13px] text-muted">{o.body}</span></span>
-            </button>
-          ))}
+        <Field label={noteLabel} optional={choice === null} hint={choice === null ? t('ticket.whatDoneHint') : undefined}>
+          {(id, d) => <Textarea id={id} aria-describedby={d} rows={3} maxLength={choice === 'P' ? 500 : 1000} value={note} onChange={(e) => setNote(e.target.value)} />}
+        </Field>
+
+        <div>
+          <p className="mb-1.5 text-[13.5px] text-muted">{t('ticket.choiceHelp')}</p>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {choices.map((o) => (
+              <button key={o.v} type="button" aria-pressed={choice === o.v} onClick={() => toggle(o.v)}
+                className={`flex items-start gap-3 rounded-md border px-3.5 py-3 text-left transition-colors ${choice === o.v ? (o.v === 'C' ? 'border-bad bg-bad/10' : 'border-warn bg-warn/10') : 'border-line hover:bg-subtle'}`}>
+                <o.icon size={20} className={`mt-0.5 shrink-0 ${o.v === 'C' ? 'text-bad' : 'text-warn'}`} aria-hidden />
+                <span><span className="block text-[15px] font-semibold">{o.title}</span><span className="block text-[13px] text-muted">{o.body}</span></span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        {flag === 'I' && (
+        {choice === null && (
           <>
-            {!approved && ticket.flag !== 'I' && <Button variant="secondary" className="self-start" loading={busy} onClick={() => run(() => api.transition(ticket, { action: 'set_flag', flag: 'I' }))}>{t('ticket.saveImmediate')}</Button>}
-            <Field label={t('ticket.whatDone')} hint={t('ticket.whatDoneHint')}>
-              {(id, d) => <Textarea id={id} aria-describedby={d} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />}
+            <Field label={t('ticket.actualCost')} optional hint={t('ticket.actualCostHint')}>
+              {(id, d) => <Input id={id} aria-describedby={d} inputMode="decimal" maxLength={14} value={actual} onChange={(e) => setActual(e.target.value)} className="sm:w-48" />}
             </Field>
-            <Button className="self-start" loading={busy} disabled={!note.trim()} onClick={() => run(() => api.transition(ticket, { action: 'resolve', note: note.trim() }))}>{t('ticket.markFixed')}</Button>
+            {actualPaise === null && <p className="text-[13px] text-bad">{t('ticket.costFormat')}</p>}
+            <Button className="self-start" loading={busy} disabled={actualPaise === null}
+              onClick={() => run(() => api.transition(ticket, { action: 'resolve', note: note.trim() || undefined, actualCostPaise: actualPaise ?? undefined }))}>
+              <Wrench size={16} aria-hidden /> {t('ticket.markFixed')}
+            </Button>
           </>
         )}
-        {flag === 'C' && (
+        {choice === 'C' && (
           <>
-            <Field label={t('ticket.whyCritical')}>{(id) => <Textarea id={id} rows={2} maxLength={1000} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
             <Field label={t('ticket.estimatedCost')} optional hint={t('ticket.estimatedCostHint')}>
-              {(id, d) => <Input id={id} aria-describedby={d} inputMode="decimal" value={cost} onChange={(e) => setCost(e.target.value)} className="sm:w-48" />}
+              {(id, d) => <Input id={id} aria-describedby={d} inputMode="decimal" maxLength={14} value={cost} onChange={(e) => setCost(e.target.value)} className="sm:w-48" />}
             </Field>
             {paise === null && <p className="text-[13px] text-bad">{t('ticket.costFormat')}</p>}
-            <Button className="self-start" loading={busy} disabled={!note.trim() || paise === null}
+            <Button className="self-start" loading={busy} disabled={note.trim().length < 2 || paise === null}
               onClick={() => run(() => api.createProposal(ticket, paise ? [{ label: t('ticket.estimatedCost'), paise }] : [], new Date().toISOString().slice(0, 10), note.trim()))}>
               {t('ticket.sendManagement')}
             </Button>
           </>
         )}
-        {flag === 'P' && (
+        {choice === 'P' && (
           <>
-            <Field label={t('ticket.whyPostpone')}>{(id) => <Textarea id={id} rows={2} maxLength={500} value={note} onChange={(e) => setNote(e.target.value)} />}</Field>
-            <Field label={t('ticket.reviewOn')}>{(id) => <Input id={id} type="date" value={review} onChange={(e) => setReview(e.target.value)} className="sm:w-56" />}</Field>
-            <Button className="self-start" loading={busy} disabled={!note.trim() || !review}
+            <Field label={t('ticket.reviewOn')}>{(id) => <Input id={id} type="date" min={today} value={review} onChange={(e) => setReview(e.target.value)} className="sm:w-56" />}</Field>
+            <Button className="self-start" variant="secondary" loading={busy} disabled={!note.trim() || !review}
               onClick={() => run(() => api.transition(ticket, { action: 'hold', reason: note.trim(), owner: managerName, nextAction: t('ticket.reviewReassign'), reviewDate: review }))}>{t('ticket.postpone')}</Button>
           </>
         )}
@@ -419,6 +446,10 @@ function MoreActions({ ticket, onPick }: { ticket: Ticket; onPick: (a: Action) =
   }
   if (can('ticket.triage') && ['Resolved', 'Closed'].includes(s)) {
     list.push({ key: 'reopen', label: t('ticket.reopen'), fields: [reason()], build: (v) => ({ action: 'reopen', reason: v.reason }) })
+  }
+  if (can('admin.tickets')) {
+    list.push({ key: 'remove', label: t('ticket.remove'), description: t('ticket.removeDesc'), danger: true,
+      fields: [{ ...reason(t('ticket.removeReason')), maxLength: 500 }], submit: (v) => api.removeTicket(ticket, v.reason) })
   }
   if (!list.length) return null
   return (

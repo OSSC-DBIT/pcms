@@ -1,10 +1,16 @@
 import { useEffect, useState } from 'react'
 import { Bell, X } from 'lucide-react'
-import { enablePush, syncPushOnOpen, type PushState } from '../lib/push'
+import { enablePush, pushOptedOut, startPushSync, type PushState } from '../lib/push'
 import { useT } from '../lib/i18n'
 import { Button } from './ui'
 
-const ASKED_KEY = 'pcms.push.asked'
+const ASKED_KEY = 'pcms.push.askedAt'
+// "Not now" keeps the banner away for a week on this device, instead of returning every session.
+const QUIET_MS = 7 * 864e5
+
+function recentlyAsked(): boolean {
+  try { return Date.now() - Number(localStorage.getItem(ASKED_KEY) ?? 0) < QUIET_MS } catch { return false }
+}
 
 /**
  * On every open: re-saves this device's push subscription, then asks for
@@ -16,12 +22,12 @@ export default function NotificationPrompt() {
   const { t } = useT()
   const [state, setState] = useState<PushState | null>(null)
   const [busy, setBusy] = useState(false)
-  const [hidden, setHidden] = useState(() => sessionStorage.getItem(ASKED_KEY) === '1')
+  const [hidden, setHidden] = useState(() => recentlyAsked() || pushOptedOut())
 
-  useEffect(() => { syncPushOnOpen().then(setState).catch(() => setState(null)) }, [])
+  useEffect(() => { startPushSync(setState) }, [])
 
   if (hidden || state !== 'off' || typeof Notification === 'undefined' || Notification.permission !== 'default') return null
-  const dismiss = () => { sessionStorage.setItem(ASKED_KEY, '1'); setHidden(true) }
+  const dismiss = () => { try { localStorage.setItem(ASKED_KEY, String(Date.now())) } catch { /* private mode */ } setHidden(true) }
 
   return (
     <div role="dialog" aria-label={t('notify.promptLabel')}
