@@ -59,7 +59,23 @@ Record every user-visible change in `CHANGELOG.md`. See `CONTRIBUTING.md` for br
 
 **Environments.** The server runs only `compose.prod.yml`: a push to `dev` deploys staging and a push to
 `main` deploys production, after CI passes (`.github/workflows/deploy.yml`). `compose.dev.yml` is for a
-developer's computer and CI's tests only. Never deploy by hand-editing containers on the server.
+developer's computer and CI's tests only.
+
+**On the OSSC server** (runbook: `docs/SERVER.md`):
+- Never run `docker compose up`, `--build` or `down` by hand. Without `-p`, compose takes the folder name as the
+  project; from a folder called `pcms` that is staging's project, so old code replaces staging and its
+  migration fails (this took staging down on 5 November 2026). Use `sudo pcms <staging|production> ...`, which
+  always passes the right project, settings file and deployed images.
+- Each app keeps its files in `/srv/server-data/<staging|production>/<app>/`. PCMS: settings
+  `/srv/server-data/staging/pcms/pcms.env` (project `pcms`, ports 676/8082) and
+  `/srv/server-data/production/pcms/pcms.env` (project `pcms-prod`, ports 677/8083). Certificates, backup key
+  and backups are in `certs/`, `secrets/`, `backups/` beside it. `/etc/pcms/<env>.conf` names the project and file.
+- The code is never kept in a folder on the server: the runner checks out each deployed commit. Do not tell
+  anyone to `git pull` on the server.
+- Staging keeps project `pcms` because its data is in the volumes `pcms_pgdata` and `pcms_media`. Never rename
+  it and never `down -v`.
+- To fix a broken environment: GitHub, Actions, Deploy, Run workflow (redeploys the branch), or
+  `sudo pcms <env> rollback`.
 
 ## Rules
 

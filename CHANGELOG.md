@@ -46,6 +46,10 @@ when deploying it.
 - Remove any tunnel route to port 8081.
 - Set up the runner and `/etc/pcms/staging.conf`, and create the `dev` branch: `docs/DEPLOYMENT.md` section 8
   and `docs/pcms-deployment-2026-11-02.md`.
+- On the OSSC server each environment's files are in `/srv/server-data/<staging|production>/pcms/`
+  (the setup script copies staging there). **Never run `docker compose up` by hand on the server**: without
+  `-p`, a run from the old checkout replaced staging's containers with old code, the migration failed and
+  staging went down (5 November). Use `sudo pcms <env> ...` and let GitHub deploy.
 
 ## Unreleased (DBIT changes of 4 November 2026)
 

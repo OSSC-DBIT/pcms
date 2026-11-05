@@ -7,6 +7,11 @@ Ownership follows plan v1.2 section 25:
 
 The commands below are for a Linux server (Ubuntu 24.04 LTS or similar) with Docker Engine and the Compose plugin.
 
+> **On the OSSC server (staging and production at `*.webuildnow.in`) do not follow sections 1 to 5 by hand.**
+> They are set up by `ops/deploy/setup-environment.sh` and deployed by GitHub (section 8). Use
+> [SERVER.md](SERVER.md). Running `docker compose ... up` there without `-p` replaces staging's containers.
+> On any server, every manual compose command needs the project name: `docker compose -p <project> ...`.
+
 ```mermaid
 flowchart LR
     A[1 Prepare host] --> B[2 DNS + HTTPS]
