@@ -262,6 +262,51 @@ production deploy refuses to run without a backup.
 In Cloudflare Zero Trust, delete any tunnel route that pointed at `localhost:8081`. The app route
 (`https://localhost:676`, No TLS Verify) stays as it is.
 
+### Opening staging on the campus network too
+
+Staging answers at both addresses:
+
+| Address | Who | Certificate |
+|---|---|---|
+| https://pcms-staging.webuildnow.in | everyone, through the Cloudflare tunnel | Cloudflare's, trusted |
+| https://`<server-ip>`:676 | people on the campus network, directly | the server's own self-signed one |
+
+The API refuses requests from any address it does not know, so list the local one in `pcms.env` next to
+the domain, then let the next deploy (or `up -d`) pick it up:
+
+```
+PCMS_PUBLIC_APP_URL=https://pcms-staging.webuildnow.in
+PCMS_ALLOWED_ORIGINS=https://<server-ip>:676
+PCMS_ALLOWED_HOSTS=<server-ip>
+```
+
+For a local name as well (for example `pcms.lan` set up in the campus DNS), add it to both lists,
+comma-separated: `PCMS_ALLOWED_ORIGINS=https://<server-ip>:676,https://pcms.lan:676` and
+`PCMS_ALLOWED_HOSTS=<server-ip>,pcms.lan`.
+
+Reissue the certificate so it also names the local address (it currently names only the domain):
+
+```sh
+sudo openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
+  -keyout /srv/pcms/certs/privkey.pem -out /srv/pcms/certs/fullchain.pem \
+  -subj "/CN=pcms-staging.webuildnow.in" \
+  -addext "subjectAltName=DNS:pcms-staging.webuildnow.in,IP:<server-ip>"
+sudo chmod 600 /srv/pcms/certs/privkey.pem
+cd /srv/server-data/pcms && sudo docker compose -f compose.prod.yml --env-file pcms.env exec nginx nginx -s reload
+```
+
+Cloudflare keeps working: the tunnel has **No TLS Verify** on and does not check the name.
+
+The local address still shows a certificate warning, because the certificate is self-signed. After you click
+through, the app works, but browsers **refuse install and push notifications** on a page with a certificate
+error. Use the domain for phones and anyone who needs notifications. For working push on the local address
+too, either:
+- install the certificate as trusted on those devices (fine for a few staff machines), or
+- point a local name at the server in the campus DNS and give it a publicly trusted certificate (for example
+  Let's Encrypt with the DNS-01 challenge on a `webuildnow.in` subdomain), then list that name above.
+
+Check the firewall lets campus machines reach port 676: `sudo ufw status`.
+
 ### 2. Install the self-hosted runner
 
 The deploy runs on this machine through a GitHub Actions runner. The runner connects out to GitHub, so
