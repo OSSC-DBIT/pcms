@@ -27,11 +27,14 @@ done
 case "$ENVIRONMENT" in
   staging)
     PROJECT=pcms; DOMAIN=pcms-staging.webuildnow.in
-    ENV_FILE=/srv/server-data/pcms/pcms.env; DATA_DIR=/srv/pcms
+    DATA_DIR=/srv/staging/pcms; ENV_FILE=/srv/staging/pcms/pcms.env
+    # Before 5 November staging lived in the old checkout and directly in /srv/pcms.
+    OLD_ENV=/srv/server-data/pcms/pcms.env; OLD_DATA=/srv/pcms
     HTTPS_PORT=676; HTTP_PORT=8082; BACKUP_AT=0130 ;;
   production)
     PROJECT=pcms-prod; DOMAIN=pcms.webuildnow.in
-    ENV_FILE=/srv/pcms-prod/pcms.env; DATA_DIR=/srv/pcms-prod
+    DATA_DIR=/srv/production/pcms; ENV_FILE=/srv/production/pcms/pcms.env
+    OLD_ENV=; OLD_DATA=
     HTTPS_PORT=677; HTTP_PORT=8083; BACKUP_AT=0200 ;;
   *) echo "usage: sudo bash $0 <staging|production> [--email you@example.org] [--ip <server-lan-ip>]" >&2; exit 2 ;;
 esac
@@ -61,20 +64,37 @@ put() {  # replace or append KEY=value (value written as given)
 put_if_empty() { [ -n "$(get "$1")" ] || { put "$1" "$2"; note "set $1"; }; }
 
 # ---------- folders ----------
-say "folders in $DATA_DIR"
+# Layout: /srv/<environment>/pcms/{pcms.env,certs,secrets,backups}. Other apps go beside it, in
+# /srv/<environment>/<app>. An environment set up in an older place is copied in once; the old copies
+# stay until you remove them (docs/SERVER.md), so the stack that is running now keeps working until the
+# next deploy recreates it with the new paths.
 groupadd -f pcms
 id gh-runner >/dev/null 2>&1 && usermod -aG pcms gh-runner
-install -d -m 755 "$DATA_DIR" "$DATA_DIR/certs"
+install -d -m 755 "/srv/$ENVIRONMENT"
+if [ ! -f "$ENV_FILE" ] && [ -n "$OLD_ENV" ] && [ -f "$OLD_ENV" ]; then
+  say "moving $ENVIRONMENT to $DATA_DIR (copying; the old files stay until you delete them)"
+  install -d -m 750 -o root -g pcms "$DATA_DIR"
+  for d in certs secrets backups; do
+    if [ -d "$OLD_DATA/$d" ] && [ ! -e "$DATA_DIR/$d" ]; then
+      cp -a "$OLD_DATA/$d" "$DATA_DIR/$d"
+      note "copied $OLD_DATA/$d"
+    fi
+  done
+  cp -a "$OLD_ENV" "$ENV_FILE"
+  note "copied $OLD_ENV"
+fi
+
+say "folders in $DATA_DIR"
+install -d -m 750 -o root -g pcms "$DATA_DIR"
+install -d -m 755 "$DATA_DIR/certs"
 install -d -m 700 "$DATA_DIR/secrets"
 install -d -m 750 -o 70 -g 70 "$DATA_DIR/backups"
-# Production's settings live in their own folder; staging's sit in the repo folder, which is left alone.
-[ "$ENVIRONMENT" = production ] && install -d -m 750 -o root -g pcms "$(dirname "$ENV_FILE")"
 note "ok (backups owned by uid 70, the backup container)"
 
 # ---------- env file ----------
 say "settings file $ENV_FILE"
 if [ ! -f "$ENV_FILE" ]; then
-  [ "$ENVIRONMENT" = production ] || { echo "$ENV_FILE does not exist; staging should already have one" >&2; exit 1; }
+  [ "$ENVIRONMENT" = production ] || { echo "$ENV_FILE does not exist and there is no old $OLD_ENV to copy" >&2; exit 1; }
   install -m 640 -o root -g pcms /dev/null "$ENV_FILE"
   cat > "$ENV_FILE" <<EOF
 # PCMS $ENVIRONMENT settings. Created by setup-environment.sh on $(date -u +%F). Mode 640, root:pcms.
@@ -118,7 +138,7 @@ else
   put_if_empty PCMS_HTTPS_PORT "$HTTPS_PORT"
   for key in CERT_DIR:certs SECRETS_DIR:secrets BACKUP_DIR:backups; do
     k="PCMS_${key%%:*}"; v="$(get "$k")"
-    [[ "$v" == /* ]] || { put "$k" "$DATA_DIR/${key##*:}"; note "set $k=$DATA_DIR/${key##*:}"; }
+    [ "$v" = "$DATA_DIR/${key##*:}" ] || { put "$k" "$DATA_DIR/${key##*:}"; note "set $k=$DATA_DIR/${key##*:}"; }
   done
 fi
 HTTPS_PORT="$(get PCMS_HTTPS_PORT)"

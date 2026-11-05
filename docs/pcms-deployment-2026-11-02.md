@@ -212,8 +212,13 @@ general server runbook (ports, folders, the `pcms` helper, adding more apps) is 
 
 | Branch | Environment | Address | Compose project | Settings file | Ports (HTTPS / HTTP) |
 |---|---|---|---|---|---|
-| `dev` | staging | https://pcms-staging.webuildnow.in, campus `https://<server-ip>:676` | `pcms` (the existing volumes) | `/srv/server-data/pcms/pcms.env` | 676 / 8082 |
-| `main` | production | https://pcms.webuildnow.in, campus `https://<server-ip>:677` | `pcms-prod` (its own volumes) | `/srv/pcms-prod/pcms.env` | 677 / 8083 |
+| `dev` | staging | https://pcms-staging.webuildnow.in | `pcms` (the existing volumes) | `/srv/staging/pcms/pcms.env` | 676 / 8082 |
+| `main` | production | https://pcms.webuildnow.in | `pcms-prod` (its own volumes) | `/srv/production/pcms/pcms.env` | 677 / 8083 |
+
+Everyone uses the Cloudflare addresses. There is no separate clone per environment: the runner checks out the
+commit for each deploy. Staging moved from `/srv/server-data/pcms` and `/srv/pcms` to `/srv/staging/pcms` on
+5 November (the setup script copies it); the old folders go once the first deploy works (SERVER.md, "Retiring
+the old staging layout").
 
 Both run `compose.prod.yml`. Staging keeps the project name `pcms` on purpose: its database and uploads are in
 `pcms_pgdata` and `pcms_media`, and a new name would start an empty database. Production never shares anything
@@ -255,7 +260,7 @@ After the pull request is merged, the same script is at `.../pcms/dev/ops/deploy
 sudo bash /tmp/setup-env.sh production --email <ossc contact email>
 ```
 
-It creates `/srv/pcms-prod/` with a fresh database password, secret keys, push keys, backup key, certificate,
+It creates `/srv/production/pcms/` with a fresh database password, secret keys, push keys, backup key, certificate,
 and `/etc/pcms/production.conf`. It prints where the backup **private** key is: copy that to two custodians and
 delete it from the server.
 
@@ -272,9 +277,8 @@ sudo pcms production admin --email <you@dbit.in> --name "<Your Name>"
 
 That admin adds everyone else under Admin, People (one by one, or the Excel import).
 
-**7. Clean up:** delete any tunnel route to `localhost:8081`. Stop the old dev stack if it still runs:
-`cd /srv/server-data/pcms && sudo docker compose -f compose.dev.yml down` (staging's data is not touched).
-Remove the old `.env` in `/srv/server-data/pcms` once nothing uses it (it holds the old admin passwords).
+**7. Clean up:** delete any tunnel route to `localhost:8081`. Then retire the old staging folders
+(`/srv/server-data/pcms`, `/srv/pcms`, and the old dev stack): SERVER.md, "Retiring the old staging layout".
 
 ### Settings that no longer exist
 
@@ -294,11 +298,10 @@ migration (see CHANGELOG.md), restore the backup taken just before it instead (D
 ### How to open it
 
 PostgreSQL is on an internal Docker network and has no host port, on purpose. Open it
-through the container:
+through the container (use `production` instead of `staging` for production):
 
 ```sh
-cd /srv/server-data/pcms
-sudo docker compose -f compose.prod.yml exec db psql -U pcms -d pcms
+sudo pcms staging psql
 ```
 
 Useful commands inside `psql`:
@@ -315,14 +318,14 @@ SELECT count(*) FROM ticket;
 ### Always take a copy first
 
 ```sh
-sudo docker compose -f compose.prod.yml exec -T db pg_dump -U pcms -Fc pcms > ~/pcms-before-clear.dump
+sudo pcms staging compose exec -T db pg_dump -U pcms -Fc pcms > ~/pcms-before-clear.dump
 chmod 600 ~/pcms-before-clear.dump    # it contains password hashes
 ```
 
 To put it back:
 
 ```sh
-sudo docker compose -f compose.prod.yml exec -T db pg_restore -U pcms -d pcms --clean --if-exists < ~/pcms-before-clear.dump
+sudo pcms staging compose exec -T db pg_restore -U pcms -d pcms --clean --if-exists < ~/pcms-before-clear.dump
 ```
 
 ### Option A: clear tickets, keep accounts and settings
@@ -332,7 +335,7 @@ approvals and queued notifications. Ticket numbers start again at `-0001`. Peopl
 categories and buildings stay.
 
 ```sh
-sudo docker compose -f compose.prod.yml exec -T db psql -U pcms -d pcms -v ON_ERROR_STOP=1 <<'SQL'
+sudo pcms staging compose exec -T db psql -U pcms -d pcms -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
 TRUNCATE ticket, ticket_event, ticket_comment, ticket_rating, attachment,
          proposal, proposal_line, decision, assignment,
@@ -343,7 +346,7 @@ COMMIT;
 SQL
 
 # Delete the photo and document files too, or they stay on disk with nothing pointing to them
-sudo docker compose -f compose.prod.yml exec api find /data/media -mindepth 1 -delete
+sudo pcms staging compose exec api find /data/media -mindepth 1 -delete
 ```
 
 Notes:
@@ -362,17 +365,14 @@ Deletes the whole database and all uploaded files, including the admin accounts.
 Migrations rebuild the tables and the seed restores categories and buildings.
 
 ```sh
-cd /srv/server-data/pcms
-sudo docker compose -f compose.prod.yml --env-file pcms.env down
-sudo docker volume rm pcms_pgdata pcms_media
-sudo docker compose -f compose.prod.yml --env-file pcms.env up -d
-sudo docker compose -f compose.prod.yml ps                      # migrate should show Exited (0)
-sudo docker compose -f compose.prod.yml exec api python -m app.cli create-admin-from-env
+sudo pcms staging compose down
+sudo docker volume rm pcms_pgdata pcms_media          # production: pcms-prod_pgdata pcms-prod_media
+sudo pcms staging compose up -d
+sudo pcms staging status                              # migrate should show Exited (0)
+sudo pcms staging admin --email you@dbit.in --name "Your Name"
 ```
 
 - Do not use `down -v`. It also deletes `pcms_clamdb`, and ClamAV then downloads its
   signatures again, which takes several minutes.
-- `create-admin-from-env` needs the `PCMS_ADMIN_*` lines in `pcms.env`. If you have
-  already removed them, use `create-admin --email ... --name ...` instead.
 - The database login comes from `PCMS_DB_USER` and `PCMS_DB_PASSWORD` in `pcms.env` and is
   created again when the empty volume starts.

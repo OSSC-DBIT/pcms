@@ -1,5 +1,5 @@
 # Production stack for the college server. See docs/DEPLOYMENT.md.
-#   docker compose -f compose.prod.yml --env-file /srv/pcms/pcms.env up -d
+#   docker compose -f compose.prod.yml --env-file /srv/production/pcms/pcms.env up -d
 # Only nginx publishes ports (HTTP, which only redirects, and HTTPS). PostgreSQL, the API,
 # ClamAV and the jobs are on an internal network. Nothing else is reachable from outside.
 # The database login and every host port come from pcms.env.
