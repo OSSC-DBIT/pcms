@@ -16,6 +16,10 @@ when deploying it.
   the `twilio` and `aiosmtplib` packages. History tables are kept.
 
 ### Changed
+- **Faster deploys.** A merge into `dev` or `main` no longer runs CI a second time before deploying (it took
+  about 7 minutes, and a hung test once blocked a redeploy for over 13). CI runs on the pull request, and both
+  branches now require the branch to be up to date before merging. Each CI job has a time limit, the browser
+  test runs alongside the other jobs, and Python packages are cached.
 - **Web push is the only notification channel.** The app saves each device's subscription on every open,
   when it returns to the foreground (at most hourly), and when the browser replaces the subscription
   (`pushsubscriptionchange`), so notifications keep working without anyone doing anything.

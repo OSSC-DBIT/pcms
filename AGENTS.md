@@ -58,7 +58,8 @@ The browser test writes accounts and tickets into whatever database the stack us
 Record every user-visible change in `CHANGELOG.md`. See `CONTRIBUTING.md` for branches, commits and review.
 
 **Environments.** The server runs only `compose.prod.yml`: a push to `dev` deploys staging and a push to
-`main` deploys production, after CI passes (`.github/workflows/deploy.yml`). `compose.dev.yml` is for a
+`main` deploys production (`.github/workflows/deploy.yml`). CI runs on the pull request only; the branches
+require passing checks on an up-to-date branch, so deploys do not run the tests again. `compose.dev.yml` is for a
 developer's computer and CI's tests only.
 
 **On the OSSC server** (runbook: `docs/SERVER.md`):

@@ -1,12 +1,15 @@
 name: Deploy
 
 # Continuous deployment to the OSSC server:
-#   push to dev  -> CI -> staging     (https://pcms-staging.webuildnow.in)
-#   push to main -> CI -> production
-# A deploy runs only after the whole CI (backend tests, frontend, compose check, browser
-# test) passes on GitHub-hosted runners. The deploy itself runs on a self-hosted runner on
-# the server, so nothing on the server is exposed to the internet and no server secret is
-# stored in GitHub. See docs/DEPLOYMENT.md, "Continuous deployment".
+#   push to dev  -> staging     (https://pcms-staging.webuildnow.in)
+#   push to main -> production  (https://pcms.webuildnow.in)
+# CI is not run again here. dev and main accept changes only through a pull request whose four
+# CI checks passed on the up-to-date branch (branch protection, "require branches to be up to
+# date"), so the commit that lands is the one CI tested. Running CI a second time only delayed
+# every deploy by about 7 minutes, and also delayed "Run workflow", the way to recover a broken
+# environment. The deploy runs on a self-hosted runner on the server, so nothing on the server
+# is exposed to the internet and no server secret is stored in GitHub. See docs/DEPLOYMENT.md
+# section 8 and docs/SERVER.md.
 
 on:
   push:
@@ -24,10 +27,6 @@ permissions:
   contents: read
 
 jobs:
-  ci:
-    name: CI
-    uses: ./.github/workflows/ci.yml
-
   target:
     name: Pick the environment
     runs-on: ubuntu-24.04
@@ -52,10 +51,10 @@ jobs:
 
   deploy:
     name: Deploy to ${{ needs.target.outputs.environment }}
-    needs: [ci, target]
+    needs: [target]
     # The runner registered on the OSSC server with the label "pcms".
     runs-on: [self-hosted, linux, pcms]
-    timeout-minutes: 45
+    timeout-minutes: 30
     # One deploy per environment at a time; a deploy in progress is never cancelled
     # halfway, the next one waits.
     concurrency:

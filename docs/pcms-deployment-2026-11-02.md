@@ -258,7 +258,8 @@ effectively root access to the machine.
 
 ## Update, 5 November 2026: continuous deployment, production, push only
 
-From now on nobody runs `docker compose ... up` by hand here. A push deploys itself after CI passes. The
+From now on nobody runs `docker compose ... up` by hand here. A merge into `dev` or `main` deploys itself (the
+tests ran on the pull request). The
 general server runbook (ports, folders, the `pcms` helper, adding more apps) is [SERVER.md](SERVER.md).
 
 | Branch | Environment | Address | Compose project | Settings file | Ports (HTTPS / HTTP) |
