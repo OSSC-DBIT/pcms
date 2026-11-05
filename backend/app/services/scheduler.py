@@ -27,7 +27,8 @@ async def verification_reminders() -> int:
     n = 0
     async with sessionmaker()() as db:
         due = (await db.scalars(select(Ticket).where(
-            Ticket.status == "Resolved", Ticket.resolved_at < now() - timedelta(days=s.verify_reminder_days)))).all()
+            Ticket.status == "Resolved", Ticket.deleted_at.is_(None),
+            Ticket.resolved_at < now() - timedelta(days=s.verify_reminder_days)))).all()
         for t in due:
             # The event key includes the ticket version, so each resolution reminds once.
             await notify.notify_reporter(db, t, template="verify_reminder", title=f"{t.token}: is it fixed?",
@@ -41,7 +42,8 @@ async def hold_reviews() -> int:
     n = 0
     today = date.today()
     async with sessionmaker()() as db:
-        due = (await db.scalars(select(Ticket).where(Ticket.status == "OnHold", Ticket.hold_review_date <= today))).all()
+        due = (await db.scalars(select(Ticket).where(Ticket.status == "OnHold", Ticket.deleted_at.is_(None),
+                                                     Ticket.hold_review_date <= today))).all()
         for t in due:
             await notify.notify_role(db, "facility_manager", t, template="hold_review", key_suffix=f":{today.isoformat()}",
                                      title=f"{t.token}: hold review due", body=t.hold_reason or "Review this hold.")

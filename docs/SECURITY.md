@@ -12,7 +12,9 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 | OSSC administers but does not dispatch or approve | OSSC has every capability | Separation of duty still holds: nobody, OSSC included, can approve a cost they requested or a ticket they reported. All actions are audited. |
 | Facility manager views the worker directory | Workers are contacted directly; PCMS keeps only an optional free-text worker or vendor name on the ticket | There is no worker login, phone number field or directory. The name is staff-only and never appears in faculty responses or public timeline entries. |
 | Token `DB26C0123` | Token `C26-0123` | Tokens are references, not credentials; guessing one reveals nothing (404). |
-| Worker messaging via Meta Cloud API, photos by media ID | Twilio is legacy only: no new worker messages are queued. Messages sent before the cutover keep working, including signed photo links that expire in 10 minutes and stop working once the job closes | The link is unguessable (HMAC) and serves only that photo. A later cleanup release removes Twilio and the legacy tables. |
+| Tickets are never deleted | (4 November 2026) Team OSSC can remove any ticket (`admin.tickets`) | Nothing is physically deleted: history stays append-only. A removed ticket is closed as Cancelled if open, marked `deleted_at`, hidden from every list, report and export, and returns 404 to everyone. The reason and the admin are in the audit log. |
+| Principal decides first on all critical spending | (4 November 2026) A request on a problem the principal reported goes straight to institute management | The principal may not decide a request on their own report, so without this it would wait forever. |
+| Worker messaging via Meta Cloud API, photos by media ID | (4 November 2026) No worker messaging and no email: web push is the only notification channel | Nothing on the server accepts calls from the internet (no webhooks, no public photo links). Push payloads hold only a title, a line, an in-app link and the token, never notes, costs or names. |
 
 ## Controls
 
@@ -32,9 +34,31 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - The last active super admin cannot be removed, and admins cannot change their own role.
 
 **Sessions**
-- Random opaque token in an HttpOnly, Secure (production), SameSite=Lax cookie. Only a hash is
-  stored, and it expires after 12 hours.
+- Random opaque token in an HttpOnly, Secure (production), SameSite=Strict cookie. Only a hash is
+  stored, and it expires after 12 hours. The CSRF cookie is also SameSite=Strict.
 - The CSRF token must be sent as the `X-CSRF-Token` header on every change.
+
+**Same origin only** (`app/security/origin.py`, 4 November 2026)
+- The API sends no CORS headers, so another site can never read a response.
+- Every request whose `Origin` is not our own (`PCMS_PUBLIC_APP_URL`, plus `PCMS_ALLOWED_ORIGINS`) is refused
+  with 403 `cross_origin`, before routing and before any database work. `Origin: null` is refused.
+- `Sec-Fetch-Site` must be `same-origin` or `none` when the browser sends it.
+- A change (POST, PATCH, DELETE) without `Origin` or `Sec-Fetch-Site` must not carry a foreign `Referer`.
+- In production the `Host` header must be one of ours (the hosts of the public URLs, `PCMS_ALLOWED_HOSTS`,
+  and `api`/`localhost` for the container health check).
+- Exempt: `/api/v1/health` only. There are no webhooks and no public media links.
+- Outside production, `http://localhost` and `http://127.0.0.1` on any port are also accepted for development.
+- nginx replaces `X-Forwarded-For` with the connecting address, so a client cannot choose the IP the
+  sign-in throttle sees.
+
+**Input limits**
+- Every request field has a maximum length or value. Version numbers are capped at the PostgreSQL integer
+  range, so an oversized number is a 400, not a database error.
+- Emails must match a strict pattern (no spaces, quotes, leading, trailing or double dots; proper domain
+  labels; 6 to 254 characters). Sign-in refuses a malformed email with 400 before it reaches the throttle
+  table or the database.
+- Names are 2 to 120 characters; department and position at most 120. Import cells are capped at 512
+  characters before any processing.
 
 **Sign-in**
 - Throttled per email and per IP; the window expires on its own, so there is no permanent lockout.
@@ -45,6 +69,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - Faculty only ever see their own tickets; anything else is 404.
 - Faculty responses never include staff messages, staff documents, costs, worker names or staff names.
 - Spending figures and the expenditure report are returned only to the principal, institute management and Team OSSC.
+  That includes the actual repair cost in reports. The facility manager records the actual cost when marking
+  work complete and sees it on the ticket; faculty never receive it.
 - Only the reporter can rate a ticket, only after it is `Closed`. Another faculty member gets 404
   through the normal visibility check; staff get 403 because they can see the ticket but cannot rate.
 - A rating is a single immutable row per ticket, enforced by a unique constraint. The comment is
@@ -69,12 +95,23 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 - Files are stored under random keys in a private volume, held in quarantine until ClamAV clears
   them (production), and downloaded only after a permission check with `nosniff` and a sandbox CSP.
 
-**Twilio webhooks (legacy)**
-- Every call must carry a valid `X-Twilio-Signature` computed over the public URL.
-- Events are deduplicated. A button tap must come from the assigned worker's own number,
-  replying to that job's message.
-- These handlers remain only for messages sent before worker dispatch was retired. No new worker
-  messages are queued.
+**Web push**
+- Subscriptions are saved only for a signed-in person, through the same CSRF and same-origin checks as
+  every other change. Endpoints must be https on a public host (no IP addresses or localhost), so the
+  worker cannot be pointed at internal services. At most 10 devices per person.
+- The VAPID private key stays in the env file; only the public key is served to browsers.
+- Payloads pass through the browser vendors' push services, so they carry only a title, a short line, an
+  in-app path (the service worker opens only paths inside the app) and the ticket token.
+- Signing out removes this device's subscription.
+
+**Continuous deployment**
+- The deploy runs on a self-hosted runner on the server, started only by pushes to `dev` and `main` after
+  CI passes. It needs no inbound port and no server secret in GitHub.
+- Pull requests never run on the server runner: only `deploy.yml`, triggered by a push to `dev` or `main`
+  or by a maintainer, uses it. Keep branch protection on so only reviewed code reaches those branches.
+- The runner account is in the `docker` group, which is root-equivalent: use it for nothing else.
+- `deploy.sh` reads `/etc/pcms/<env>.conf` as plain `KEY=value` (never executed) and refuses a file
+  that is not owned by root or that others can write. A production deploy stops if its backup fails.
 
 **Web**
 - Strict CSP with no inline script, HSTS, `X-Frame-Options: DENY`, `nosniff`, and a narrow `Permissions-Policy`.
@@ -88,7 +125,8 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 
 **Operations**
 - The API refuses to start in production with a weak secret, insecure cookies, the dev database
-  password, virus scanning off, or the test messaging provider.
+  password, virus scanning off, a `PCMS_PUBLIC_APP_URL` that is not https or points at localhost, or
+  without the web push (VAPID) keys and a real VAPID contact.
 - Swagger and ReDoc are disabled, and the OpenAPI JSON route is off in production.
 - Containers run as non-root with read-only filesystems and no Linux capabilities. Only nginx publishes ports.
 - Backups are encrypted to an age public key, so the server cannot read its own backups.
@@ -107,7 +145,10 @@ DBIT asked for these on 18 October 2026. They are deliberate. Review them before
 
 ## Not verified yet
 
-- Real Twilio sending and replies need DBIT's account and an approved WhatsApp template.
-- Push and install on real Android and iPhone devices need HTTPS on the college hostname.
+- Push delivery to a real Android phone, iPhone (installed app) and desktop browser over HTTPS on the
+  staging hostname. The server side (queueing, sending to every device, dead devices, retries) is covered
+  by tests with a fake push service, and the browser flow builds; neither has reached a real device yet.
+- The production Host check has unit tests but has not run behind the real campus hostname. If people
+  reach PCMS by a second name or an IP address, add it to `PCMS_ALLOWED_HOSTS` and `PCMS_ALLOWED_ORIGINS`.
 - Load at the plan's 50 active sessions has not been measured.
 - A penetration test by someone other than the authors has not been done.

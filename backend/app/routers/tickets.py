@@ -16,7 +16,7 @@ from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket, TicketComment
 from app.models.user import User
 from app.schemas.ticket import (
-    AssessmentIn, CommentIn, DuplicateOut, ProposalIn, RatingIn, StatusName, TicketCreatedOut,
+    AssessmentIn, CommentIn, DuplicateOut, ProposalIn, RatingIn, RemoveIn, StatusName, TicketCreatedOut,
     TicketCreateIn, TicketOut, TicketPage, TicketUpdateIn, TransitionIn,
 )
 from app.security.deps import Principal, current_principal, require
@@ -53,7 +53,7 @@ async def list_tickets(scope: str = Query("mine", pattern="^(mine|queue)$"), sta
                        view: str | None = Query(None, pattern="^(action|working)$"),
                        sort: str = Query("newest", pattern="^(" + "|".join(SORTS) + ")$"),
                        p: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)) -> TicketPage:
-    stmt = select(Ticket)
+    stmt = select(Ticket).where(Ticket.deleted_at.is_(None))
     if scope == "queue":
         if not p.can("queue.view"):
             raise forbidden()
@@ -131,7 +131,7 @@ async def duplicates(category: str = Query(..., max_length=40), building: str = 
     cat_id = await db.scalar(select(Category.id).where(Category.code == category))
     if cat_id is None or (not outdoors and not (building and room.strip())) or building == svc.CUSTOM_BUILDING:
         return []
-    stmt = select(Ticket).where(Ticket.category_id == cat_id, Ticket.status.not_in(TERMINAL))
+    stmt = select(Ticket).where(Ticket.category_id == cat_id, Ticket.status.not_in(TERMINAL), Ticket.deleted_at.is_(None))
     if outdoors:
         stmt = stmt.where(Ticket.outdoors)
     else:
@@ -239,3 +239,13 @@ async def propose(ticket_id: uuid.UUID, body: ProposalIn, p: Principal = Depends
     await workflow.create_proposal(db, p, t, body)
     await db.commit()
     return await svc.ticket_out(db, p, t)
+
+
+@router.post("/{ticket_id}/remove", status_code=204)
+async def remove(ticket_id: uuid.UUID, body: RemoveIn, p: Principal = Depends(require("admin.tickets")),
+                 db: AsyncSession = Depends(get_session)) -> Response:
+    """Team OSSC removes a ticket. Its history is kept; it disappears from every list and report."""
+    t = await svc.get_visible(db, p, ticket_id, lock=True)
+    await lifecycle.remove_ticket(db, p, t, expected_version=body.expected_version, reason=body.reason)
+    await db.commit()
+    return Response(status_code=204)

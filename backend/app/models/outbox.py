@@ -14,6 +14,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
 
+# "webpush" is the only channel written since 4 November 2026. The others stay allowed by the
+# database constraint so the history of earlier email and WhatsApp/SMS rows is kept.
 OUTBOX_CHANNELS = ("email", "webpush", "whatsapp", "sms")
 OUTBOX_STATES = ("pending", "sending", "sent", "action_required", "cancelled", "expired")
 
@@ -65,7 +67,7 @@ class DeliveryAttempt(Base):
 
 
 class ProviderEvent(Base):
-    """Inbound webhook calls, deduplicated by provider message SID plus event type."""
+    """Legacy: inbound Twilio webhook calls (removed 4 November 2026). Kept so history stays readable."""
 
     __tablename__ = "provider_event"
 

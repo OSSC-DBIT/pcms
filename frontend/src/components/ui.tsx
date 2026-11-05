@@ -187,10 +187,10 @@ export function RadioList<T extends string>({ options, value, onChange, name }:
 
 export function Tabs<T extends string>({ tabs, value, onChange, label }: { tabs: { value: T; label: ReactNode }[]; value: T; onChange: (v: T) => void; label: string }) {
   return (
-    <div role="tablist" aria-label={label} className="inline-flex rounded-md border border-line bg-subtle p-1">
+    <div role="tablist" aria-label={label} className="inline-flex max-w-full overflow-x-auto rounded-md border border-line bg-subtle p-1">
       {tabs.map((tb) => (
         <button key={tb.value} role="tab" type="button" aria-selected={value === tb.value} onClick={() => onChange(tb.value)}
-          className={clsx('min-h-9 rounded-[6px] px-4 text-[14px] font-medium', value === tb.value ? 'bg-surface shadow-sm' : 'text-muted hover:text-fg')}>
+          className={clsx('min-h-9 shrink-0 whitespace-nowrap rounded-[6px] px-3 text-[14px] font-medium sm:px-4', value === tb.value ? 'bg-surface shadow-sm' : 'text-muted hover:text-fg')}>
           {tb.label}
         </button>
       ))}

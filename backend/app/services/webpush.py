@@ -59,12 +59,13 @@ def _send_sync(endpoint: str, p256dh: str, auth: str, payload: dict, ttl: int) -
         return PushResult(ok=True, status=getattr(resp, "status_code", None))
     except WebPushException as exc:
         status = exc.response.status_code if exc.response is not None else None
-        return PushResult(ok=False, gone=status in (404, 410), retryable=status in (None, 429, 500, 502, 503, 504),
+        return PushResult(ok=False, gone=status in (403, 404, 410), retryable=status in (None, 429, 500, 502, 503, 504),
                           status=status, error=str(exc)[:300])
     except Exception as exc:  # network errors
         return PushResult(ok=False, retryable=True, error=f"{type(exc).__name__}: {exc}"[:300])
 
 
-async def send(endpoint: str, p256dh: str, auth: str, payload: dict, ttl: int = 3600) -> PushResult:
+async def send(endpoint: str, p256dh: str, auth: str, payload: dict, ttl: int = 86_400) -> PushResult:
+    # A phone that is off or offline for up to a day still gets the update when it reconnects.
     # pywebpush is synchronous (requests); keep it off the event loop.
     return await asyncio.to_thread(_send_sync, endpoint, p256dh, auth, payload, ttl)

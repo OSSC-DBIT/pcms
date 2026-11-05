@@ -4,14 +4,14 @@ from sqlalchemy import select
 
 from app.db import sessionmaker
 from app.models import AuditEvent, Outbox, User
-from tests.factories import API, make_user, new_client, sign_in, ticket_body
+from tests.factories import API, make_user, new_client, sign_in, subscribe_push, ticket_body
 
 
 async def _closed_ticket(client, *, stars: int | None = None, comment: str | None = None,
                          reporter_email: str | None = None, manager_email: str | None = None):
     """Run a ticket through the manual flow to Closed, optionally rating it."""
     fac_user = await make_user("faculty@dbit.edu", "faculty", "Reporter")
-    await make_user("manager@dbit.edu", "facility_manager", "Manager One")
+    await subscribe_push(await make_user("manager@dbit.edu", "facility_manager", "Manager One"))
     await make_user("management@dbit.edu", "management", "Principal Office")
     async with sessionmaker()() as db:
         if reporter_email:
@@ -128,7 +128,7 @@ async def test_rating_is_audited_and_public_but_the_comment_is_not_in_audit(clie
         assert a.after == {"stars": 2, "has_comment": True}
         assert "Leaky again" not in str(a.after)
         # The manager is told about a low rating, but the comment stays on the ticket.
-        assert low is not None and low.payload["subject"].endswith("low rating (2/5)")
+        assert low is not None and low.channel == "webpush" and low.payload["title"].endswith("low rating (2/5)")
         assert "Leaky again" not in str(low.payload)
     finally:
         await mc.aclose()
@@ -139,8 +139,8 @@ async def test_low_rating_notifies_managers(client):
     try:
         async with sessionmaker()() as db:
             rows = (await db.scalars(select(Outbox).where(Outbox.template == "low_rating"))).all()
-        assert len(rows) == 1 and rows[0].channel == "email"
-        assert "1/5" in rows[0].payload["subject"]
+        assert len(rows) == 1 and rows[0].channel == "webpush"
+        assert "1/5" in rows[0].payload["title"]
     finally:
         await mc.aclose()
 

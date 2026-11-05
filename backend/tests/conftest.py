@@ -15,7 +15,6 @@ os.environ.setdefault("PCMS_CREDENTIAL_KEY", "test-credential-key-0123456789abcd
 os.environ["PCMS_CLAMAV_REQUIRED"] = "false"
 # Uploads from tests go to a throwaway directory, never the dev media volume.
 os.environ["PCMS_MEDIA_ROOT"] = __import__("tempfile").mkdtemp(prefix="pcms-test-media-")
-os.environ["PCMS_MESSAGING_PROVIDER"] = "fake"
 os.environ["PCMS_TRANSLATION_PROVIDER"] = "fake"
 os.environ["PCMS_SIGNIN_MAX_ATTEMPTS"] = "5"
 

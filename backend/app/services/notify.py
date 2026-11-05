@@ -1,11 +1,12 @@
 """Notification intents, written in the caller's transaction (plan section 13).
 
-Nothing here talks to a provider. The outbox worker sends later; if the
-business transaction rolls back, the intent disappears with it.
+Web push is the only channel (DBIT, 2026-11-04: email and Twilio were removed). Nothing
+here talks to a push service. The outbox worker sends later; if the business transaction
+rolls back, the intent disappears with it.
 
-Payloads hold only what the message needs. Web push payloads never include
-internal notes, costs or phone numbers because they pass through browser
-vendors' push services.
+Payloads hold only a title, a short line, an in-app link and the ticket token (the
+notification tag). They never include internal notes, costs or phone numbers, because
+they pass through browser vendors' push services.
 """
 
 from datetime import datetime
@@ -21,30 +22,39 @@ from app.models.user import User
 from app.security.sessions import now
 
 
-async def _enqueue(db: AsyncSession, *, event_key: str, channel: str, template: str, payload: dict,
-                   user_id=None, worker_id=None, ticket_id=None, assignment_id=None,
-                   not_before: datetime | None = None) -> None:
+async def _enqueue(db: AsyncSession, *, event_key: str, template: str, payload: dict,
+                   user_id, ticket_id=None, not_before: datetime | None = None) -> None:
     stmt = insert(Outbox).values(
-        event_key=event_key[:200], channel=channel, template=template, payload=payload,
-        user_id=user_id, worker_id=worker_id, ticket_id=ticket_id, assignment_id=assignment_id,
+        event_key=event_key[:200], channel="webpush", template=template, payload=payload,
+        user_id=user_id, ticket_id=ticket_id,
         state="pending", attempts=0, next_attempt_at=not_before or now(), acknowledged=False,
     ).on_conflict_do_nothing(index_elements=["event_key"])
     await db.execute(stmt)
 
 
+def clip(text: str, limit: int) -> str:
+    """Shorten text for a notification at a word boundary, with "..." so a cut is visible."""
+    text = " ".join((text or "").split())
+    if len(text) <= limit:
+        return text
+    cut = text[: limit - 3]
+    space = cut.rfind(" ")
+    if space >= limit // 2:
+        cut = cut[:space]
+    return cut.rstrip(" ,.;:-") + "..."
+
+
 async def notify_user(db: AsyncSession, user: User, ticket: Ticket, *, template: str, title: str, body: str,
-                      url: str, email: bool = True, key_suffix: str = "") -> None:
-    """In-app status is authoritative; push and email are courtesy channels."""
-    base = f"{template}:{ticket.id}:{ticket.version}:{user.id}{key_suffix}"
+                      url: str, key_suffix: str = "") -> None:
+    """A push notification to every device the person turned notifications on for.
+    The ticket status in the app is authoritative; a person without notifications on
+    still sees every change there."""
     has_push = await db.scalar(select(PushSubscription.id).where(PushSubscription.user_id == user.id).limit(1))
-    if has_push:
-        await _enqueue(db, event_key=f"{base}:webpush", channel="webpush", template=template,
-                       user_id=user.id, ticket_id=ticket.id,
-                       payload={"title": title[:80], "body": body[:200], "url": url, "tag": ticket.token})
-    if email and user.email:
-        await _enqueue(db, event_key=f"{base}:email", channel="email", template=template,
-                       user_id=user.id, ticket_id=ticket.id,
-                       payload={"subject": f"[PCMS {ticket.token}] {title}"[:150], "body": body, "url": url})
+    if not has_push:
+        return
+    await _enqueue(db, event_key=f"{template}:{ticket.id}:{ticket.version}:{user.id}{key_suffix}:webpush",
+                   template=template, user_id=user.id, ticket_id=ticket.id,
+                   payload={"title": clip(title, 100), "body": clip(body, 240), "url": url, "tag": ticket.token})
 
 
 async def notify_reporter(db: AsyncSession, ticket: Ticket, *, template: str, title: str, body: str) -> None:

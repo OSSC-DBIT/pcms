@@ -9,7 +9,7 @@ from app.db import sessionmaker
 from app.models import Outbox, Ticket
 from app.services import tickets as ticket_service
 from app.services.tickets import format_token, ist_year
-from tests.factories import API, make_user, new_client, sign_in, ticket_body
+from tests.factories import API, make_user, new_client, sign_in, subscribe_push, ticket_body
 
 
 def test_other_subtype_detection_is_not_substring_based():
@@ -118,18 +118,21 @@ async def test_faculty_cannot_see_other_reporters_tickets(client):
         assert d == [{"token": created["token"], "title": "Broken chair in lecture room", "status": "Submitted"}]
 
 
-async def test_create_queues_receipt_and_manager_alerts(client):
+async def test_create_queues_receipt_and_manager_alerts_as_push_only(client):
     u = await make_user("faculty@dbit.edu", "faculty")
-    async with sessionmaker()() as db:
-        (await db.get(type(u), u.id)).email = "faculty@example.edu"
-        await db.commit()
-    await make_user("manager@dbit.edu", "facility_manager")
-    s = await sign_in(client, "faculty@example.edu")
+    manager = await make_user("manager@dbit.edu", "facility_manager")
+    unsubscribed = await make_user("manager2@dbit.edu", "facility_manager")
+    await subscribe_push(u)
+    await subscribe_push(manager)
+    s = await sign_in(client, "faculty@dbit.edu")
     await s.post(f"{API}/tickets", json=ticket_body())
     async with sessionmaker()() as db:
         rows = (await db.scalars(select(Outbox))).all()
-    templates = {(o.template, o.channel) for o in rows}
-    assert ("receipt", "email") in templates
+    assert {(o.template, o.channel, o.user_id) for o in rows} == {
+        ("receipt", "webpush", u.id), ("new_ticket", "webpush", manager.id)}
+    # No email or worker message is ever queued, and nothing for someone without push on.
+    assert all(o.channel == "webpush" for o in rows)
+    assert unsubscribed.id not in {o.user_id for o in rows}
 
 
 def test_token_starts_with_type_letter_and_grows_past_9999():

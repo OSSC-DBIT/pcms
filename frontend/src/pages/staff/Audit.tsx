@@ -47,10 +47,10 @@ export default function Audit() {
       <PageHeader title={t('nav.audit')} subtitle={t('audit.subtitle')} />
       <div className="flex flex-wrap gap-3">
         <div className="w-full sm:w-64">
-          <Input value={action} onChange={(e) => setAction(e.target.value)} placeholder={t('audit.actionPlaceholder')} aria-label={t('audit.filterAction')} />
+          <Input value={action} maxLength={80} onChange={(e) => setAction(e.target.value)} placeholder={t('audit.actionPlaceholder')} aria-label={t('audit.filterAction')} />
         </div>
         <div className="w-full sm:w-64">
-          <Input value={entity} onChange={(e) => setEntity(e.target.value)} placeholder={t('audit.entityPlaceholder')} aria-label={t('audit.filterEntity')} />
+          <Input value={entity} maxLength={64} onChange={(e) => setEntity(e.target.value)} placeholder={t('audit.entityPlaceholder')} aria-label={t('audit.filterEntity')} />
         </div>
       </div>
       {error && <Alert tone="bad">{error}</Alert>}

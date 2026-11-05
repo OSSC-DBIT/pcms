@@ -1,8 +1,6 @@
-"""Manual worker coordination and the spending approval workflow (plan sections 10 and 11).
+"""Work assessments and the spending approval workflow (plan sections 10 and 11).
 
 Facility managers contact workers themselves and record the state on the ticket.
-The legacy assignment helpers below are kept only for WhatsApp messages that
-were sent before worker dispatch was retired.
 
 Spending (DBIT, 2026-10-30): a ticket marked Critical goes to the principal
 first. The principal approves it, rejects it, or escalates it to institute
@@ -19,40 +17,10 @@ from app.errors import ApiError, conflict, forbidden, not_found, validation
 from app.models.proposal import Decision, Proposal, ProposalLine
 from app.models.ticket import Ticket
 from app.models.user import User
-from app.models.worker import Assignment, Worker
 from app.schemas.ticket import AssessmentIn, DecisionIn, ProposalIn
 from app.security.deps import Principal
-from app.security.sessions import now
 from app.services import audit, notify
 from app.services.tickets import add_event, bump, check_version
-
-
-# ---------- legacy assignments (Twilio webhooks only) ----------
-
-async def get_assignment(db: AsyncSession, t: Ticket, assignment_id: uuid.UUID) -> Assignment:
-    a = await db.get(Assignment, assignment_id, with_for_update=True)
-    if a is None or a.ticket_id != t.id:
-        raise not_found("Assignment not found.")
-    return a
-
-
-async def accept(db: AsyncSession, t: Ticket, a: Assignment, *, via: str, actor: User | None, worker: Worker) -> bool:
-    """Record acceptance for a pre-cutover WhatsApp message. Returns False if nothing changed."""
-    if a.released_at is not None or a.accepted_at is not None or t.status != "Assigned":
-        return False
-    a.accepted_at = now()
-    a.accepted_via = via
-    t.status = "InProgress"
-    bump(t)
-    label = "Entered by manager on behalf of worker" if actor else "Accepted with the WhatsApp button"
-    add_event(db, t, actor, "The worker accepted the job", detail=f"{label} ({via})", public=True,
-              from_status="Assigned", to_status="InProgress", delegated_worker=worker.name,
-              actor_label=None if actor else worker.name)
-    audit.record(db, actor_id=actor.id if actor else None, actor_label=actor.name if actor else f"worker:{worker.name}",
-                 action="assignment.accepted", entity_type="assignment", entity_id=a.id, delegated_worker=worker.name,
-                 after={"via": via})
-    await notify.notify_reporter(db, t, template="status_inprogress", title=f"{t.token}: work started", body=t.title)
-    return True
 
 
 async def record_assessment(db: AsyncSession, p: Principal, t: Ticket, body: AssessmentIn) -> None:
@@ -94,8 +62,12 @@ async def create_proposal(db: AsyncSession, p: Principal, t: Ticket, body: Propo
         raise conflict("proposal_pending", "This ticket is already awaiting an approval decision.")
     total = sum(ln.paise for ln in body.lines)
     version = (await db.scalar(select(func.max(Proposal.version)).where(Proposal.ticket_id == t.id)) or 0) + 1
+    # Nobody decides spending on a problem they reported. When the principal reported it, the
+    # principal stage is skipped and the request goes straight to institute management.
+    reporter = await db.get(User, t.reporter_id)
+    stage = "management" if reporter is not None and reporter.role == "principal" else "principal"
     pr = Proposal(ticket_id=t.id, version=version, remedy=body.remedy.strip(), total_paise=total,
-                  requested_date=body.requested_date, requested_by=p.user.id, state="pending", stage="principal")
+                  requested_date=body.requested_date, requested_by=p.user.id, state="pending", stage=stage)
     db.add(pr)
     await db.flush()
     for i, ln in enumerate(body.lines):
@@ -105,11 +77,12 @@ async def create_proposal(db: AsyncSession, p: Principal, t: Ticket, body: Propo
     t.flag = "C"
     bump(t)
     add_event(db, t, p.user, "Sent for approval", from_status=old, to_status="AwaitingApproval")
-    add_event(db, t, p.user, f"Critical: expenditure request v{version} sent to the principal",
+    add_event(db, t, p.user, f"Critical: expenditure request v{version} sent to {STAGE_LABEL[stage]}",
               detail=(f"Rs {total / 100:,.2f}: " if total else "") + pr.remedy, public=False)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="proposal.created", entity_type="proposal",
-                 entity_id=pr.id, after={"ticket": t.token, "version": version, "total_paise": total, "stage": "principal"})
-    await notify.notify_role(db, "principal", t, template="approval_needed", title=f"Approval required: {t.token}",
+                 entity_id=pr.id, after={"ticket": t.token, "version": version, "total_paise": total, "stage": stage})
+    await notify.notify_role(db, "principal" if stage == "principal" else "management", t, template="approval_needed",
+                             title=f"Approval required: {t.token}",
                              body=f"Expenditure request v{version} for {t.title}", exclude_user=p.user.id)
 
 

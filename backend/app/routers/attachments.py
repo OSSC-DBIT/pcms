@@ -2,12 +2,12 @@
 
 POST /api/v1/tickets/{id}/attachments    multipart upload -> 202 (quarantined until scanned)
 GET  /api/v1/attachments/{id}/content    authorised download (same visibility as the ticket)
-GET  /media/public/{token}               signed, expiring link used only by Twilio for job photos
+
+There is no public media link: every file is served only after a permission check.
 """
 
 import re
 import uuid
-from datetime import timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
@@ -19,16 +19,14 @@ from app.config import get_settings
 from app.db import get_session
 from app.errors import ApiError, forbidden, not_found
 from app.models.attachment import Attachment
-from app.models.ticket import TERMINAL, Ticket
+from app.models.ticket import TERMINAL
 from app.schemas.ticket import AttachmentOut
 from app.security.deps import Principal, current_principal
-from app.security.sessions import now
 from app.services import audit, media
 from app.models.user import User
 from app.services.tickets import DOCUMENT_EVENT, add_event, document_visible, get_visible
 
 api = APIRouter(tags=["attachments"])
-public = APIRouter(tags=["media"], include_in_schema=False)
 
 SAFE_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -137,20 +135,3 @@ async def download(attachment_id: uuid.UUID, p: Principal = Depends(current_prin
     ext = {**media.PHOTO_EXT, "video/mp4": "mp4", "video/webm": "webm"}[att.content_type]
     return FileResponse(path, media_type=att.content_type, headers=SAFE_HEADERS,
                         content_disposition_type="inline", filename=f"evidence-{att.id.hex[:8]}.{ext}")
-
-
-@public.get("/media/public/{token}")
-async def public_media(token: str, db: AsyncSession = Depends(get_session)) -> Response:
-    att_id = media.verify_public_token(token)
-    att = await db.get(Attachment, att_id) if att_id else None
-    if att is None or att.state != "available" or att.kind != "photo":
-        return Response(status_code=404)
-    ticket = await db.get(Ticket, att.ticket_id)
-    # Links stop working once the job is finished, even before they expire.
-    if ticket is None or ticket.status in TERMINAL or ticket.created_at < now() - timedelta(days=60):
-        return Response(status_code=404)
-    path = media.store_path(att.storage_key)
-    if not path.exists():
-        return Response(status_code=404)
-    return FileResponse(path, media_type=att.content_type,
-                        headers={**SAFE_HEADERS, "Cross-Origin-Resource-Policy": "cross-origin", "Cache-Control": "no-store"})

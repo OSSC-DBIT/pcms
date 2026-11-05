@@ -45,26 +45,26 @@ async def staff_signups():
     return fac, fac_c, mgr, mgr_c
 
 
-async def test_department_filter_needs_a_building_and_must_belong_to_it(client):
+async def test_department_filter_must_be_configured_and_belong_to_its_building(client):
     await make_user("faculty@dbit.edu", "faculty", "Reporter")
     fac = await sign_in(client, "faculty@dbit.edu")
     await fac.post(f"{API}/tickets", json=ticket_body())
     await make_user("manager@dbit.edu", "facility_manager", "Manager")
     mgr = await sign_in(new_client(), "manager@dbit.edu")
 
-    r = await mgr.get(f"{API}/reports", params={"department": DEPT})
-    assert r.status_code == 400 and r.json()["code"] == "validation"
+    # DBIT, 2026-11-04: department-wise reports. A department alone is a valid filter
+    # when some building has it; an unknown department is still refused everywhere.
+    for path in ("/reports", "/reports/annual", "/reports/tickets.csv", "/reports/export.xlsx", "/reports/export.pdf"):
+        r = await mgr.get(f"{API}{path}", params={"department": "Not a department"})
+        assert r.status_code == 400 and r.json()["code"] == "validation", path
+        assert (await mgr.get(f"{API}{path}", params={"department": DEPT})).status_code == 200, path
+    alone = (await mgr.get(f"{API}/reports", params={"department": DEPT})).json()
+    assert alone["openByStatus"] == {"Submitted": 1}
+    assert (await mgr.get(f"{API}/reports", params={"department": OTHER_DEPT})).json()["openByStatus"] == {}
+
     r = await mgr.get(f"{API}/reports", params={"building": "BLOCK_B", "department": DEPT})
     assert r.status_code == 400
     r = await mgr.get(f"{API}/reports", params={"building": "BLOCK_A", "department": "Not a department"})
-    assert r.status_code == 400
-    r = await mgr.get(f"{API}/reports/annual", params={"department": DEPT})
-    assert r.status_code == 400
-    r = await mgr.get(f"{API}/reports/tickets.csv", params={"department": DEPT})
-    assert r.status_code == 400
-    r = await mgr.get(f"{API}/reports/export.xlsx", params={"department": DEPT})
-    assert r.status_code == 400
-    r = await mgr.get(f"{API}/reports/export.pdf", params={"department": DEPT})
     assert r.status_code == 400
 
     ok = await mgr.get(f"{API}/reports", params={"building": "BLOCK_A", "department": DEPT})

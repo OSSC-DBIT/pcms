@@ -77,7 +77,7 @@ export type TransitionAction =
   | { action: 'assign'; workerName?: string }
   | { action: 'start' }
   | { action: 'set_worker'; workerName?: string }
-  | { action: 'resolve'; note: string; evidenceNote?: string }
+  | { action: 'resolve'; note?: string; evidenceNote?: string; actualCostPaise?: number }
   | { action: 'verify' }
   | { action: 'dispute'; reason: string }
   | { action: 'reopen'; reason: string }
@@ -225,12 +225,16 @@ export const api = {
   decide(proposal: Pick<Proposal, 'id' | 'version'>, kind: DecisionKind, opts: { ceilingPaise?: number; conditions?: string; reason?: string; reviewDate?: string }): Promise<Ticket> {
     return request('POST', `/proposals/${proposal.id}/decisions`, { body: { kind, proposalVersion: proposal.version, ...opts } })
   },
+  /** Team OSSC only. The ticket's history is kept; it disappears from every list and report. */
+  removeTicket(ticket: Pick<Ticket, 'id' | 'version'>, reason: string): Promise<void> {
+    return request('POST', `/tickets/${ticket.id}/remove`, { body: { reason, expectedVersion: ticket.version } })
+  },
 
   // ---------- admin: users ----------
   listUsers(params: { q?: string; role?: string; active?: boolean; pending?: boolean; page?: number; pageSize?: number } = {}): Promise<Page<AdminUser>> {
     return request('GET', `/admin/users${qs({ ...params, pageSize: params.pageSize ?? 25 })}`)
   },
-  createUser(body: { email: string; name: string; role: AdminUser['role']; password: string }): Promise<Credential> {
+  createUser(body: { email: string; name: string; role: AdminUser['role']; password: string; department?: string; position?: string }): Promise<Credential> {
     return request('POST', '/admin/users', { body })
   },
   updateUser(u: Pick<AdminUser, 'id' | 'version'>, patch: { email?: string; name?: string; role?: AdminUser['role']; active?: boolean; reason?: string }): Promise<AdminUser> {
@@ -256,14 +260,6 @@ export const api = {
   /** Audited download of temporary passwords Team OSSC issued. Requires the admin's own password. */
   credentialsExport(password: string, filters: { q?: string; role?: string; active?: boolean; pending?: boolean } = {}): Promise<{ blob: Blob; filename: string }> {
     return requestBlob('POST', '/admin/users/credentials/export', { body: { password, ...filters }, accept: XLSX })
-  },
-
-  // ---------- messages needing a person ----------
-  listFailedNotifications(): Promise<FailedNotification[]> {
-    return request('GET', '/admin/notifications')
-  },
-  actOnNotification(id: number, op: 'retry' | 'dismiss'): Promise<void> {
-    return request('POST', `/admin/notifications/${id}/${op}`)
   },
 
   // ---------- reports and export ----------
@@ -310,18 +306,6 @@ export const api = {
   editBuilding(code: string, patch: { nameEn?: string; nameHi?: string; nameKn?: string; floors?: string[]; departments?: string[]; departmentsKn?: string[]; active?: boolean }): Promise<void> {
     return request('PATCH', `/admin/buildings/${encodeURIComponent(code)}`, { body: patch })
   },
-}
-
-export interface FailedNotification {
-  id: number
-  channel: string
-  template: string
-  attempts: number
-  lastError: string | null
-  createdAt: string
-  ticketId: string | null
-  ticketToken: string | null
-  recipient: string
 }
 
 /** Clear everything this device holds for the signed-in person. */
