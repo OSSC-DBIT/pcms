@@ -15,7 +15,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_session
-from app.errors import ApiError
+from app.errors import ApiError, validation
 from app.models.session import UserSession
 from app.models.user import User, normalise_email
 from app.schemas.session import ChangePasswordIn, MeOut, MeWithCsrf, SignInIn, StepOut, TotpEnrolment, TotpIn
@@ -31,6 +31,7 @@ from app.services.accounts import (
     temp_password_expired,
     validate_new_password,
 )
+from app.services.users import EMAIL_RE
 
 router = APIRouter(tags=["session"])
 
@@ -63,6 +64,9 @@ def _signed_in(db: AsyncSession, user: User) -> None:
 async def sign_in(body: SignInIn, request: Request, response: Response,
                   db: AsyncSession = Depends(get_session)) -> StepOut:
     email = normalise_email(body.email)
+    # Reject a malformed address before it reaches the throttle table or the database.
+    if not EMAIL_RE.match(email):
+        raise validation("Enter a valid email address, such as name@dbit.in.", {"email": "Invalid email"})
     ip = client_ip(request)
     await throttle.check(db, f"login:{email}", ip)
 

@@ -6,7 +6,8 @@ from fastapi import FastAPI
 
 from app.config import get_settings
 from app.errors import RequestIdMiddleware, install_error_handlers
-from app.routers import admin_ops, admin_users, attachments, catalogs, directory, health, push, session, tickets, translate, webhooks
+from app.security.origin import SameOriginMiddleware
+from app.routers import admin_ops, admin_users, attachments, catalogs, directory, health, push, session, tickets, translate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 
@@ -31,6 +32,8 @@ def create_app() -> FastAPI:
     )
     install_error_handlers(app)
     app.add_middleware(RequestIdMiddleware)
+    # Added last, so it runs first: foreign origins and unknown hosts never reach a route.
+    app.add_middleware(SameOriginMiddleware)
     app.include_router(health.router, prefix=API_PREFIX)
     app.include_router(catalogs.router, prefix=API_PREFIX)
     app.include_router(session.router, prefix=API_PREFIX)
@@ -41,8 +44,6 @@ def create_app() -> FastAPI:
     app.include_router(translate.router, prefix=API_PREFIX)
     app.include_router(directory.proposals, prefix=API_PREFIX)
     app.include_router(attachments.api, prefix=API_PREFIX)
-    app.include_router(attachments.public)
-    app.include_router(webhooks.router)
     return app
 
 

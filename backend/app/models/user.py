@@ -26,6 +26,9 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(254), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)
+    # Directory details from the people import. Informational only; never used for access.
+    department: Mapped[str | None] = mapped_column(String(120))
+    position: Mapped[str | None] = mapped_column(String(120))
     password_hash: Mapped[str | None] = mapped_column(String(255))
     # Encrypted copy of the temporary password Team OSSC issued. Cleared when
     # the person chooses their own password; chosen passwords are never kept

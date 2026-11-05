@@ -31,6 +31,8 @@ CAPABILITIES: Final = frozenset({
     # cost.principal: first decision on spending. cost.approve: institute management, after escalation.
     "cost.principal", "cost.approve",
     "admin.users", "admin.catalogs", "admin.locations", "admin.settings", "admin.audit",
+    # admin.tickets: remove any ticket (DBIT, 2026-11-04). History stays; the ticket is hidden everywhere.
+    "admin.tickets",
 })
 
 # Every staff role can report a problem and confirm the fix of one they reported.

@@ -5,10 +5,10 @@ FastAPI, async SQLAlchemy 2, Alembic, PostgreSQL 17. Dependencies are pinned in 
 | Path | Contents |
 |---|---|
 | `app/main.py` | App factory. Refuses to start in production with unsafe settings |
-| `app/routers/` | HTTP endpoints (`session`, `tickets`, `directory`, `attachments`, `admin_*`, `push`, `webhooks`) |
-| `app/services/` | Business rules: tokens, lifecycle, workflow, media, outbox, scheduler, notifications |
+| `app/routers/` | HTTP endpoints (`session`, `tickets`, `directory`, `attachments`, `translate`, `admin_*`, `push`) |
+| `app/services/` | Business rules: tokens, lifecycle, workflow, media, outbox, scheduler, notifications, translation |
 | `app/models/` | Tables. History tables are append-only (database triggers) |
-| `app/jobs/` | `worker` (sends the outbox) and `scheduler` (reminders, virus scans) |
+| `app/jobs/` | `worker` (sends the outbox, translates queued text) and `scheduler` (reminders, virus scans) |
 | `app/cli.py` | Operator commands; run `python -m app.cli --help` |
 | `alembic/versions/` | Migrations |
 | `tests/` | pytest suite, run against a real database |

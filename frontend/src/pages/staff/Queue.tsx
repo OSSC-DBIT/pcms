@@ -1,31 +1,27 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { Link } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
-import { useAuth } from '../../App'
 import { FilterChips, FilterField, FilterToggle, SearchBox, useUrlFilters, type Chip } from '../../components/Filters'
 import { Pager } from '../../components/Pager'
 import { TicketList, TicketRow } from '../../components/ticket'
-import { Alert, Badge, Button, Card, Checkbox, EmptyState, Input, PageHeader, Select, Skeleton, Stack, Tabs } from '../../components/ui'
-import { api, type FailedNotification } from '../../lib/api'
+import { Alert, Badge, Button, Checkbox, EmptyState, Input, PageHeader, Select, Skeleton, Stack, Tabs } from '../../components/ui'
+import { api } from '../../lib/api'
 import { building, buildingDepartments, buildings, buildingName, categories, categoryName } from '../../lib/catalog'
 import { useT, type TKey } from '../../lib/i18n'
 import { useTickets, type UseTicketsOptions } from '../../lib/useTickets'
-import { IMPACTS, TERMINAL, type Impact, type Role, type Status, type TicketSort, type WorkFlag } from '../../lib/types'
+import { IMPACTS, TERMINAL, type Impact, type Role, type Status, type TicketSort } from '../../lib/types'
 type View = 'action' | 'working' | 'all' | 'closed'
 /** Every role can report a problem, so every role can be a filter. */
 const REPORTER_ROLES: Role[] = ['faculty', 'facility_manager', 'management', 'principal', 'ossc']
 const OPEN_STATUSES: Status[] = ['Submitted', 'Triaged', 'Assigned', 'InProgress', 'OnHold', 'AwaitingApproval', 'Resolved']
-const FLAGS: { value: WorkFlag; key: TKey }[] = [{ value: 'I', key: 'ticket.immediate' }, { value: 'C', key: 'ticket.critical' }, { value: 'P', key: 'ticket.postpone' }]
-const KEYS = ['view', 'q', 'status', 'severity', 'flag', 'type', 'building', 'department', 'reporter', 'role', 'worker', 'from', 'to', 'overdue', 'sort'] as const
+const KEYS = ['view', 'q', 'status', 'severity', 'type', 'building', 'department', 'reporter', 'role', 'worker', 'from', 'to', 'overdue', 'sort'] as const
 type Key = typeof KEYS[number]
 
 export default function Queue() {
-  const { can } = useAuth()
   const { t, lang } = useT()
   const { values: f, set, clear } = useUrlFilters(KEYS)
   const view = (['action', 'working', 'all', 'closed'].includes(f.view) ? f.view : 'action') as View
   const sort = (f.sort || 'newest') as TicketSort
   const [panel, setPanel] = useState(false)
+  const [more, setMore] = useState(false)
   const [counts, setCounts] = useState({ new: 0, assigned: 0, overdue: 0, approvals: 0 })
   const place = building(f.building)
   const departments = place ? buildingDepartments(place, lang) : []
@@ -37,7 +33,6 @@ export default function Queue() {
     status: f.status ? [f.status as Status] : undefined,
     search: f.q || undefined,
     severity: (f.severity as Impact) || undefined,
-    flag: (f.flag as WorkFlag) || undefined,
     category: f.type || undefined,
     building: f.building || undefined,
     department: f.department || undefined,
@@ -70,7 +65,6 @@ export default function Queue() {
   const chipDefs: [Key, ReactNode][] = [
     ['status', f.status && t(`status.${f.status}` as TKey)],
     ['severity', f.severity && t(`impact.${f.severity}` as TKey)],
-    ['flag', f.flag && t(FLAGS.find((x) => x.value === f.flag)?.key ?? 'filter.flag')],
     ['type', cat && categoryName(cat, lang)],
     ['building', place && buildingName(place, lang)],
     ['department', f.department && (departments.find((d) => d.value === f.department)?.label ?? f.department)],
@@ -99,7 +93,6 @@ export default function Queue() {
           <Stat label={t('queue.waitingApproval')} value={counts.approvals} onClick={() => set({ view: 'action', status: 'AwaitingApproval' })} />
         </div>
       )}
-      {can('queue.view') && <FailedMessages />}
 
       <Tabs label={t('queue.view')} value={view} onChange={(v) => set({ view: v, status: '' })} tabs={[
         { value: 'action', label: t('queue.needsAction') }, { value: 'working', label: t('queue.inProgress') },
@@ -127,11 +120,6 @@ export default function Queue() {
               <option value="">{t('common.any')}</option>{IMPACTS.map((v) => <option key={v} value={v}>{t(`impact.${v}`)}</option>)}
             </Select>
           </FilterField>
-          <FilterField label={t('filter.flag')} htmlFor="f-flag">
-            <Select id="f-flag" value={f.flag} onChange={(e) => set({ flag: e.target.value })}>
-              <option value="">{t('common.any')}</option>{FLAGS.map((x) => <option key={x.value} value={x.value}>{x.value}: {t(x.key)}</option>)}
-            </Select>
-          </FilterField>
           <FilterField label={t('queue.type')} htmlFor="f-type">
             <Select id="f-type" value={f.type} onChange={(e) => set({ type: e.target.value })}>
               <option value="">{t('common.all')}</option>{categories().map((c) => <option key={c.code} value={c.code}>{categoryName(c, lang)}</option>)}
@@ -147,6 +135,7 @@ export default function Queue() {
               <option value="">{t('common.all')}</option>{departments.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
             </Select>
           </FilterField>
+          {(more || f.reporter || f.role || f.worker || f.from || f.to) ? (<>
           <FilterField label={t('queue.reporter')} htmlFor="f-reporter">
             <SearchBox id="f-reporter" value={f.reporter} onSearch={(reporter) => set({ reporter })} placeholder={t('queue.reporterPlaceholder')} />
           </FilterField>
@@ -164,8 +153,16 @@ export default function Queue() {
           <FilterField label={t('queue.to')} htmlFor="f-to">
             <Input id="f-to" type="date" value={f.to} min={f.from || undefined} onChange={(e) => set({ to: e.target.value })} />
           </FilterField>
+          </>) : null}
           {view !== 'closed' && (
             <div className="flex items-end pb-2.5"><Checkbox label={t('filter.overdue')} checked={f.overdue === '1'} onChange={(v) => set({ overdue: v ? '1' : '' })} /></div>
+          )}
+          {!(f.reporter || f.role || f.worker || f.from || f.to) && (
+            <div className="flex items-end pb-1.5 sm:col-span-2 lg:col-span-4">
+              <Button size="sm" variant="ghost" aria-expanded={more} onClick={() => setMore((v) => !v)}>
+                {more ? t('queue.fewerFilters') : t('queue.moreFilters')}
+              </Button>
+            </div>
           )}
         </div>
       )}
@@ -196,34 +193,5 @@ function Stat({ label, value, tone, onClick }: { label: string; value: number; t
       <p className={`text-[24px] font-semibold ${tone === 'bad' ? 'text-bad' : ''}`}>{value}</p>
       <p className="text-[13px] text-muted">{label}</p>
     </button>
-  )
-}
-
-function FailedMessages() {
-  const { can } = useAuth()
-  const { t } = useT()
-  const [items, setItems] = useState<FailedNotification[]>([])
-  useEffect(() => { api.listFailedNotifications().then(setItems).catch(() => setItems([])) }, [])
-  if (!items.length) return null
-  const act = async (id: number, op: 'retry' | 'dismiss') => { await api.actOnNotification(id, op); setItems((xs) => xs.filter((x) => x.id !== id)) }
-  return (
-    <Card title={<span className="inline-flex items-center gap-2 text-warn"><AlertTriangle size={17} /> {t('queue.messagesNeed', { count: items.length })}</span>}>
-      <ul className="divide-y divide-line">
-        {items.slice(0, 6).map((n) => (
-          <li key={n.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-[14px]">
-            <span className="min-w-0">
-              {n.ticketId ? <Link to={`/staff/t/${n.ticketId}`} className="token font-semibold text-accent">{n.ticketToken}</Link> : '-'} · {t('queue.messageTo', { channel: t(`channel.${n.channel}` as TKey), recipient: n.recipient })}
-              <span className="block text-[13px] text-muted">{n.lastError ?? t('queue.deliveryFailed')}</span>
-            </span>
-            {can('ticket.assign') && (
-              <span className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => act(n.id, 'retry')}>{t('queue.retry')}</Button>
-                <Button size="sm" variant="ghost" onClick={() => act(n.id, 'dismiss')}>{t('queue.handledCall')}</Button>
-              </span>
-            )}
-          </li>
-        ))}
-      </ul>
-    </Card>
   )
 }

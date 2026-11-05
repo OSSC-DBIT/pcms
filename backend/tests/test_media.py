@@ -1,5 +1,4 @@
 import io
-import time
 import uuid
 
 from PIL import Image
@@ -108,24 +107,14 @@ async def test_scanner_down_keeps_files_quarantined(client, monkeypatch):
         assert (await db.get(Attachment, uuid.UUID(att["id"]))).state == "scanning"
 
 
-def test_signed_public_link_expires_and_rejects_tampering():
-    aid = uuid.uuid4()
-    tok = media.public_token(aid, ttl=60)
-    assert media.verify_public_token(tok) == aid
-    body, sig = tok.split(".")
-    assert media.verify_public_token(body + "." + sig[:-2] + "AA") is None
-    assert media.verify_public_token(media.public_token(aid, ttl=-1)) is None
-    assert media.verify_public_token("garbage") is None
-    assert time.time() > 0
-
-
-async def test_public_media_route_serves_only_signed_available_photos(client):
+async def test_no_public_media_route(client):
+    """Signed public photo links existed only for Twilio and were removed with it."""
     s, tid = await _ticket(client)
     att = (await s.post(f"{API}/tickets/{tid}/attachments", files={"file": ("a.jpg", jpeg_with_gps(), "image/jpeg")})).json()
     async with new_client() as anon:
-        assert (await anon.get(f"/media/public/{media.public_token(uuid.UUID(att['id']))}")).status_code == 200
-        assert (await anon.get(f"/media/public/{media.public_token(uuid.uuid4())}")).status_code == 404
         assert (await anon.get(f"/media/public/{att['id']}")).status_code == 404
+        assert (await anon.get(att["url"])).status_code == 401
+    assert not hasattr(media, "public_token")
     async with sessionmaker()() as db:
         assert (await db.scalars(select(Attachment))).first() is not None
 
@@ -150,42 +139,6 @@ async def test_faculty_video_is_stored_and_visible_to_staff(client, tmp_path):
         got = await m.get(t["attachments"][0]["url"])
         assert got.status_code == 200 and got.headers["content-type"] == "video/mp4"
         assert b"+12.87+077.44" not in got.content  # location metadata removed
-
-
-def _ffmpeg(*args: str) -> bytes:
-    import subprocess
-
-    return subprocess.run(["ffmpeg", "-v", "error", "-f", "lavfi", *args], check=True, capture_output=True).stdout
-
-
-async def test_browser_recorded_webm_without_duration_is_accepted(client):
-    """MediaRecorder streams WebM without a duration; it is remuxed first, then checked."""
-    raw = _ffmpeg("-i", "testsrc=duration=2:size=320x240:rate=15", "-c:v", "libvpx", "-b:v", "200k",
-                  "-f", "webm", "pipe:1")
-    s, tid = await _ticket(client)
-    r = await s.post(f"{API}/tickets/{tid}/attachments", files={"file": ("recording.webm", raw, "video/webm")})
-    assert r.status_code == 202, r.text
-    assert r.json()["kind"] == "video"
-    async with sessionmaker()() as db:
-        row = await db.get(Attachment, uuid.UUID(r.json()["id"]))
-    assert row.content_type == "video/webm" and 1500 <= row.duration_ms <= 2600
-
-
-async def test_iphone_h264_mov_becomes_mp4_and_long_videos_are_refused(client, tmp_path):
-    mov = tmp_path / "IMG_0001.MOV"
-    _ffmpeg("-i", "testsrc=duration=2:size=320x240:rate=15", "-pix_fmt", "yuv420p", "-c:v", "libx264",
-            "-f", "mov", str(mov))
-    s, tid = await _ticket(client)
-    r = await s.post(f"{API}/tickets/{tid}/attachments", files={"file": ("IMG_0001.MOV", mov.read_bytes(), "video/quicktime")})
-    assert r.status_code == 202, r.text
-    got = await s.get(r.json()["url"])
-    assert got.headers["content-type"] == "video/mp4"
-
-    s2, tid2 = await _ticket(client, "faculty3@dbit.edu")
-    long = _ffmpeg("-i", "testsrc=duration=33:size=160x120:rate=5", "-c:v", "libvpx", "-b:v", "50k", "-f", "webm", "pipe:1")
-    r = await s2.post(f"{API}/tickets/{tid2}/attachments", files={"file": ("long.webm", long, "video/webm")})
-    assert r.status_code == 400 and "30 seconds" in r.json()["message"]
-
 
 
 def _ffmpeg(*args: str) -> bytes:

@@ -358,8 +358,7 @@ async def test_expenditure_report_and_exports_for_a_date_range(client):
         t1, p1 = await _critical(fac, mgr, paise=150000)
         await prin.post(f"{API}/proposals/{p1['id']}/decisions", json=_decision("approved", 1, ceilingPaise=160000))
         t2, p2 = await _critical(fac, mgr, paise=50000, title="Lift door jammed")
-        v2 = (await prin.post(f"{API}/proposals/{p2['id']}/decisions",
-                              json=_decision("escalated", 1, reason="Board"))).json()["proposal"]
+        await prin.post(f"{API}/proposals/{p2['id']}/decisions", json=_decision("escalated", 1, reason="Board"))
         today = date.today()
         params = {"from": (today - timedelta(days=1)).isoformat(), "to": today.isoformat()}
 

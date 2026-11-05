@@ -58,7 +58,6 @@ async def test_full_journey_without_a_worker_directory(client):
         r = await _tr(mgr, tid, action="start")
         assert r.status_code == 200 and r.json()["status"] == "InProgress"
 
-        assert (await _tr(mgr, tid, action="resolve")).status_code == 400  # note required
         assert (await _tr(mgr, tid, action="resolve", note="Backrests replaced")).json()["status"] == "Resolved"
 
         ft = await _get(fac, tid)

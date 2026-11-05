@@ -94,7 +94,7 @@ CATEGORIES = [
         "ಡೆಸ್ಕ್ / ಕುರ್ಚಿ / ಪೀಠೋಪಕರಣ", "ಬಾಗಿಲು / ಕಿಟಕಿ / ಬೀಗ", "ಗೋಡೆ / ಚಾವಣಿ / ನೆಲ",
         "ಪ್ಲಂಬಿಂಗ್ / ನೀರಿನ ಸೋರಿಕೆ", "ಶೌಚಾಲಯ / ವಾಶ್ರೂಮ್", "ಛಾವಣಿ / ಜಲನಿರೋಧಕ", "ಇತರ ಸಿವಿಲ್ ಸಮಸ್ಯೆ",
     ]),
-    ("mechanical", "M", "Mechanical", "यांत्रिक", "ಯಾಂತ್ರಿಕ", [
+    ("mechanical", "M", "Mechanical / Electrical", "यांत्रिक / विद्युत", "ಯಾಂತ್ರಿಕ / ವಿದ್ಯುತ್", [
         "Fan / Light / Electrical", "AC / Cooling", "Lab Equipment", "Machine / Tool",
         "Other Mechanical Issue",
     ], [
@@ -107,10 +107,15 @@ CATEGORIES = [
 ]
 
 ADMIN_AREAS = [
-    "Principal's Office", "Administration Office", "Faculty Rooms", "Conference Room", "Other Area",
+    "Principal's Office", "Administration Office", "Faculty Rooms", "Conference Room",
+    # DBIT, 2026-11-04.
+    "Placement Department", "Dean's Room", "R&D Department", "Board Room", "Server Room",
+    "Other Area",
 ]
 ADMIN_AREAS_KN = [
-    "ಪ್ರಾಂಶುಪಾಲರ ಕಚೇರಿ", "ಆಡಳಿತ ಕಚೇರಿ", "ಅಧ್ಯಾಪಕರ ಕೊಠಡಿಗಳು", "ಸಮ್ಮೇಳನ ಕೊಠಡಿ", "ಇತರ ಪ್ರದೇಶ",
+    "ಪ್ರಾಂಶುಪಾಲರ ಕಚೇರಿ", "ಆಡಳಿತ ಕಚೇರಿ", "ಅಧ್ಯಾಪಕರ ಕೊಠಡಿಗಳು", "ಸಮ್ಮೇಳನ ಕೊಠಡಿ",
+    "ಪ್ಲೇಸ್ಮೆಂಟ್ ವಿಭಾಗ", "ಡೀನ್ ಅವರ ಕೊಠಡಿ", "ಸಂಶೋಧನೆ ಮತ್ತು ಅಭಿವೃದ್ಧಿ ವಿಭಾಗ", "ಬೋರ್ಡ್ ಕೊಠಡಿ", "ಸರ್ವರ್ ಕೊಠಡಿ",
+    "ಇತರ ಪ್ರದೇಶ",
 ]
 
 BLOCK_A_DEPARTMENTS = [
@@ -133,12 +138,14 @@ BLOCK_B_DEPARTMENTS = [
     "Artificial Intelligence and Data Science (AI&DS)",
     "Electrical and Electronics Engineering (EEE)",
     "Cybersecurity and IoT",
+    "Library",
 ]
 BLOCK_B_DEPARTMENTS_KN = [
     "ಕೃತಕ ಬುದ್ಧಿಮತ್ತೆ ಮತ್ತು ಯಂತ್ರ ಕಲಿಕೆ (ಎಐ/ಎಂಎಲ್)",
     "ಕೃತಕ ಬುದ್ಧಿಮತ್ತೆ ಮತ್ತು ಡೇಟಾ ಸೈನ್ಸ್ (ಎಐ ಮತ್ತು ಡಿಎಸ್)",
     "ಎಲೆಕ್ಟ್ರಿಕಲ್ ಮತ್ತು ಎಲೆಕ್ಟ್ರಾನಿಕ್ಸ್ ಎಂಜಿನಿಯರಿಂಗ್ (ಇಇಇ)",
     "ಸೈಬರ್ ಭದ್ರತೆ ಮತ್ತು ಐಒಟಿ",
+    "ಗ್ರಂಥಾಲಯ",
 ]
 
 # Every building with upper floors also has a terrace (DBIT, 2026-10-30).

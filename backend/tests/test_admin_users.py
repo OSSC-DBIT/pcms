@@ -1,4 +1,3 @@
-import csv
 import io
 import zipfile
 from datetime import timedelta
@@ -115,7 +114,7 @@ async def test_xlsx_import_and_template(client):
     template = await s.get(f"{API}/admin/users/import/template")
     assert template.status_code == 200 and template.headers["content-type"].startswith(XLSX)
     wb = load_workbook(io.BytesIO(template.content))
-    assert [c.value for c in wb["People"][1]] == ["email", "name", "role", "password"]
+    assert [c.value for c in wb["People"][1]] == ["email", "name", "role", "department", "position", "password"]
 
     r = await s.post(f"{API}/admin/users/import", files=_xlsx_upload([
         ["nina@dbit.edu", "Nina D", "management", "Temp-Person-2347"],

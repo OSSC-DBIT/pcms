@@ -2,8 +2,9 @@
 #   docker compose -f compose.dev.yml up --build
 # Default host ports (change them in .env):
 #   PWA (Vite HMR) http://localhost:5173 (PCMS_WEB_PORT)    API http://localhost:8000 (PCMS_API_PORT)
-#   Mailpit UI     http://localhost:8025 (PCMS_MAIL_PORT)
-#   nginx (--profile nginx) http://localhost:8080 (PCMS_HTTP_PORT), webhooks 8081 (PCMS_PUBLIC_PORT)
+#   nginx (--profile nginx) http://localhost:8080 (PCMS_HTTP_PORT)
+# Notifications are web push only. For local push, put PCMS_VAPID_* keys in .env
+# (python -m app.cli vapid-keys).
 # The database login comes from PCMS_DB_NAME, PCMS_DB_USER and PCMS_DB_PASSWORD in .env.
 name: pcms-dev
 
@@ -21,16 +22,9 @@ x-api-env: &api-env
   PCMS_VAPID_PUBLIC_KEY: ${PCMS_VAPID_PUBLIC_KEY:-}
   PCMS_VAPID_PRIVATE_KEY: ${PCMS_VAPID_PRIVATE_KEY:-}
   PCMS_VAPID_SUBJECT: ${PCMS_VAPID_SUBJECT:-mailto:facilities@localhost}
-  PCMS_MESSAGING_PROVIDER: ${PCMS_MESSAGING_PROVIDER:-none}
   PCMS_TRANSLATION_PROVIDER: ${PCMS_TRANSLATION_PROVIDER:-mymemory}
   PCMS_TRANSLATION_EMAIL: ${PCMS_TRANSLATION_EMAIL:-}
   PCMS_TRANSLATION_FALLBACK: ${PCMS_TRANSLATION_FALLBACK:-google}
-  PCMS_TWILIO_ACCOUNT_SID: ${PCMS_TWILIO_ACCOUNT_SID:-}
-  PCMS_TWILIO_AUTH_TOKEN: ${PCMS_TWILIO_AUTH_TOKEN:-}
-  PCMS_TWILIO_WHATSAPP_FROM: ${PCMS_TWILIO_WHATSAPP_FROM:-}
-  PCMS_TWILIO_SMS_FROM: ${PCMS_TWILIO_SMS_FROM:-}
-  PCMS_TWILIO_JOB_CONTENT_SID: ${PCMS_TWILIO_JOB_CONTENT_SID:-}
-  PCMS_PUBLIC_BASE_URL: ${PCMS_PUBLIC_BASE_URL:-http://localhost:${PCMS_PUBLIC_PORT:-8081}}
   WATCHFILES_FORCE_POLLING: "true"
 
 # Everything else in .env (for example PCMS_ADMIN_1_EMAIL) also reaches the app containers.
@@ -108,17 +102,10 @@ services:
     ports:
       - "127.0.0.1:${PCMS_WEB_PORT:-5173}:5173"
 
-  mailpit:
-    image: axllent/mailpit:v1.31.6
-    ports:
-      - "127.0.0.1:${PCMS_MAIL_PORT:-8025}:8025"
-
   nginx:
     build: { context: ., dockerfile: nginx/Dockerfile }
     ports:
       - "127.0.0.1:${PCMS_HTTP_PORT:-8080}:8080"
-      # Webhooks and signed photos only. Point your own tunnel at http://127.0.0.1:${PCMS_PUBLIC_PORT}.
-      - "127.0.0.1:${PCMS_PUBLIC_PORT:-8081}:8081"
     depends_on: [api]
     profiles: ["nginx"]
 

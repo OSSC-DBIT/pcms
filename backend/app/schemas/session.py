@@ -8,7 +8,7 @@ StepName = Literal["totp", "change_password", "enrol_totp", "done"]
 
 
 class SignInIn(CamelModel):
-    email: str = Field(min_length=3, max_length=254)
+    email: str = Field(min_length=6, max_length=254)
     password: str = Field(min_length=1, max_length=256)
 
 

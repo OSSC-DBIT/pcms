@@ -14,6 +14,8 @@ StatusName = Literal["Submitted", "Triaged", "Assigned", "InProgress", "OnHold",
 ImpactName = Literal["red", "orange", "green"]
 FlagName = Literal["I", "C", "P"]
 AssessmentName = Literal["simple", "workforce", "parts", "expenditure"]
+# Largest PostgreSQL integer: a bigger version number is rejected as bad input, not a database error.
+MAX_INT = 2_147_483_647
 
 
 def _clean(v: str | None) -> str | None:
@@ -67,7 +69,7 @@ class TicketCreateIn(TicketRequestIn):
 
 
 class TicketUpdateIn(TicketRequestIn):
-    expected_version: int = Field(ge=1)
+    expected_version: int = Field(ge=1, le=MAX_INT)
 
 
 class TicketCreatedOut(CamelModel):
@@ -186,6 +188,8 @@ class TicketOut(TicketSummaryOut):
     hold_reason: str | None = None
     hold_review_date: date | None = None
     rating: RatingOut | None = None
+    # Staff only (null for faculty): what the repair actually cost, recorded when it was marked fixed.
+    actual_cost_paise: int | None = None
 
 
 class TicketPage(CamelModel):
@@ -205,7 +209,7 @@ class TransitionIn(CamelModel):
     action: Literal["triage", "set_flag", "recategorise", "hold", "resume", "assign", "start",
                     "set_worker", "resolve", "verify", "dispute", "reopen", "duplicate", "reject", "cancel",
                     "close_unverified"]
-    expected_version: int = Field(ge=1)
+    expected_version: int = Field(ge=1, le=MAX_INT)
     flag: FlagName | None = None
     category_code: str | None = Field(default=None, max_length=40)
     reason: str | None = Field(default=None, max_length=1000)
@@ -215,8 +219,18 @@ class TransitionIn(CamelModel):
     note: str | None = Field(default=None, max_length=1000)
     canonical_token: str | None = Field(default=None, max_length=16)
     worker_name: str | None = Field(default=None, max_length=120)
+    # resolve only: what the repair actually cost, in paise. Optional.
+    actual_cost_paise: int | None = Field(default=None, ge=0, le=10_000_000_000)
 
     _c = field_validator("reason", "owner", "next_action", "note", "canonical_token", "worker_name", mode="after")(lambda v: _clean(v))
+
+
+class RemoveIn(CamelModel):
+    """Team OSSC removes a ticket. The reason is kept in the audit log."""
+    expected_version: int = Field(ge=1, le=MAX_INT)
+    reason: str = Field(min_length=3, max_length=500)
+
+    _c = field_validator("reason", mode="after")(lambda v: _clean(v) or "")
 
 
 class CommentIn(CamelModel):
@@ -231,21 +245,21 @@ class AssessmentIn(CamelModel):
     assessments: list[AssessmentName] = Field(min_length=1, max_length=4)
     via: Literal["whatsapp", "sms", "call", "card", "in_person"]
     note: str = Field(min_length=2, max_length=1000)
-    expected_version: int = Field(ge=1)
+    expected_version: int = Field(ge=1, le=MAX_INT)
 
 
 class ProposalIn(CamelModel):
     lines: list[ProposalLineIO] = Field(default_factory=list, max_length=30)
     requested_date: date
     remedy: str = Field(min_length=2, max_length=1000)
-    expected_version: int = Field(ge=1)
+    expected_version: int = Field(ge=1, le=MAX_INT)
 
 
 class DecisionIn(CamelModel):
     # The principal: approved, rejected or escalated (to institute management).
     # Institute management: approved, rejected, clarify or defer.
     kind: Literal["approved", "rejected", "clarify", "defer", "escalated"]
-    proposal_version: int = Field(ge=1)
+    proposal_version: int = Field(ge=1, le=MAX_INT)
     ceiling_paise: int | None = Field(default=None, gt=0, le=10_000_000_000)
     conditions: str | None = Field(default=None, max_length=500)
     reason: str | None = Field(default=None, max_length=1000)

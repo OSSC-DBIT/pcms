@@ -15,7 +15,7 @@ import { api, formatPaise, type ReportFilters } from '../../lib/api'
 import { building, buildingName, buildings, categories, categoryName } from '../../lib/catalog'
 import { LOCALE, useT, type TFunc, type TKey } from '../../lib/i18n'
 import { saveBlob } from '../../lib/http'
-import { IMPACTS, type AnnualReport, type Expenditure, type LowRating, type MonthPoint, type Report } from '../../lib/types'
+import { IMPACTS, type AnnualReport, type DepartmentRow, type Expenditure, type ExpenditureDepartment, type LowRating, type MonthPoint, type Report } from '../../lib/types'
 
 type ExportFormat = 'csv' | 'xlsx' | 'pdf' | 'expCsv' | 'expXlsx'
 const EXPORT_LABEL: Record<ExportFormat, TKey> = {
@@ -78,7 +78,9 @@ export default function Reports() {
   useEffect(() => { void load() }, [load])
 
   const placeData = place ? building(place) : null
-  const deptOptions = placeData?.departments ?? []
+  // Department-wise reports: with no building chosen, every configured department is offered.
+  const deptOptions = placeData ? placeData.departments
+    : [...new Set(buildings().flatMap((b) => b.departments))].sort((a, b) => a.localeCompare(b))
 
   useEffect(() => {
     if (!menuOpen) return
@@ -144,7 +146,7 @@ export default function Reports() {
             {buildings().map((b) => <option key={b.code} value={b.code}>{buildingName(b, lang)}</option>)}
           </Select>
         </div>
-        {place && deptOptions.length > 0 && (
+        {deptOptions.length > 0 && (
           <div className="w-52">
             <Select aria-label={t('reports.department')} value={dept} onChange={(e) => setDept(e.target.value)}>
               <option value="">{t('reports.allDepartments')}</option>
@@ -213,6 +215,8 @@ export default function Reports() {
               )}
           </Card>
 
+          <DepartmentTable rows={data.byDepartment ?? []} />
+
           {data.holdsByReason.length > 0 && (
             <Card title={t('reports.postponedByReason')}>
               <Bars data={Object.fromEntries(data.holdsByReason.map((h) => [h.reason ?? t('reports.noReason'), h.count]))} labelFor={(r) => r} />
@@ -257,13 +261,16 @@ function ExpenditureCard({ filters }: { filters: ReportFilters }) {
     <Card title={t('reports.expenditure')} subtitle={t('reports.expenditureSubtitle')}>
       {error ? <Alert tone="bad">{error}</Alert> : !exp ? <Skeleton className="h-24" /> : (
         <Stack>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <Money label={t('reports.requested')} paise={exp.requestedPaise} note={t('reports.requestCount', { count: exp.requests })} />
             <Money label={t('reports.approvedAmount')} paise={exp.approvedPaise} tone="ok"
               note={t('reports.requestCount', { count: exp.approvedCount })} />
             <Money label={t('reports.awaitingAmount')} paise={exp.pendingPaise} tone="warn"
               note={t('reports.requestCount', { count: exp.pendingCount })} />
+            <Money label={t('reports.actualAmount')} paise={exp.actualPaise}
+              note={t('reports.repairCount', { count: exp.actualCount })} />
           </div>
+          <DepartmentSpend rows={exp.byDepartment ?? []} />
           {exp.items.length === 0 ? <p className="text-[14px] text-muted">{t('reports.noExpenditure')}</p> : (
             <>
               <div className="overflow-x-auto">
@@ -274,6 +281,7 @@ function ExpenditureCard({ filters }: { filters: ReportFilters }) {
                     <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.estimate')}</th>
                     <th scope="col" className="py-2 pr-3 font-medium">{t('reports.statusCol')}</th>
                     <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.approvedLimit')}</th>
+                    <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.actualCost')}</th>
                     <th scope="col" className="py-2 font-medium">{t('reports.decidedBy')}</th>
                   </tr></thead>
                   <tbody>
@@ -287,6 +295,7 @@ function ExpenditureCard({ filters }: { filters: ReportFilters }) {
                         <td className="whitespace-nowrap py-2 pr-3 text-right">{formatPaise(i.estimatePaise)}</td>
                         <td className="py-2 pr-3">{t(`expStatus.${i.status}`)}</td>
                         <td className="whitespace-nowrap py-2 pr-3 text-right">{i.approvedPaise === null ? '-' : formatPaise(i.approvedPaise)}</td>
+                        <td className="whitespace-nowrap py-2 pr-3 text-right">{i.actualPaise === null ? '-' : formatPaise(i.actualPaise)}</td>
                         <td className="py-2">{i.decidedBy ?? '-'}</td>
                       </tr>
                     ))}
@@ -319,6 +328,151 @@ function ExpenditureCard({ filters }: { filters: ReportFilters }) {
         </Stack>
       )}
     </Card>
+  )
+}
+
+/**
+ * Tickets raised in the period per building and department. Spending per department
+ * is in the Expenditure card (spending roles only), so there is one set of figures.
+ */
+function DepartmentTable({ rows }: { rows: DepartmentRow[] }) {
+  const { t, lang } = useT()
+  const placeName = (code: string | null) => {
+    if (!code) return t('reports.otherPlace')
+    const b = building(code)
+    return b ? buildingName(b, lang) : code
+  }
+  const maxTotal = Math.max(1, ...rows.map((r) => r.total))
+  return (
+    <Card title={t('reports.byDepartment')} subtitle={t('reports.byDepartmentSubtitle')}>
+      {rows.length === 0 ? <p className="text-[14px] text-muted">{t('reports.noDepartments')}</p> : (
+        <Stack>
+          <div className="overflow-x-auto">
+            <div className="mb-2 flex justify-end gap-4 text-[12.5px] text-muted">
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-ok" aria-hidden /> {t('reports.fixedCol')}</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2.5 w-2.5 rounded-full bg-warn" aria-hidden /> {t('reports.openCol')}</span>
+            </div>
+            <table className="w-full text-left text-[14px]">
+              <thead><tr className="border-b border-line text-[13px] text-muted">
+                <th scope="col" className="py-2 pr-3 font-medium">{t('reports.place')}</th>
+                <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.totalCol')}</th>
+                <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.openCol')}</th>
+                <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.fixedCol')}</th>
+                <th scope="col" className="py-2 text-right font-medium">{t('reports.overdueCol')}</th>
+              </tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={`${r.building}-${r.department}`} className="border-b border-line last:border-b-0 align-top">
+                    <td className="py-2 pr-3">
+                      {placeName(r.building)}{r.department && <span className="block text-[12.5px] text-muted">{r.department}</span>}
+                      <div className="mt-1 flex h-1.5 max-w-56 overflow-hidden rounded-full bg-subtle" aria-hidden style={{ width: `${Math.max(8, (r.total / maxTotal) * 100)}%` }}>
+                        <div className="h-full bg-ok" style={{ width: `${(r.fixed / Math.max(1, r.total)) * 100}%` }} />
+                        <div className="h-full bg-warn" style={{ width: `${(r.open / Math.max(1, r.total)) * 100}%` }} />
+                      </div>
+                    </td>
+                    <td className="py-2 pr-3 text-right font-medium">{r.total}</td>
+                    <td className="py-2 pr-3 text-right">{r.open}</td>
+                    <td className="py-2 pr-3 text-right">{r.fixed}</td>
+                    <td className={clsx('py-2 text-right', r.overdue > 0 && 'text-bad')}>{r.overdue}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Stack>
+      )}
+    </Card>
+  )
+}
+
+function placeLabel(code: string | null, t: TFunc, lang: Parameters<typeof buildingName>[1]): string {
+  if (!code) return t('reports.otherPlace')
+  const b = building(code)
+  return b ? buildingName(b, lang) : code
+}
+
+/**
+ * Department-wise spending for the period: the actual cost of repairs fixed, and what was
+ * requested and approved, per building and department. Spending roles only (the server
+ * returns this card's data only to them).
+ */
+function DepartmentSpend({ rows }: { rows: ExpenditureDepartment[] }) {
+  const { t, lang } = useT()
+  const [measure, setMeasure] = useState<'actual' | 'approved' | 'requested'>('actual')
+  const value = (r: ExpenditureDepartment) =>
+    measure === 'actual' ? r.actualPaise : measure === 'approved' ? r.approvedPaise : r.requestedPaise
+  const shown = rows.filter((r) => value(r) > 0).sort((a, b) => value(b) - value(a))
+  const total = shown.reduce((s, r) => s + value(r), 0)
+  const max = Math.max(1, ...shown.map(value))
+  const name = (r: ExpenditureDepartment) => r.department ?? placeLabel(r.building, t, lang)
+  const measures = [
+    { v: 'actual' as const, label: t('reports.actualCost') },
+    { v: 'approved' as const, label: t('reports.approvedAmount') },
+    { v: 'requested' as const, label: t('reports.requested') },
+  ]
+  return (
+    <section className="rounded-lg border border-line p-4" aria-labelledby="dept-spend-title">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 id="dept-spend-title" className="text-[15px] font-semibold">{t('reports.spendByDepartment')}</h3>
+          <p className="text-[13px] text-muted">{t('reports.spendTotal', { amount: formatPaise(total) })}</p>
+        </div>
+        <div className="flex gap-1" role="group" aria-label={t('reports.spendMeasure')}>
+          {measures.map((m) => (
+            <Button key={m.v} size="sm" variant={measure === m.v ? 'primary' : 'ghost'} aria-pressed={measure === m.v}
+              onClick={() => setMeasure(m.v)}>{m.label}</Button>
+          ))}
+        </div>
+      </div>
+      {shown.length === 0 ? <p className="text-[13.5px] text-muted">{t('reports.noSpend')}</p> : (
+        <ul className="space-y-2.5" aria-label={t('reports.spendByDepartment')}>
+          {shown.map((r) => {
+            const v = value(r)
+            return (
+              <li key={`${r.building}-${r.department}`}>
+                <div className="flex items-baseline justify-between gap-3 text-[13.5px]">
+                  <span className="min-w-0 truncate">
+                    <span className="font-medium">{name(r)}</span>
+                    {r.department && <span className="text-muted"> · {placeLabel(r.building, t, lang)}</span>}
+                  </span>
+                  <span className="shrink-0 font-semibold">{formatPaise(v)} <span className="font-normal text-muted">({Math.round((v / Math.max(1, total)) * 100)}%)</span></span>
+                </div>
+                <div className="mt-1 h-2.5 rounded-full bg-subtle" aria-hidden>
+                  <div className={clsx('h-2.5 rounded-full', measure === 'actual' ? 'bg-accent' : measure === 'approved' ? 'bg-ok' : 'bg-warn')}
+                    style={{ width: `${Math.max(3, (v / max) * 100)}%` }} />
+                </div>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {rows.length > 0 && (
+        <div className="mt-4 overflow-x-auto">
+          <table className="w-full text-left text-[14px]">
+            <thead><tr className="border-b border-line text-[13px] text-muted">
+              <th scope="col" className="py-2 pr-3 font-medium">{t('reports.place')}</th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.count')}</th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.requested')}</th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.approvedAmount')}</th>
+              <th scope="col" className="py-2 pr-3 text-right font-medium">{t('reports.repairsCol')}</th>
+              <th scope="col" className="py-2 text-right font-medium">{t('reports.actualCost')}</th>
+            </tr></thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={`row-${r.building}-${r.department}`} className="border-b border-line last:border-b-0 align-top">
+                  <td className="py-2 pr-3">{placeLabel(r.building, t, lang)}{r.department && <span className="block text-[12.5px] text-muted">{r.department}</span>}</td>
+                  <td className="py-2 pr-3 text-right">{r.requests}</td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right">{formatPaise(r.requestedPaise)}</td>
+                  <td className="whitespace-nowrap py-2 pr-3 text-right">{formatPaise(r.approvedPaise)}</td>
+                  <td className="py-2 pr-3 text-right">{r.repairs}</td>
+                  <td className="whitespace-nowrap py-2 text-right font-semibold">{formatPaise(r.actualPaise)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -410,9 +564,9 @@ function AnnualOverview({ building: b, department, category }: { building: strin
 function MonthChart({ months, labels }: { months: MonthPoint[]; labels: string[] }) {
   const max = Math.max(1, ...months.map((m) => Math.max(m.created, m.resolved)))
   return (
-    <ul className="flex items-end gap-1.5 sm:gap-2">
+    <ul className="flex items-end gap-0.5 sm:gap-2">
       {months.map((m, i) => (
-        <li key={m.month} className="flex flex-1 flex-col items-center gap-1">
+        <li key={m.month} className="flex min-w-0 flex-1 flex-col items-center gap-1">
           <div className="flex h-28 w-full items-end justify-center gap-[2px]">
             <span className="w-1/2 max-w-[12px] rounded-t bg-accent" style={{ height: `${m.created === 0 ? 0 : Math.max(4, (m.created / max) * 100)}%` }}
               aria-label={`${labels[i]} ${m.created}`} />

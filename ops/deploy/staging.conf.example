@@ -1,0 +1,13 @@
+# Copy to /etc/pcms/staging.conf on the server (owner root, mode 644). Not a secret: it only
+# says where things are. Secrets stay in the env file (mode 600).
+
+# Docker Compose project name. Staging keeps "pcms" because its database and uploads already
+# live in the volumes pcms_pgdata and pcms_media. Changing it would start an empty database.
+PCMS_PROJECT=pcms
+
+# The settings file for this environment (absolute path). It must set PCMS_SECRETS_DIR,
+# PCMS_CERT_DIR and PCMS_BACKUP_DIR to absolute paths, and its own ports.
+PCMS_ENV_FILE=/srv/server-data/staging/pcms/pcms.env
+
+# Checked after every deploy. nginx HTTPS port of this environment on this server.
+PCMS_HEALTH_URL=https://127.0.0.1:676/api/v1/health/ready

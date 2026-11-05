@@ -11,6 +11,8 @@ export interface FormField {
   required?: boolean
   placeholder?: string
   hint?: string
+  /** Defaults: 1000 for a textarea, 500 for a one-line field. Match the server's limit. */
+  maxLength?: number
 }
 
 /**
@@ -56,9 +58,9 @@ export function ActionDialog({ open, onClose, title, description, fields = [], i
                   {f.options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </Select>
               : f.type === 'textarea'
-              ? <Textarea id={id} aria-describedby={d} rows={3} maxLength={1000} placeholder={f.placeholder}
+              ? <Textarea id={id} aria-describedby={d} rows={3} maxLength={f.maxLength ?? 1000} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />
-              : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : f.type === 'password' ? 'password' : 'text'} maxLength={500} placeholder={f.placeholder}
+              : <Input id={id} aria-describedby={d} type={f.type === 'date' ? 'date' : f.type === 'password' ? 'password' : 'text'} maxLength={f.maxLength ?? 500} placeholder={f.placeholder}
                   value={values[f.name] ?? ''} onChange={(e) => setValues((v) => ({ ...v, [f.name]: e.target.value }))} />}
           </Field>
           {f.type === 'textarea' && (

@@ -86,7 +86,7 @@ function PasswordCard() {
   return (
     <Card title={t('settings.password')}>
       <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2">
-        <Field label={t('settings.password.current')}>{(id) => <PasswordInput id={id} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} required />}</Field>
+        <Field label={t('settings.password.current')}>{(id) => <PasswordInput id={id} autoComplete="current-password" maxLength={256} value={current} onChange={(e) => setCurrent(e.target.value)} required />}</Field>
         <Field label={t('login.newPassword')} hint={t('login.passwordRule')}>{(id, d) => <PasswordInput id={id} aria-describedby={d} autoComplete="new-password" minLength={10} maxLength={128} value={next} onChange={(e) => setNext(e.target.value)} required />}</Field>
         <div className="sm:col-span-2"><Button type="submit" variant="secondary" loading={busy}>{t('settings.password.change')}</Button></div>
         {msg && <div className="sm:col-span-2"><Alert tone={msg.tone}>{msg.text}</Alert></div>}

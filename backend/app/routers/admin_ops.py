@@ -6,16 +6,13 @@ GET   /reports/tickets.csv            ticket export (audited, formula-safe)
 GET   /reports/export.xlsx            multi-sheet workbook export
 GET   /reports/export.pdf             management-ready PDF report
 GET   /admin/audit                    audit log (admin.audit)
-GET   /admin/notifications            messages needing a person (failed or unknown delivery)
-POST  /admin/notifications/{id}/retry | /dismiss
 POST  /admin/categories   PATCH /admin/categories/{code}
 POST  /admin/buildings    PATCH /admin/buildings/{code}
 """
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 import uuid
-from typing import Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import Field
@@ -31,7 +28,6 @@ from app.models.outbox import Outbox
 from app.models.rating import TicketRating
 from app.models.ticket import TERMINAL, Ticket
 from app.models.user import User
-from app.models.worker import Worker
 from app.schemas import CamelModel
 from app.security.deps import Principal, require, require_any
 from app.security.sessions import now
@@ -72,6 +68,26 @@ class RatingReport(CamelModel):
     low: list[LowRating]
 
 
+class DepartmentRow(CamelModel):
+    """Tickets raised in the period for one building and department (DBIT, 2026-11-04)."""
+    building: str | None
+    department: str | None
+    total: int
+    open: int
+    fixed: int
+    overdue: int
+    # Spending: only for the principal, management and Team OSSC; null for everyone else.
+    actual_paise: int | None = None
+
+
+class TypeRow(CamelModel):
+    """Tickets raised in the period for one type."""
+    category: str
+    total: int
+    open: int
+    fixed: int
+
+
 class ReportOut(CamelModel):
     generated_at: datetime
     days: int
@@ -89,6 +105,8 @@ class ReportOut(CamelModel):
     # None for roles that do not decide spending (the facility manager).
     approved_paise: int | None
     ratings: RatingReport
+    by_department: list[DepartmentRow] = Field(default_factory=list)
+    by_type: list[TypeRow] = Field(default_factory=list)
 
 
 async def _percentiles(db: AsyncSession, expr: str, where: str, params: dict) -> Percentiles:
@@ -116,6 +134,8 @@ async def report(days: int | None = DaysQ, start: date | None = FromQ, end: date
     r = await build_report(db, since, until, building, department, category)
     if not can_see_spending(p):
         r.approved_paise = None  # spending is for the principal, management and Team OSSC
+        for row in r.by_department:
+            row.actual_paise = None
     return r
 
 
@@ -142,17 +162,19 @@ async def build_report(db: AsyncSession, since: datetime, until: datetime, build
         "SELECT count(*) FROM ticket_event e JOIN ticket t ON t.id = e.ticket_id "
         "WHERE e.to_status = 'Triaged' AND e.from_status IN ('Resolved','Closed') "
         "AND e.at >= :since AND e.at < :until" + scope_sql), params) or 0
-    failed = await db.scalar(select(func.count()).select_from(Outbox).where(Outbox.state == "action_required", Outbox.acknowledged.is_(False))) or 0
+    failed = await db.scalar(select(func.count()).select_from(Outbox).where(
+        Outbox.state == "action_required", Outbox.acknowledged.is_(False), Outbox.channel == "webpush")) or 0
     repeat = [{"building": b, "room": r, "category": c, "count": n} for b, r, c, n in (await db.execute(text(f"""
         SELECT t.building_code, t.room, cat.code, count(*) FROM ticket t JOIN category cat ON cat.id = t.category_id
         WHERE {window_where} AND NOT t.outdoors GROUP BY 1, 2, 3 HAVING count(*) >= 2 ORDER BY 4 DESC LIMIT 10"""), params)).all()]
     triage = await _percentiles(db, "(SELECT min(e.at) FROM ticket_event e WHERE e.ticket_id = t.id AND e.to_status = 'Triaged') - t.created_at",
                                 window_where, params)
     resolution = await _percentiles(db, "t.resolved_at - t.created_at", window_where + " AND t.resolved_at IS NOT NULL", params)
-    approved = await db.scalar(text("""
+    approved = await db.scalar(text(f"""
         SELECT coalesce(sum(d.ceiling_paise), 0) FROM decision d
-        WHERE d.kind = 'approved' AND d.decided_at >= :since AND d.decided_at < :until"""),
-        {"since": since, "until": until}) or 0
+        JOIN proposal pr ON pr.id = d.proposal_id JOIN ticket t ON t.id = pr.ticket_id
+        WHERE d.kind = 'approved' AND d.decided_at >= :since AND d.decided_at < :until{scope_sql}"""),
+        params) or 0
 
     # Ratings are on closed tickets, so they use their own window and no open-status filter.
     rating_flt = [TicketRating.created_at >= since, TicketRating.created_at < until, *scope_flt]
@@ -176,11 +198,27 @@ async def build_report(db: AsyncSession, since: datetime, until: datetime, build
            for tr, t, code in low_rows]
 
     days = max(1, round((until - since).total_seconds() / 86400))
+    # TERMINAL is a fixed module constant, never user input, so it is safe to inline.
+    terminal = "(" + ", ".join(f"'{s}'" for s in TERMINAL) + ")"
+    by_department = [DepartmentRow(building=b, department=d, total=n, open=o, fixed=f, overdue=od, actual_paise=int(a))
+                     for b, d, n, o, f, od, a in (await db.execute(text(f"""
+        SELECT t.building_code, nullif(t.department, ''), count(*),
+               count(*) FILTER (WHERE t.status NOT IN {terminal}),
+               count(*) FILTER (WHERE t.resolved_at IS NOT NULL),
+               count(*) FILTER (WHERE t.status NOT IN {terminal} AND t.next_update_due < now()),
+               coalesce(sum(t.actual_cost_paise), 0)
+        FROM ticket t WHERE {window_where}
+        GROUP BY 1, 2 ORDER BY 3 DESC, 1, 2 LIMIT 100"""), params)).all()]
+    by_type = [TypeRow(category=c, total=n, open=o, fixed=f) for c, n, o, f in (await db.execute(text(f"""
+        SELECT cat.code, count(*), count(*) FILTER (WHERE t.status NOT IN {terminal}),
+               count(*) FILTER (WHERE t.resolved_at IS NOT NULL)
+        FROM ticket t JOIN category cat ON cat.id = t.category_id WHERE {window_where}
+        GROUP BY 1 ORDER BY 2 DESC"""), params)).all()]
     return ReportOut(generated_at=now(), days=days, open_by_status=by_status, open_by_severity=by_severity,
                      untriaged=by_status.get("Submitted", 0), overdue_updates=overdue,
                      pending_approvals=by_status.get("AwaitingApproval", 0), holds_by_reason=holds, disputes=disputes,
                      failed_notifications=failed, repeat_faults=repeat, triage_time=triage, resolution_time=resolution,
-                     approved_paise=int(approved),
+                     approved_paise=int(approved), by_department=by_department, by_type=by_type,
                      ratings=RatingReport(count=rating_count, average=round(rating_avg, 2) if rating_avg is not None else None,
                                           distribution=distribution, low=low))
 
@@ -342,6 +380,8 @@ async def export_xlsx(days: int | None = DaysQ, start: date | None = FromQ, end:
         exp = await rep.expenditure(db, since, until, building, department, cid)
         sheets.append(("Expenditure", rep.EXPENDITURE_COLUMNS,
                        [rep.expenditure_cells(i) for i in exp["items"]], rep.EXPENDITURE_WIDTHS))
+        sheets.append(("Spending by Department", rep.DEPARTMENT_SPEND_COLUMNS,
+                       [rep.department_spend_cells(r) for r in exp["by_department"]], rep.DEPARTMENT_SPEND_WIDTHS))
     wb_bytes = build_report_workbook(sheets)
     stamp = rep.file_stamp(since, until)
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.tickets", entity_type="export",
@@ -473,11 +513,18 @@ def _expenditure_pdf(doc: ReportPDF, exp: dict) -> None:
         ["Amount approved", f"Rs {exp['approved_paise'] / 100:,.2f} ({exp['approved_count']} requests)"],
         ["Awaiting a decision", f"Rs {exp['pending_paise'] / 100:,.2f} ({exp['pending_count']} requests)"],
         ["Not approved", str(exp["rejected_count"])],
+        ["Actual cost of repairs fixed in period", f"Rs {exp['actual_paise'] / 100:,.2f} ({exp['actual_count']} repairs)"],
     ], [250, 200])
+    if exp["by_department"]:
+        doc.text("Spending by department (period)", 12, bold=True)
+        doc.table(["Building", "Department", "Requested (Rs)", "Approved (Rs)", "Actual (Rs)"],
+                  [[r["building"] or "Other", r["department"] or "-", rep.inr(r["requested_paise"]),
+                    rep.inr(r["approved_paise"]), rep.inr(r["actual_paise"])]
+                   for r in exp["by_department"][:60]], [70, 150, 75, 75, 75])
     if exp["items"]:
-        doc.table(["Token", "Raised", "Estimate (Rs)", "Status", "Approved (Rs)"],
-                  [[c[0], c[5], c[7] or "-", c[8], c[11] or "-"]
-                   for c in (rep.expenditure_cells(i) for i in exp["items"][:150])], [80, 70, 80, 150, 80])
+        doc.table(["Token", "Raised", "Estimate (Rs)", "Status", "Approved (Rs)", "Actual (Rs)"],
+                  [[c[0], c[5], c[7] or "-", c[8], c[11] or "-", c[12] or "-"]
+                   for c in (rep.expenditure_cells(i) for i in exp["items"][:150])], [70, 60, 70, 130, 70, 70])
 
 
 # ---------- expenditure ----------
@@ -501,8 +548,23 @@ class ExpenditureItem(CamelModel):
     decided_by: str | None
     decided_at: datetime | None
     approved_paise: int | None
+    # What the repair actually cost, if the facility manager recorded it when marking it fixed.
+    actual_paise: int | None = None
     escalated: bool
     note: str | None
+
+
+class ExpenditureDepartment(CamelModel):
+    """Spending for one building and department in the period (DBIT, 2026-11-04)."""
+    building: str | None
+    department: str | None
+    requests: int
+    requested_paise: int
+    approved_paise: int
+    pending_paise: int
+    # Repairs marked fixed in the period with a recorded actual cost, and their total.
+    repairs: int
+    actual_paise: int
 
 
 class ExpenditureCategory(CamelModel):
@@ -518,10 +580,14 @@ class ExpenditureOut(CamelModel):
     requested_paise: int
     approved_paise: int
     pending_paise: int
+    # Every repair marked fixed in the period with a recorded actual cost, with or without a request.
+    actual_paise: int
+    actual_count: int
     approved_count: int
     pending_count: int
     rejected_count: int
     by_category: list[ExpenditureCategory]
+    by_department: list[ExpenditureDepartment] = Field(default_factory=list)
     items: list[ExpenditureItem]
 
 
@@ -577,6 +643,8 @@ async def export_expenditure_xlsx(start: date | None = FromQ, end: date | None =
                ["Amount requested (INR)", rep.inr(exp["requested_paise"])],
                ["Amount approved (INR)", rep.inr(exp["approved_paise"])],
                ["Awaiting a decision (INR)", rep.inr(exp["pending_paise"])],
+               ["Actual cost of repairs fixed in period (INR)", rep.inr(exp["actual_paise"])],
+               ["Repairs with a recorded cost", str(exp["actual_count"])],
                ["Requests approved", str(exp["approved_count"])], ["Requests awaiting", str(exp["pending_count"])],
                ["Requests not approved", str(exp["rejected_count"])]]
     by_cat = [[c["category"], str(c["requests"]), rep.inr(c["requested_paise"]), rep.inr(c["approved_paise"])]
@@ -585,6 +653,8 @@ async def export_expenditure_xlsx(start: date | None = FromQ, end: date | None =
         ("Summary", ("measure", "value"), summary, (30, 30)),
         ("Requests", rep.EXPENDITURE_COLUMNS, [rep.expenditure_cells(i) for i in exp["items"]], rep.EXPENDITURE_WIDTHS),
         ("By Category", ("category", "requests", "requested_inr", "approved_inr"), by_cat, (24, 11, 16, 16)),
+        ("By Department", rep.DEPARTMENT_SPEND_COLUMNS,
+         [rep.department_spend_cells(r) for r in exp["by_department"]], rep.DEPARTMENT_SPEND_WIDTHS),
     ])
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="export.expenditure", entity_type="export",
                  entity_id="expenditure.xlsx", after={"period": label, "rows": len(exp["items"])})
@@ -618,7 +688,7 @@ class AuditOut(CamelModel):
 
 @router.get("/admin/audit", response_model=list[AuditOut])
 async def audit_log(action: str | None = Query(None, max_length=80), entity_id: str | None = Query(None, max_length=64, alias="entityId"),
-                    before_id: int | None = Query(None, alias="beforeId"), limit: int = Query(100, ge=1, le=500),
+                    before_id: int | None = Query(None, alias="beforeId", ge=1, le=9_223_372_036_854_775_807), limit: int = Query(100, ge=1, le=500),
                     _: Principal = Depends(require("admin.audit")), db: AsyncSession = Depends(get_session)) -> list[AuditOut]:
     q = select(AuditEvent)
     if action:
@@ -632,45 +702,6 @@ async def audit_log(action: str | None = Query(None, max_length=80), entity_id: 
 
 
 # ---------- notifications needing a person ----------
-
-class NotificationOut(CamelModel):
-    id: int
-    channel: str
-    template: str
-    state: str
-    attempts: int
-    last_error: str | None
-    created_at: datetime
-    ticket_id: str | None
-    ticket_token: str | None
-    recipient: str
-
-
-@router.get("/admin/notifications", response_model=list[NotificationOut])
-async def failed_notifications(_: Principal = Depends(require("queue.view")), db: AsyncSession = Depends(get_session)) -> list[NotificationOut]:
-    rows = (await db.execute(
-        select(Outbox, Ticket.token, Worker.name, User.name).outerjoin(Ticket, Ticket.id == Outbox.ticket_id)
-        .outerjoin(Worker, Worker.id == Outbox.worker_id).outerjoin(User, User.id == Outbox.user_id)
-        .where(Outbox.state == "action_required", Outbox.acknowledged.is_(False)).order_by(Outbox.id.desc()).limit(200))).all()
-    return [NotificationOut(id=o.id, channel=o.channel, template=o.template, state=o.state, attempts=o.attempts,
-                            last_error=o.last_error, created_at=o.created_at, ticket_id=str(o.ticket_id) if o.ticket_id else None,
-                            ticket_token=token, recipient=wname or uname or "") for o, token, wname, uname in rows]
-
-
-@router.post("/admin/notifications/{outbox_id}/{op}", status_code=204)
-async def act_on_notification(outbox_id: int, op: Literal["retry", "dismiss"], p: Principal = Depends(require("ticket.assign")),
-                              db: AsyncSession = Depends(get_session)) -> Response:
-    o = await db.get(Outbox, outbox_id, with_for_update=True)
-    if o is None or o.state != "action_required":
-        raise not_found()
-    if op == "retry":
-        o.state, o.attempts, o.next_attempt_at, o.last_error = "pending", 0, now(), None
-    else:
-        o.acknowledged = True
-    audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action=f"notification.{op}", entity_type="outbox", entity_id=o.id)
-    await db.commit()
-    return Response(status_code=204)
-
 
 # ---------- catalogs ----------
 
