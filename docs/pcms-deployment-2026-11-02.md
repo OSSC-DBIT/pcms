@@ -205,170 +205,89 @@ effectively root access to the machine.
 - [ ] Before real use: confirm a nightly backup appears in `/srv/pcms/backups` and do a
       restore drill (`docs/DEPLOYMENT.md` section 7).
 
-## Update, 5 November 2026: continuous deployment and the production configuration
+## Update, 5 November 2026: continuous deployment, production, push only
 
-From now on nobody runs `docker compose ... up` by hand on this server. A push deploys itself after CI passes:
+From now on nobody runs `docker compose ... up` by hand here. A push deploys itself after CI passes. The
+general server runbook (ports, folders, the `pcms` helper, adding more apps) is [SERVER.md](SERVER.md).
 
-| Branch | Environment | URL | Compose project | Env file | HTTPS port |
+| Branch | Environment | Address | Compose project | Settings file | Ports (HTTPS / HTTP) |
 |---|---|---|---|---|---|
-| `dev` | staging | https://pcms-staging.webuildnow.in | `pcms` (the existing volumes) | `/srv/server-data/pcms/pcms.env` | 676 |
-| `main` | production | (to be decided) | `pcms-prod` | `/srv/pcms-prod/pcms.env` | 677 (or any free port) |
+| `dev` | staging | https://pcms-staging.webuildnow.in, campus `https://<server-ip>:676` | `pcms` (the existing volumes) | `/srv/server-data/pcms/pcms.env` | 676 / 8082 |
+| `main` | production | https://pcms.webuildnow.in, campus `https://<server-ip>:677` | `pcms-prod` (its own volumes) | `/srv/pcms-prod/pcms.env` | 677 / 8083 |
 
-Both use `compose.prod.yml`. The dev stack (`compose.dev.yml`) is only for laptops and CI's tests; stop it here
-if it still runs: `sudo docker compose -f compose.dev.yml down`.
+Both run `compose.prod.yml`. Staging keeps the project name `pcms` on purpose: its database and uploads are in
+`pcms_pgdata` and `pcms_media`, and a new name would start an empty database. Production never shares anything
+with staging: its own database, keys, admins, folders, ports and backups.
 
-Staging keeps the project name `pcms` on purpose: its database and uploads are in the volumes `pcms_pgdata`
-and `pcms_media`. A different name would start an empty database.
+### Done
 
-### 1. Fix staging's `pcms.env` first
+- **GitHub:** `dev` created from `main`. `dev` and `main` protected (pull request, the four CI checks, no
+  force push). Outside contributors' workflows need approval. The default workflow token is read-only.
+- **Runner:** `ossc-server` installed as user `gh-runner` (service
+  `actions.runner.OSSC-DBIT-pcms.ossc-server`, label `pcms`), online in GitHub. `/etc/pcms/staging.conf`
+  written, and the backup folder given to uid 70.
+- `apt` on this machine is blocked by an unfinished kernel and NVIDIA update (see SERVER.md, "Known issues").
+  The setup did not need it.
 
-`sudo nano /srv/server-data/pcms/pcms.env`, then:
+### To do, in order
 
-**Delete these lines** (removed features; ignored if left, but they confuse the next person):
-
-```
-PCMS_SMTP_HOST  PCMS_SMTP_PORT  PCMS_SMTP_STARTTLS  PCMS_SMTP_USERNAME  PCMS_SMTP_PASSWORD  PCMS_SMTP_FROM
-PCMS_MESSAGING_PROVIDER
-PCMS_TWILIO_ACCOUNT_SID  PCMS_TWILIO_AUTH_TOKEN  PCMS_TWILIO_WHATSAPP_FROM  PCMS_TWILIO_SMS_FROM
-PCMS_TWILIO_JOB_CONTENT_SID  PCMS_TWILIO_JOB_MEDIA_CONTENT_SID  PCMS_FACILITIES_DESK_PHONE
-PCMS_PUBLIC_BASE_URL  PCMS_PUBLIC_PORT  PCMS_PUBLIC_BIND
-PCMS_ACCEPT_TIMEOUT_MINUTES
-PCMS_ADMIN_1_* and PCMS_ADMIN_2_* (already on the to-do list: the admins have signed in)
-```
-
-**Make sure these are set** (`.env.example` has every line with a comment):
-
-```
-PCMS_PUBLIC_APP_URL=https://pcms-staging.webuildnow.in
-PCMS_HTTP_PORT=8082
-PCMS_HTTPS_PORT=676
-PCMS_CERT_DIR=/srv/pcms/certs
-PCMS_SECRETS_DIR=/srv/pcms/secrets
-PCMS_BACKUP_DIR=/srv/pcms/backups
-PCMS_VAPID_PUBLIC_KEY=...      # generate below
-PCMS_VAPID_PRIVATE_KEY=...
-PCMS_VAPID_SUBJECT=mailto:<a real OSSC address>
-# Only if people on campus also open https://<server-ip>:676 (otherwise those requests are refused):
-PCMS_ALLOWED_ORIGINS=https://<server-ip>:676
-PCMS_ALLOWED_HOSTS=<server-ip>
-```
-
-Generate the push keys once and keep them:
-`sudo docker compose -f compose.prod.yml exec api python -m app.cli vapid-keys`.
-The three folder paths must be absolute, and the backup folder must belong to the backup container's
-user: `sudo chown 70:70 /srv/pcms/backups`. Without that, backups fail with "permission denied", and a
-production deploy refuses to run without a backup.
-
-In Cloudflare Zero Trust, delete any tunnel route that pointed at `localhost:8081`. The app route
-(`https://localhost:676`, No TLS Verify) stays as it is.
-
-### Opening staging on the campus network too
-
-Staging answers at both addresses:
-
-| Address | Who | Certificate |
-|---|---|---|
-| https://pcms-staging.webuildnow.in | everyone, through the Cloudflare tunnel | Cloudflare's, trusted |
-| https://`<server-ip>`:676 | people on the campus network, directly | the server's own self-signed one |
-
-The API refuses requests from any address it does not know, so list the local one in `pcms.env` next to
-the domain, then let the next deploy (or `up -d`) pick it up:
-
-```
-PCMS_PUBLIC_APP_URL=https://pcms-staging.webuildnow.in
-PCMS_ALLOWED_ORIGINS=https://<server-ip>:676
-PCMS_ALLOWED_HOSTS=<server-ip>
-```
-
-For a local name as well (for example `pcms.lan` set up in the campus DNS), add it to both lists,
-comma-separated: `PCMS_ALLOWED_ORIGINS=https://<server-ip>:676,https://pcms.lan:676` and
-`PCMS_ALLOWED_HOSTS=<server-ip>,pcms.lan`.
-
-Reissue the certificate so it also names the local address (it currently names only the domain):
+**1. Staging settings, one command** (cleans `pcms.env`, keeping a dated backup copy; adds push keys, the campus
+address, and a certificate that also names the server IP):
 
 ```sh
-sudo openssl req -x509 -newkey rsa:2048 -nodes -days 365 \
-  -keyout /srv/pcms/certs/privkey.pem -out /srv/pcms/certs/fullchain.pem \
-  -subj "/CN=pcms-staging.webuildnow.in" \
-  -addext "subjectAltName=DNS:pcms-staging.webuildnow.in,IP:<server-ip>"
-sudo chmod 600 /srv/pcms/certs/privkey.pem
-cd /srv/server-data/pcms && sudo docker compose -f compose.prod.yml --env-file pcms.env exec nginx nginx -s reload
+curl -fsSL https://raw.githubusercontent.com/OSSC-DBIT/pcms/feat/fm-checkboxes-actual-cost/ops/deploy/setup-environment.sh -o /tmp/setup-env.sh && sudo bash /tmp/setup-env.sh staging --email <ossc contact email>
 ```
 
-Cloudflare keeps working: the tunnel has **No TLS Verify** on and does not check the name.
+After the pull request is merged, the same script is at `.../pcms/dev/ops/deploy/...`.
 
-The local address still shows a certificate warning, because the certificate is self-signed. After you click
-through, the app works, but browsers **refuse install and push notifications** on a page with a certificate
-error. Use the domain for phones and anyone who needs notifications. For working push on the local address
-too, either:
-- install the certificate as trusted on those devices (fine for a few staff machines), or
-- point a local name at the server in the campus DNS and give it a publicly trusted certificate (for example
-  Let's Encrypt with the DNS-01 challenge on a `webuildnow.in` subdomain), then list that name above.
+**2. First staging deploy:** merge pull request #7 into `dev` on GitHub. Watch Actions, **Deploy**. It ends with
+`deployed staging-<sha> and healthy`. Then `sudo pcms staging status`.
 
-Check the firewall lets campus machines reach port 676: `sudo ufw status`.
+**3. Test staging both ways:**
+- https://pcms-staging.webuildnow.in: sign in, report, and allow notifications. Then **Settings,
+  Notifications, Send test**.
+- On campus, `https://<server-ip>:676`: accept the certificate warning, sign in, and report. Push and install
+  do not work on this address (the certificate is self-signed).
 
-### 2. Install the self-hosted runner
-
-The deploy runs on this machine through a GitHub Actions runner. The runner connects out to GitHub, so
-nothing new is opened to the internet and no password or SSH key goes into GitHub.
+**4. Production settings, one command:**
 
 ```sh
-sudo useradd -m -s /bin/bash gh-runner
-sudo usermod -aG docker gh-runner              # docker group = root on this machine; runner use only
-sudo apt-get install -y git curl util-linux
-sudo install -d -o gh-runner -g gh-runner /srv/actions-runner /var/lib/pcms-deploy
+sudo bash /tmp/setup-env.sh production --email <ossc contact email>
 ```
 
-In GitHub: `OSSC-DBIT/pcms`, Settings, Actions, Runners, **New self-hosted runner**, Linux x64. Run the
-commands it shows as `gh-runner` inside `/srv/actions-runner` (`sudo -iu gh-runner`). When `config.sh` asks
-for labels, type `pcms`. Then, back as your own user:
+It creates `/srv/pcms-prod/` with a fresh database password, secret keys, push keys, backup key, certificate,
+and `/etc/pcms/production.conf`. It prints where the backup **private** key is: copy that to two custodians and
+delete it from the server.
+
+**5. Cloudflare:** Zero Trust, Networks, Tunnels, the tunnel, Public hostname, **Add**. Subdomain `pcms`,
+domain `webuildnow.in`, type **HTTPS**, URL `localhost:677`. Under Additional application settings, TLS, turn
+on **No TLS Verify**, then **Save hostname**.
+
+**6. First production deploy:** on GitHub open a pull request from `dev` to `main` and merge it. Then create
+the first admin, who signs in, sets a password and scans the authenticator code:
 
 ```sh
-cd /srv/actions-runner && sudo ./svc.sh install gh-runner && sudo ./svc.sh start
+sudo pcms production admin --email <you@dbit.in> --name "<Your Name>"
 ```
 
-Let the runner read the env file without making it world-readable:
+That admin adds everyone else under Admin, People (one by one, or the Excel import).
 
-```sh
-sudo groupadd -f pcms && sudo usermod -aG pcms gh-runner
-sudo chown root:pcms /srv/server-data/pcms/pcms.env && sudo chmod 640 /srv/server-data/pcms/pcms.env
-sudo ./svc.sh stop && sudo ./svc.sh start       # pick up the new groups
-```
+**7. Clean up:** delete any tunnel route to `localhost:8081`. Stop the old dev stack if it still runs:
+`cd /srv/server-data/pcms && sudo docker compose -f compose.dev.yml down` (staging's data is not touched).
+Remove the old `.env` in `/srv/server-data/pcms` once nothing uses it (it holds the old admin passwords).
 
-### 3. Tell the deploy where staging lives
+### Settings that no longer exist
 
-```sh
-sudo install -d /etc/pcms
-sudo cp /srv/server-data/pcms/ops/deploy/staging.conf.example /etc/pcms/staging.conf
-sudo chmod 644 /etc/pcms/staging.conf
-```
+The setup script removes these from staging's `pcms.env`. Do not add them to a new one:
+`PCMS_SMTP_*`, `PCMS_MESSAGING_PROVIDER`, `PCMS_TWILIO_*`, `PCMS_FACILITIES_DESK_PHONE`, `PCMS_PUBLIC_BASE_URL`,
+`PCMS_PUBLIC_PORT`, `PCMS_PUBLIC_BIND`, `PCMS_ACCEPT_TIMEOUT_MINUTES`, and the one-time `PCMS_ADMIN_*` lines
+once the admins have signed in. `.env.example` lists every setting that does exist.
 
-The example already holds staging's values: project `pcms`, env file `/srv/server-data/pcms/pcms.env`, and
-health check `https://127.0.0.1:676/api/v1/health/ready`.
+### If a deploy fails
 
-### 4. Branches
-
-Create `dev` from `main` and push it. Protect `main` and `dev` in Settings, Branches: require a pull request,
-require the CI checks, and block force pushes. Work goes feature branch, then a pull request to `dev`
-(deploys staging), then a pull request from `dev` to `main` (deploys production).
-
-### 5. First deploy
-
-Push to `dev`, or run it by hand: GitHub, Actions, **Deploy**, Run workflow, branch `dev`, environment
-`staging`. Watch the log. A good run ends with `deployed staging-<sha> and healthy`. To go back one release:
-`sudo bash /srv/actions-runner/_work/pcms/pcms/ops/deploy/rollback.sh staging`.
-
-### Production, later
-
-Production gets its **own** everything, so it can never touch staging's data:
-- `/srv/pcms-prod/` with `pcms.env` (new database password, `PCMS_SECRET_KEY`, `PCMS_CREDENTIAL_KEY`, VAPID
-  keys, admins, the production `PCMS_PUBLIC_APP_URL`, ports such as 8083 and 677) and `certs/`, `secrets/`,
-  `backups/` (`chown 70:70`).
-- `/etc/pcms/production.conf` from `ops/deploy/production.conf.example` (project `pcms-prod`).
-- Its own Cloudflare tunnel hostname pointing at its HTTPS port.
-- Then merge `dev` into `main`. A production deploy refuses to continue if the backup before it fails.
-
-`docs/DEPLOYMENT.md` section 8 explains every step the deploy takes.
+The log in Actions shows the step and the container logs. A failed migration leaves the old release serving.
+To go back one release: `sudo pcms staging rollback` (or `production`). If the release being undone ran a
+migration (see CHANGELOG.md), restore the backup taken just before it instead (DEPLOYMENT.md section 7).
 
 ## The database
 

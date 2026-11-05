@@ -45,6 +45,7 @@ name on the ticket for staff; it sends no messages to workers.
 
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): install on the college server, HTTPS, web push, backups, continuous deployment
 - [docs/pcms-deployment-2026-11-02.md](docs/pcms-deployment-2026-11-02.md): how staging runs on the OSSC server, and setting up CD there
+- [docs/SERVER.md](docs/SERVER.md): the OSSC server runbook: ports, folders, `sudo pcms <env> status`, adding more apps
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): components, data, the confirmed ticket flow (diagrams)
 - [docs/SECURITY.md](docs/SECURITY.md): controls, and where DBIT's decisions differ from plan v1.2
 - [docs/USER-GUIDE.md](docs/USER-GUIDE.md): short guide for each role

@@ -105,6 +105,8 @@ developer's computer and CI's tests only. Never deploy by hand-editing container
 | Pages | `frontend/src/pages/` (`faculty/`, `staff/`, `Landing`, `Login`, `Settings`) |
 | Service worker (shell cache, push) | `frontend/src/sw.ts` |
 | Deployment | `docs/DEPLOYMENT.md`, `compose.prod.yml`, `.env.example` |
+| The OSSC server (ports, folders, the `pcms` helper, adding more apps) | `docs/SERVER.md` |
+| Setting up an environment on the server | `ops/deploy/setup-environment.sh <staging\|production>` |
 | Continuous deployment (dev to staging, main to production) | `.github/workflows/deploy.yml`, `ops/deploy/deploy.sh`, `rollback.sh`, `*.conf.example`; staging server notes in `docs/pcms-deployment-2026-11-02.md` |
 | What changed and when | `CHANGELOG.md` |
 | How to contribute | `CONTRIBUTING.md` |

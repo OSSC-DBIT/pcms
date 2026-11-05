@@ -26,6 +26,11 @@ when deploying it.
   inside their box and the monthly chart narrows on small phones. A browser test checks eight sizes.
 
 ### Added
+- **Server setup in one command:** `ops/deploy/setup-environment.sh staging|production` prepares an environment
+  (folders, settings file, push keys, backup key, certificate with the campus IP, CD config) and installs the
+  `pcms` helper (`sudo pcms production status`, `logs`, `admin`, `backup`, `psql`, `rollback`). Production is
+  `pcms-prod` at https://pcms.webuildnow.in. `docs/SERVER.md` is the runbook for the OSSC server, including how
+  to host more apps there.
 - **Continuous deployment.** `.github/workflows/deploy.yml`: a push to `dev` runs CI and deploys staging; a
   push to `main` deploys production. It runs `ops/deploy/deploy.sh` on a self-hosted runner on the server:
   build images tagged per environment and commit, back up, migrate while the old release keeps serving,

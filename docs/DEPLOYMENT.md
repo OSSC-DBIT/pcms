@@ -266,6 +266,12 @@ failing the deploy while the old release kept serving.
 
 ### Set it up once on the server
 
+On the OSSC server most of this is one command per environment:
+`sudo bash ops/deploy/setup-environment.sh <staging|production> --email <contact>` (see `docs/SERVER.md`).
+It creates the folders, the settings file (or cleans an existing one), push keys, backup key, certificate,
+`/etc/pcms/<env>.conf` and the `sudo pcms <env> status|logs|admin|backup|psql|rollback` helper. The steps it
+covers are below for any other server.
+
 1. **The runner.** In GitHub: the repository, Settings, Actions, Runners, New self-hosted runner, Linux.
    Follow the commands it shows, as a dedicated user (for example `gh-runner`, not your own account), in
    `/srv/actions-runner`. When `config.sh` asks for labels, add `pcms`. Then install it as a service:
