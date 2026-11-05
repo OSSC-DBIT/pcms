@@ -7,7 +7,7 @@ PCMS_PROJECT=pcms
 
 # The settings file for this environment (absolute path). It must set PCMS_SECRETS_DIR,
 # PCMS_CERT_DIR and PCMS_BACKUP_DIR to absolute paths, and its own ports.
-PCMS_ENV_FILE=/srv/staging/pcms/pcms.env
+PCMS_ENV_FILE=/srv/server-data/staging/pcms/pcms.env
 
 # Checked after every deploy. nginx HTTPS port of this environment on this server.
 PCMS_HEALTH_URL=https://127.0.0.1:676/api/v1/health/ready

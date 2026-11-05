@@ -7,7 +7,7 @@ PCMS_PROJECT=pcms-prod
 # Production's own settings file: its own database password, secret keys, admins, hostname
 # (PCMS_PUBLIC_APP_URL), ports, and absolute PCMS_SECRETS_DIR, PCMS_CERT_DIR, PCMS_BACKUP_DIR
 # that differ from staging's.
-PCMS_ENV_FILE=/srv/production/pcms/pcms.env
+PCMS_ENV_FILE=/srv/server-data/production/pcms/pcms.env
 
 # nginx HTTPS port of production on this server (PCMS_HTTPS_PORT in its env file).
 PCMS_HEALTH_URL=https://127.0.0.1:677/api/v1/health/ready

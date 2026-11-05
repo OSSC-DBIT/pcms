@@ -212,11 +212,11 @@ general server runbook (ports, folders, the `pcms` helper, adding more apps) is 
 
 | Branch | Environment | Address | Compose project | Settings file | Ports (HTTPS / HTTP) |
 |---|---|---|---|---|---|
-| `dev` | staging | https://pcms-staging.webuildnow.in | `pcms` (the existing volumes) | `/srv/staging/pcms/pcms.env` | 676 / 8082 |
-| `main` | production | https://pcms.webuildnow.in | `pcms-prod` (its own volumes) | `/srv/production/pcms/pcms.env` | 677 / 8083 |
+| `dev` | staging | https://pcms-staging.webuildnow.in | `pcms` (the existing volumes) | `/srv/server-data/staging/pcms/pcms.env` | 676 / 8082 |
+| `main` | production | https://pcms.webuildnow.in | `pcms-prod` (its own volumes) | `/srv/server-data/production/pcms/pcms.env` | 677 / 8083 |
 
 Everyone uses the Cloudflare addresses. There is no separate clone per environment: the runner checks out the
-commit for each deploy. Staging moved from `/srv/server-data/pcms` and `/srv/pcms` to `/srv/staging/pcms` on
+commit for each deploy. Staging moved from `/srv/server-data/pcms` and `/srv/pcms` to `/srv/server-data/staging/pcms` on
 5 November (the setup script copies it); the old folders go once the first deploy works (SERVER.md, "Retiring
 the old staging layout").
 
@@ -260,7 +260,7 @@ After the pull request is merged, the same script is at `.../pcms/dev/ops/deploy
 sudo bash /tmp/setup-env.sh production --email <ossc contact email>
 ```
 
-It creates `/srv/production/pcms/` with a fresh database password, secret keys, push keys, backup key, certificate,
+It creates `/srv/server-data/production/pcms/` with a fresh database password, secret keys, push keys, backup key, certificate,
 and `/etc/pcms/production.conf`. It prints where the backup **private** key is: copy that to two custodians and
 delete it from the server.
 

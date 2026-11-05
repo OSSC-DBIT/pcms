@@ -55,9 +55,9 @@ flowchart LR
 
 | Path | What | Owner, mode |
 |---|---|---|
-| `/srv/staging/pcms/` | PCMS staging's `pcms.env` (root:pcms 640) and its `certs`, `secrets`, `backups` | root; `backups` uid 70 |
-| `/srv/production/pcms/` | PCMS production's `pcms.env` (root:pcms 640) and its `certs`, `secrets`, `backups` | root; `backups` uid 70 |
-| `/srv/staging/<app>/`, `/srv/production/<app>/` | the same for every other app, side by side | per app |
+| `/srv/server-data/staging/pcms/` | PCMS staging's `pcms.env` (root:pcms 640) and its `certs`, `secrets`, `backups` | root; `backups` uid 70 |
+| `/srv/server-data/production/pcms/` | PCMS production's `pcms.env` (root:pcms 640) and its `certs`, `secrets`, `backups` | root; `backups` uid 70 |
+| `/srv/server-data/staging/<app>/`, `/srv/server-data/production/<app>/` | the same for every other app, side by side | per app |
 | `/srv/server-data/pcms/`, `/srv/pcms/` | **old** PCMS staging layout (checkout and files), kept only until the first CD deploy works; then remove them (below) | root |
 | `/etc/pcms/staging.conf`, `production.conf` | where each environment is (no secrets) | root, 644 |
 | `/srv/actions-runner/` | the GitHub runner; `_work/pcms/pcms` is the checkout of the last deploy | gh-runner |
@@ -116,7 +116,7 @@ Then, in **Cloudflare Zero Trust, Networks, Tunnels**, the tunnel, **Public host
 There is no clone of the repository to maintain: the runner checks out the right commit for every deploy
 (`/srv/actions-runner/_work/pcms/pcms`), for staging and production alike. The old checkout
 `/srv/server-data/pcms` and `/srv/pcms` were staging's home before continuous deployment; the setup script
-copied what staging needs into `/srv/staging/pcms`. **After** the first staging deploy reports `deployed ... and
+copied what staging needs into `/srv/server-data/staging/pcms`. **After** the first staging deploy reports `deployed ... and
 healthy` and `sudo pcms staging status` shows the new release, keep a copy and remove them:
 
 ```sh
@@ -154,7 +154,7 @@ Follow the same pattern so every app stays separate and deploys the same way:
 1. **Ports:** pick free ones and add them to the table above. Publish only the app's web port; never a database.
 2. **Compose project name:** unique per app and environment (for example `myapp`, `myapp-prod`), so containers,
    networks and volumes never collide. Never use `docker compose down -v` on someone else's project.
-3. **Folders:** `/srv/staging/<app>/` and `/srv/production/<app>/` for its settings file, certificates and backups.
+3. **Folders:** `/srv/server-data/staging/<app>/` and `/srv/server-data/production/<app>/` for its settings file, certificates and backups.
    Settings file mode 640, owner root, group of the app.
 4. **Domain:** add a Cloudflare public hostname pointing at `localhost:<port>`. If the app serves HTTPS with a
    self-signed certificate, turn on No TLS Verify.

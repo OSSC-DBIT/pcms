@@ -27,13 +27,13 @@ done
 case "$ENVIRONMENT" in
   staging)
     PROJECT=pcms; DOMAIN=pcms-staging.webuildnow.in
-    DATA_DIR=/srv/staging/pcms; ENV_FILE=/srv/staging/pcms/pcms.env
+    DATA_DIR=/srv/server-data/staging/pcms; ENV_FILE=/srv/server-data/staging/pcms/pcms.env
     # Before 5 November staging lived in the old checkout and directly in /srv/pcms.
     OLD_ENV=/srv/server-data/pcms/pcms.env; OLD_DATA=/srv/pcms
     HTTPS_PORT=676; HTTP_PORT=8082; BACKUP_AT=0130 ;;
   production)
     PROJECT=pcms-prod; DOMAIN=pcms.webuildnow.in
-    DATA_DIR=/srv/production/pcms; ENV_FILE=/srv/production/pcms/pcms.env
+    DATA_DIR=/srv/server-data/production/pcms; ENV_FILE=/srv/server-data/production/pcms/pcms.env
     OLD_ENV=; OLD_DATA=
     HTTPS_PORT=677; HTTP_PORT=8083; BACKUP_AT=0200 ;;
   *) echo "usage: sudo bash $0 <staging|production> [--email you@example.org] [--ip <server-lan-ip>]" >&2; exit 2 ;;
@@ -64,13 +64,13 @@ put() {  # replace or append KEY=value (value written as given)
 put_if_empty() { [ -n "$(get "$1")" ] || { put "$1" "$2"; note "set $1"; }; }
 
 # ---------- folders ----------
-# Layout: /srv/<environment>/pcms/{pcms.env,certs,secrets,backups}. Other apps go beside it, in
-# /srv/<environment>/<app>. An environment set up in an older place is copied in once; the old copies
+# Layout: /srv/server-data/<environment>/pcms/{pcms.env,certs,secrets,backups}. Other apps go beside it, in
+# /srv/server-data/<environment>/<app>. An environment set up in an older place is copied in once; the old copies
 # stay until you remove them (docs/SERVER.md), so the stack that is running now keeps working until the
 # next deploy recreates it with the new paths.
 groupadd -f pcms
 id gh-runner >/dev/null 2>&1 && usermod -aG pcms gh-runner
-install -d -m 755 "/srv/$ENVIRONMENT"
+install -d -m 755 /srv/server-data "/srv/server-data/$ENVIRONMENT"
 if [ ! -f "$ENV_FILE" ] && [ -n "$OLD_ENV" ] && [ -f "$OLD_ENV" ]; then
   say "moving $ENVIRONMENT to $DATA_DIR (copying; the old files stay until you delete them)"
   install -d -m 750 -o root -g pcms "$DATA_DIR"
