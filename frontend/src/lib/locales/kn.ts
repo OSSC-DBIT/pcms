@@ -329,7 +329,6 @@ export const kn: Record<TKey, string> = {
   'ticket.immediateApproved': 'ಕೆಲಸ ಪೂರ್ಣಗೊಳಿಸಿ ಅದನ್ನು ದಾಖಲಿಸಿ',
   'ticket.critical': 'ತೀವ್ರ',
   'ticket.criticalBody': 'ಅನುಮೋದನೆಗಾಗಿ ಪ್ರಾಂಶುಪಾಲರಿಗೆ ಕಳುಹಿಸಿ',
-  'ticket.criticalApproved': 'ಹೆಚ್ಚು ಹಣ ಬೇಕೇ? ಹೊಸ ವಿನಂತಿ ಕಳುಹಿಸಿ',
   'ticket.postpone': 'ಮುಂದೂಡಿ',
   'ticket.postponeBody': 'ಈಗ ಮಾಡಲಾಗುವುದಿಲ್ಲ',
   'ticket.approvedByManagement': 'ವೆಚ್ಚ ಅನುಮೋದಿಸಲಾಗಿದೆ',

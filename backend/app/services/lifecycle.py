@@ -19,7 +19,7 @@ from app.models.ticket import TERMINAL, Ticket
 from app.schemas.ticket import TransitionIn
 from app.security.deps import Principal
 from app.security.sessions import now
-from app.services import audit, notify
+from app.services import audit, notify, workflow
 from app.services.tickets import NEXT_UPDATE, add_event, bump, check_version
 
 OPEN = ("Submitted", "Triaged", "Assigned", "InProgress", "OnHold", "AwaitingApproval")
@@ -112,6 +112,8 @@ async def apply_transition(db: AsyncSession, p: Principal, t: Ticket, body: Tran
             detail = f"Type changed to {cat.name_en}"
         case "hold":
             _need(reason=reason, owner=body.owner, nextAction=body.next_action, reviewDate=body.review_date)
+            if await workflow.spending_approved(db, t):
+                raise workflow.refuse_after_approval()
             if body.review_date < date.today():
                 raise validation("The review date cannot be in the past.", {"reviewDate": "Past date"})
             t.hold_reason, t.hold_owner, t.hold_next_action, t.hold_review_date = reason, body.owner, body.next_action, body.review_date

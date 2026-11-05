@@ -12,7 +12,7 @@ import csv
 import io
 from datetime import date, timedelta
 
-from tests.factories import API, make_user, new_client, sign_in, ticket_body
+from tests.factories import API, ist_today, make_user, new_client, sign_in, ticket_body
 
 
 async def _get(s, tid):
@@ -78,7 +78,7 @@ async def test_actual_cost_in_reports_is_for_the_approvers_only(client):
         tid2 = await _assigned(fac, mgr, title="Second chair")
         assert (await _tr(mgr, tid2, action="resolve", note="Done", actualCostPaise=25000)).status_code == 200
 
-        today = date.today()
+        today = ist_today()
         params = {"from": (today - timedelta(days=1)).isoformat(), "to": today.isoformat()}
 
         e = (await prin.get(f"{API}/reports/expenditure", params=params)).json()
@@ -116,7 +116,7 @@ async def test_actual_cost_beside_the_approved_limit(client):
         assert r.status_code == 200, r.text
         assert (await _tr(mgr, tid, action="resolve", note="Liner replaced", actualCostPaise=142000)).status_code == 200
 
-        today = date.today()
+        today = ist_today()
         params = {"from": (today - timedelta(days=1)).isoformat(), "to": today.isoformat()}
         item = (await prin.get(f"{API}/reports/expenditure", params=params)).json()["items"][0]
         assert item["approvedPaise"] == 160000 and item["actualPaise"] == 142000
@@ -145,7 +145,7 @@ async def test_spending_by_department(client):
             "lines": [{"label": "Waterproofing", "paise": 500000}], "requestedDate": date.today().isoformat(),
             "remedy": "Waterproof the roof", "expectedVersion": v})).status_code == 200
 
-        today = date.today()
+        today = ist_today()
         params = {"from": (today - timedelta(days=1)).isoformat(), "to": today.isoformat()}
         e = (await prin.get(f"{API}/reports/expenditure", params=params)).json()
         by = {r["department"]: r for r in e["byDepartment"]}

@@ -50,6 +50,23 @@ HOLD_NEXT_ACTION = {"rejected": "The facility manager decides the next step",
 HOLD_DAYS = {"rejected": 7, "clarify": 3, "defer": 7}
 
 
+async def spending_approved(db: AsyncSession, t: Ticket) -> bool:
+    """True when the newest spending request on the ticket was approved.
+
+    DBIT, 2026-11-05: an approval (by the principal, or by institute management after an
+    escalation) is final. The facility manager then only finishes the work, so the ticket can
+    no longer be sent as Critical again or postponed. A rejected, deferred or clarification
+    request still allows a revised request.
+    """
+    state = await db.scalar(select(Proposal.state).where(Proposal.ticket_id == t.id)
+                            .order_by(Proposal.version.desc()).limit(1))
+    return state == "approved"
+
+
+def refuse_after_approval() -> ApiError:
+    return conflict("spending_approved", "Spending on this ticket is already approved. Finish the work and mark it complete.")
+
+
 async def create_proposal(db: AsyncSession, p: Principal, t: Ticket, body: ProposalIn) -> None:
     """Flag C (critical): send the ticket to the principal for approval. A cost estimate is optional."""
     check_version(t, body.expected_version)
@@ -60,6 +77,8 @@ async def create_proposal(db: AsyncSession, p: Principal, t: Ticket, body: Propo
         raise validation("The required-by date cannot be in the past.", {"requestedDate": "Past date"})
     if await db.scalar(select(Proposal.id).where(Proposal.ticket_id == t.id, Proposal.state == "pending")):
         raise conflict("proposal_pending", "This ticket is already awaiting an approval decision.")
+    if await spending_approved(db, t):
+        raise refuse_after_approval()
     total = sum(ln.paise for ln in body.lines)
     version = (await db.scalar(select(func.max(Proposal.version)).where(Proposal.ticket_id == t.id)) or 0) + 1
     # Nobody decides spending on a problem they reported. When the principal reported it, the
