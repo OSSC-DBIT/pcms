@@ -5,7 +5,32 @@ https://pcms-staging.webuildnow.in, what went wrong, and how each problem was fi
 It ends with how to open and clear the database, and (5 November) how continuous deployment
 and the production configuration are set up.
 
-## Result
+> **Since 5 November 2026, never run `docker compose ... up` (or `--build`) by hand on this server.**
+> GitHub deploys: a merge to `dev` deploys staging, a merge to `main` deploys production. For
+> everything else use `sudo pcms <staging|production> ...` ([SERVER.md](SERVER.md)). Sections 1 to 7
+> below are the history of the first manual setup on 2 November; their commands are kept for the
+> record and must not be run again. Problem 8 shows what happens if you do.
+
+## Where things are now
+
+| What | Staging | Production |
+|---|---|---|
+| Address | https://pcms-staging.webuildnow.in | https://pcms.webuildnow.in |
+| Deployed by | merge to `dev` | merge to `main` |
+| Compose project | `pcms` | `pcms-prod` |
+| Settings file | `/srv/server-data/staging/pcms/pcms.env` | `/srv/server-data/production/pcms/pcms.env` |
+| Certificates | `/srv/server-data/staging/pcms/certs/` | `/srv/server-data/production/pcms/certs/` |
+| Backup public key | `/srv/server-data/staging/pcms/secrets/` | `/srv/server-data/production/pcms/secrets/` |
+| Backups | `/srv/server-data/staging/pcms/backups/` | `/srv/server-data/production/pcms/backups/` |
+| Database and uploads | Docker volumes `pcms_pgdata`, `pcms_media` | `pcms-prod_pgdata`, `pcms-prod_media` |
+| Where the deploy is described | `/etc/pcms/staging.conf` | `/etc/pcms/production.conf` |
+| Ports (HTTPS / HTTP) | 676 / 8082 | 677 / 8083 |
+
+The code is not kept in a folder of its own: the GitHub runner checks out the commit for each deploy into
+`/srv/actions-runner/_work/pcms/pcms`. The old checkout `/srv/server-data/pcms` and the old `/srv/pcms`
+folders are no longer used (see "To do", step 7).
+
+## Result (2 November)
 
 - The production stack (`compose.prod.yml`) is running on the server.
 - https://pcms-staging.webuildnow.in loads, and `/api/v1/health/ready` returns
@@ -18,7 +43,8 @@ and the production configuration are set up.
 | Item | Value |
 |---|---|
 | Machine | Dell Precision 7820, Ubuntu 24.04.5 |
-| Repo | `/srv/server-data/pcms` (owned by root) |
+| Code | checked out per deploy in `/srv/actions-runner/_work/pcms/pcms` (until 5 November: `/srv/server-data/pcms`) |
+| Settings and files | `/srv/server-data/<staging\|production>/pcms/` |
 | Public access | Cloudflare Tunnel (`cloudflared.service`), no ports open to the internet |
 
 Other services already on this machine, and their ports:
@@ -32,18 +58,24 @@ Other services already on this machine, and their ports:
 | 9090 | Cockpit |
 | 20128 | OmniRoute |
 
-Ports PCMS uses now (set in `pcms.env`):
+Ports PCMS uses now (set in each `pcms.env`):
 
 | Port | What | Bound to |
 |---|---|---|
-| 676 | nginx HTTPS (the app) | all interfaces |
-| 8082 | nginx HTTP (only redirects to HTTPS) | all interfaces |
+| 676 | staging nginx HTTPS (the app) | all interfaces |
+| 8082 | staging nginx HTTP (only redirects to HTTPS) | all interfaces |
+| 677 | production nginx HTTPS | all interfaces |
+| 8083 | production nginx HTTP (only redirects) | all interfaces |
 
 Port 8081 (the old public listener for Twilio webhooks and signed photos) is gone since 4 November 2026.
 
 PostgreSQL, the API, ClamAV and the job containers are not published on the host at all.
 
 ## Problems and fixes, in order
+
+Sections 1 to 7 are from 2 November, before continuous deployment. The paths they use (`/srv/pcms/...`,
+`/srv/server-data/pcms/pcms.env`) are the old ones; staging's files are now in
+`/srv/server-data/staging/pcms/`. Do not run these commands again.
 
 ### 1. API container would not start: port 8000 taken
 
@@ -112,16 +144,15 @@ sudo chmod 600 /srv/pcms/certs/privkey.pem
 
 The certificate expires on 2 November 2027.
 
-### 4. Start the stack
+### 4. Start the stack (2 November only; now done by the deploy)
 
 ```sh
+# Historical. Do not run: see problem 8.
 sudo docker compose -f compose.prod.yml --env-file pcms.env up -d --build
-sudo docker compose -f compose.prod.yml ps
-curl -sk https://127.0.0.1:676/api/v1/health/ready
 ```
 
-`--env-file pcms.env` makes compose read the ports from `pcms.env`. The `--profile jobs`
-and `--profile nginx` flags only matter for `compose.dev.yml`.
+Today: `sudo pcms staging status` shows what runs, and the health check is
+`curl -sk https://127.0.0.1:676/api/v1/health/ready` (production: port 677).
 
 ### 5. Cloudflare: `400 The plain HTTP request was sent to HTTPS port`
 
@@ -159,22 +190,43 @@ journalctl -u cloudflared --since "-10 min" | grep ERR
 
 ### 7. Admin accounts
 
-```sh
-sudo docker compose -f compose.prod.yml exec api python -m app.cli create-admin-from-env
-```
-
-This creates every `PCMS_ADMIN_N_*` account from `pcms.env`. It is safe to re-run, because
-it skips accounts that already exist. The passwords in the file are temporary: on first
-sign-in, each admin sets a new password, sets up an authenticator app, and saves the
-recovery codes.
-
-To add one admin without the file (prints a generated temporary password):
+The one-time `PCMS_ADMIN_N_*` lines and `create-admin-from-env` were used on 2 November only; the setup
+script now removes those lines. To add an admin (prints a generated temporary password):
 
 ```sh
-sudo docker compose -f compose.prod.yml exec api python -m app.cli create-admin --email you@dbit.edu.in --name "Full Name"
+sudo pcms staging admin --email you@dbit.edu.in --name "Full Name"      # or: production
 ```
 
+On first sign-in, each admin sets a new password, sets up an authenticator app, and saves the recovery codes.
 Everyone else is added from the web app under Admin > People.
+
+### 8. Running `docker compose up` by hand took staging down (5 November)
+
+Output, twice, when trying to start production by hand from the old checkout:
+
+```
+ ✔ Image pcms-api:release     Built
+ ✘ Container pcms-migrate-1   Error service "migrate" didn't complete successfully: exit 255
+ ✔ Container pcms-api-1       Recreated
+```
+
+and https://pcms-staging.webuildnow.in returned `502 Bad Gateway`.
+
+Cause:
+- `docker compose` without `-p` names the project after the folder. In `/srv/server-data/pcms` that is
+  `pcms`, which is **staging's** project. So the command replaced staging's containers; it did not start
+  production at all (production is the project `pcms-prod`, and its settings file is a different one).
+- It built from the old checkout, which is older than the database. The deploy had already migrated the
+  database to `0014`; the old code does not know `0014`, so `alembic upgrade` stopped with
+  "Can't locate revision" (exit 255). Compose had already replaced the API, worker and scheduler and then
+  never started them.
+- Nothing in the database changed: the migration stopped before doing anything, and the volumes stayed.
+
+Fix: re-run the last good deploy (GitHub, Actions, **Deploy**, Run workflow, branch `dev`). It ended with
+`deployed staging-<sha> and healthy`.
+
+Rule: production is started by merging `dev` into `main`, never by hand. Delete the old checkout
+(step 7 below) so the command cannot be run from it again.
 
 ### Also in the way: no Docker access for the assistant
 
@@ -185,29 +237,29 @@ effectively root access to the machine.
 
 ## Still to do
 
-- [ ] Delete the `PCMS_ADMIN_*` lines from `.env` and `pcms.env` (the passwords are in plain text).
-- [ ] `sudo chmod 600 .env`. It is currently readable by every user on the server.
-- [ ] Move `~/pcms-backup-identity.txt` off the server to a safe place (two custodians),
-      then delete it here. It is the only key that can decrypt the backups.
-- [ ] Stop the old dev stack, which is still running on 5173 and 8025:
-      `sudo docker compose -f compose.dev.yml down`.
+- [x] ~~Delete the `PCMS_ADMIN_*` lines from `pcms.env`.~~ The setup script removed them (5 November).
+- [ ] Delete the old checkout `/srv/server-data/pcms` (its `.env` still holds the one-time admin passwords
+      and is readable by every user). See "To do, in order", step 7.
+- [ ] Move `/root/pcms-<env>-backup-identity.txt` and the older `~/pcms-backup-identity.txt` off the server to
+      a safe place (two custodians), then delete them here. They are the only keys that can decrypt the backups.
+- [ ] Stop the old dev stack if it is still running on 5173 and 8025: `sudo docker compose -p pcms-dev ls`
+      shows it; `sudo docker compose -p pcms-dev down` stops it (not `-v`).
 - [x] ~~Email: `smtp.dbit.edu.in` does not resolve from this server.~~ Not needed: email was removed on
       4 November 2026. Web push is the only notification channel.
-- [ ] Push notifications: `PCMS_VAPID_*` keys are empty, and since 4 November the stack refuses to start
-      without them. See "Update, 5 November 2026" below.
+- [x] ~~Push notifications: `PCMS_VAPID_*` keys are empty.~~ The setup script created them (5 November).
 - [ ] Rate limiting: all tunnel traffic reaches nginx from one address, so every visitor
       shares one rate limit (sign-in: 30 per minute). nginx should read Cloudflare's
       `CF-Connecting-IP` header (code change in `nginx/snippets/http.conf`).
 - [ ] Minor: the HSTS header is sent on API responses but not on pages, because location
       blocks with their own `add_header` drop the server-level one.
-- [ ] Ports 676 and 8082 are open on all interfaces. Check the firewall (`sudo ufw status`).
-      On campus the app is at `https://<server-ip>:676`.
-- [ ] Before real use: confirm a nightly backup appears in `/srv/pcms/backups` and do a
+- [ ] Ports 676, 677, 8082 and 8083 are open on all interfaces. Check the firewall (`sudo ufw status`).
+- [ ] Before real use: confirm a nightly backup appears in `/srv/server-data/production/pcms/backups` and do a
       restore drill (`docs/DEPLOYMENT.md` section 7).
 
 ## Update, 5 November 2026: continuous deployment, production, push only
 
-From now on nobody runs `docker compose ... up` by hand here. A push deploys itself after CI passes. The
+From now on nobody runs `docker compose ... up` by hand here. A merge into `dev` or `main` deploys itself (the
+tests ran on the pull request). The
 general server runbook (ports, folders, the `pcms` helper, adding more apps) is [SERVER.md](SERVER.md).
 
 | Branch | Environment | Address | Compose project | Settings file | Ports (HTTPS / HTTP) |
@@ -233,43 +285,37 @@ with staging: its own database, keys, admins, folders, ports and backups.
   written, and the backup folder given to uid 70.
 - `apt` on this machine is blocked by an unfinished kernel and NVIDIA update (see SERVER.md, "Known issues").
   The setup did not need it.
+- **Staging settings** moved to `/srv/server-data/staging/pcms/` by the setup script (push keys, campus
+  address, certificate with the server IP).
+- **First staging deploy:** pull request #7 merged into `dev`; Deploy ended with
+  `deployed staging-e6a9b4932abf and healthy`.
 
 ### To do, in order
 
-**1. Staging settings, one command** (cleans `pcms.env`, keeping a dated backup copy; adds push keys, the campus
-address, and a certificate that also names the server IP):
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/OSSC-DBIT/pcms/feat/fm-checkboxes-actual-cost/ops/deploy/setup-environment.sh -o /tmp/setup-env.sh && sudo bash /tmp/setup-env.sh staging --email <ossc contact email>
-```
-
-After the pull request is merged, the same script is at `.../pcms/dev/ops/deploy/...`.
-
-**2. First staging deploy:** merge pull request #7 into `dev` on GitHub. Watch Actions, **Deploy**. It ends with
-`deployed staging-<sha> and healthy`. Then `sudo pcms staging status`.
-
-**3. Test staging both ways:**
+**1. Check staging** (on the server, then on a phone):
+- `sudo pcms staging status`: the release is `staging-<sha>`, every container is up, health `ok`.
 - https://pcms-staging.webuildnow.in: sign in, report, and allow notifications. Then **Settings,
   Notifications, Send test**.
-- On campus, `https://<server-ip>:676`: accept the certificate warning, sign in, and report. Push and install
-  do not work on this address (the certificate is self-signed).
 
-**4. Production settings, one command:**
+**2. Production settings, one command** (do **not** run `docker compose up`; see problem 8):
 
 ```sh
-sudo bash /tmp/setup-env.sh production --email <ossc contact email>
+curl -fsSL https://raw.githubusercontent.com/OSSC-DBIT/pcms/dev/ops/deploy/setup-environment.sh -o /tmp/setup-env.sh && sudo bash /tmp/setup-env.sh production --email <ossc contact email>
 ```
 
-It creates `/srv/server-data/production/pcms/` with a fresh database password, secret keys, push keys, backup key, certificate,
-and `/etc/pcms/production.conf`. It prints where the backup **private** key is: copy that to two custodians and
-delete it from the server.
+It creates `/srv/server-data/production/pcms/` with a fresh database password, secret keys, push keys, backup
+key, certificate, and `/etc/pcms/production.conf`. It does not start anything. It prints where the backup
+**private** key is: copy that to two custodians and delete it from the server.
+Check: `cat /etc/pcms/production.conf` shows `PCMS_PROJECT=pcms-prod` and
+`PCMS_ENV_FILE=/srv/server-data/production/pcms/pcms.env`.
 
-**5. Cloudflare:** Zero Trust, Networks, Tunnels, the tunnel, Public hostname, **Add**. Subdomain `pcms`,
+**3. Cloudflare:** Zero Trust, Networks, Tunnels, the tunnel, Public hostname, **Add**. Subdomain `pcms`,
 domain `webuildnow.in`, type **HTTPS**, URL `localhost:677`. Under Additional application settings, TLS, turn
 on **No TLS Verify**, then **Save hostname**.
 
-**6. First production deploy:** on GitHub open a pull request from `dev` to `main` and merge it. Then create
-the first admin, who signs in, sets a password and scans the authenticator code:
+**4. First production deploy:** on GitHub open a pull request from `dev` to `main` and merge it once CI passes.
+Actions, **Deploy** ends with `deployed production-<sha> and healthy`. Then create the first admin, who signs
+in, sets a password and scans the authenticator code:
 
 ```sh
 sudo pcms production admin --email <you@dbit.in> --name "<Your Name>"
@@ -277,8 +323,20 @@ sudo pcms production admin --email <you@dbit.in> --name "<Your Name>"
 
 That admin adds everyone else under Admin, People (one by one, or the Excel import).
 
-**7. Clean up:** delete any tunnel route to `localhost:8081`. Then retire the old staging folders
-(`/srv/server-data/pcms`, `/srv/pcms`, and the old dev stack): SERVER.md, "Retiring the old staging layout".
+**5. Test production:** `sudo pcms production status`, then https://pcms.webuildnow.in on a phone, including
+**Send test** under Settings, Notifications.
+
+**6. Clean up Cloudflare:** delete any tunnel route to `localhost:8081`.
+
+**7. Retire the old staging folders** once staging works (keeps a copy in `/root`; the database and uploads
+are Docker volumes and are not touched):
+
+```sh
+sudo tar -C /srv -czf /root/pcms-old-staging-$(date +%F).tar.gz server-data/pcms pcms && sudo rm -rf /srv/server-data/pcms /srv/pcms
+```
+
+Delete the archive once you are sure nothing is missing: it holds the old `.env` with the one-time admin
+passwords.
 
 ### Settings that no longer exist
 

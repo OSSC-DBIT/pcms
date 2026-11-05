@@ -80,6 +80,13 @@ sudo pcms staging compose ps             # any docker compose command for that e
 Deploying is done by pushing to GitHub (`dev` to staging, `main` to production), never by hand. To redeploy
 the same commit: GitHub, Actions, Deploy, Run workflow.
 
+**Never run `docker compose up` (or `--build`) yourself on this server.** Without `-p`, compose names the
+project after the current folder, so a run from a folder called `pcms` replaces **staging's** containers with
+whatever code is in that folder; if that code is older than the database, the migration fails and staging goes
+down (5 November, see the deployment log, problem 8). Production is never started this way either: it is
+project `pcms-prod` and starts when `dev` is merged into `main`. If staging or production is down, re-run the
+last good deploy from Actions, or `sudo pcms <env> rollback`.
+
 ## Setting up a PCMS environment (already done for staging; once for production)
 
 One command per environment, from any checkout of the repository on the server. It is safe to run again and
@@ -121,9 +128,12 @@ healthy` and `sudo pcms staging status` shows the new release, keep a copy and r
 
 ```sh
 sudo tar -C /srv -czf /root/pcms-old-staging-$(date +%F).tar.gz server-data/pcms pcms
-sudo docker compose -f /srv/server-data/pcms/compose.dev.yml down 2>/dev/null || true
+sudo docker compose -p pcms-dev down 2>/dev/null || true      # the old dev stack, if it still runs (no -v)
 sudo rm -rf /srv/server-data/pcms /srv/pcms
 ```
+
+`/srv/server-data/pcms` (the old checkout) and `/srv/server-data/staging/pcms` (staging's settings now) are
+different folders: remove only the first.
 
 The archive holds the old `.env` with the one-time admin passwords: delete it once you are sure nothing is
 missing. The database and uploads are not in these folders (they are the Docker volumes `pcms_pgdata` and

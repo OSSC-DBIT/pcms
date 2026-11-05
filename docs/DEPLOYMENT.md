@@ -7,6 +7,11 @@ Ownership follows plan v1.2 section 25:
 
 The commands below are for a Linux server (Ubuntu 24.04 LTS or similar) with Docker Engine and the Compose plugin.
 
+> **On the OSSC server (staging and production at `*.webuildnow.in`) do not follow sections 1 to 5 by hand.**
+> They are set up by `ops/deploy/setup-environment.sh` and deployed by GitHub (section 8). Use
+> [SERVER.md](SERVER.md). Running `docker compose ... up` there without `-p` replaces staging's containers.
+> On any server, every manual compose command needs the project name: `docker compose -p <project> ...`.
+
 ```mermaid
 flowchart LR
     A[1 Prepare host] --> B[2 DNS + HTTPS]
@@ -213,18 +218,25 @@ restore the backup from step 2. Reverting a container does not undo a migration.
 
 ## 8. Continuous deployment
 
-Pushes deploy themselves after the tests pass:
+A merge into `dev` or `main` deploys itself. The tests run on the pull request, not again after the merge:
 
 | Branch | Goes to | How |
 |---|---|---|
-| any pull request | nowhere | CI only (`.github/workflows/ci.yml`) |
-| `dev` | **staging** | `deploy.yml`: CI, then deploy |
-| `main` | **production** | `deploy.yml`: CI, then deploy |
+| any pull request | nowhere | CI only (`.github/workflows/ci.yml`), about 4 minutes |
+| `dev` | **staging** | `deploy.yml`: deploy only, about 3 minutes |
+| `main` | **production** | `deploy.yml`: deploy only, about 3 minutes |
+
+Running CI only on the pull request is safe because `dev` and `main` are protected: a change gets in only
+through a pull request whose four checks passed, and the branch must be **up to date** with its base before
+it can merge, so the merged commit is the commit that was tested. If GitHub says the branch is out of date,
+press **Update branch** and wait for the checks again. "Run workflow" on Deploy redeploys without tests, which
+is the quick way to put back a broken environment.
 
 ```mermaid
 flowchart LR
-    P[git push dev / main] --> CI[CI on GitHub runners<br/>backend tests, lint, build,<br/>compose check, browser test]
-    CI -->|pass| R[Self-hosted runner<br/>on the OSSC server]
+    PR[pull request] --> CI[CI on GitHub runners<br/>backend tests, lint, build,<br/>compose check, browser test]
+    CI -->|pass, branch up to date| G[merge into dev / main]
+    G --> R[Self-hosted runner<br/>on the OSSC server]
     R --> D[ops/deploy/deploy.sh]
     D --> B[build images tagged env-sha]
     B --> K[backup]
