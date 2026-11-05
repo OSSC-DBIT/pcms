@@ -329,7 +329,6 @@ export const hi: Record<TKey, string> = {
   'ticket.immediateApproved': 'कार्य पूरा करें और उसे दर्ज करें',
   'ticket.critical': 'गंभीर',
   'ticket.criticalBody': 'स्वीकृति के लिए प्राचार्य को भेजें',
-  'ticket.criticalApproved': 'अधिक पैसे चाहिए? नया अनुरोध भेजें',
   'ticket.postpone': 'स्थगित करें',
   'ticket.postponeBody': 'अभी नहीं किया जा सकता',
   'ticket.approvedByManagement': 'व्यय स्वीकृत',

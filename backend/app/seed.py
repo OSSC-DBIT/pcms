@@ -54,12 +54,12 @@ LEGACY_CATEGORIES = [
 # departments and facilities and their floors are provisional. Facilities
 # confirms the real list in the admin portal before the pilot (plan 2.1).
 LEGACY_BUILDINGS = [
-    ("ADMIN", "Main Block (Administration)", "मुख्य भवन (प्रशासन)", "ಮುಖ್ಯ ಕಟ್ಟಡ (ಆಡಳಿತ)", ["Ground", "1", "2", "3"]),
-    ("CSE", "Computer Science & Engineering", "कंप्यूटर साइंस एवं इंजीनियरिंग", "ಕಂಪ್ಯೂಟರ್ ಸೈನ್ಸ್ ಮತ್ತು ಎಂಜಿನಿಯರಿಂಗ್", ["Ground", "1", "2", "3"]),
-    ("ISE", "Information Science & Engineering", "इन्फ़ॉर्मेशन साइंस एवं इंजीनियरिंग", "ಇನ್ಫರ್ಮೇಶನ್ ಸೈನ್ಸ್ ಮತ್ತು ಎಂಜಿನಿಯರಿಂಗ್", ["Ground", "1", "2", "3"]),
-    ("ECE", "Electronics & Communication", "इलेक्ट्रॉनिक्स एवं कम्युनिकेशन", "ಎಲೆಕ್ಟ್ರಾನಿಕ್ಸ್ ಮತ್ತು ಕಮ್ಯುನಿಕೇಶನ್", ["Ground", "1", "2", "3"]),
+    ("ADMIN", "Main Block (Administration)", "मुख्य भवन (प्रशासन)", "ಮುಖ್ಯ ಕಟ್ಟಡ (ಆಡಳಿತ)", ["Ground", "1", "2"]),
+    ("CSE", "Computer Science & Engineering", "कंप्यूटर साइंस एवं इंजीनियरिंग", "ಕಂಪ್ಯೂಟರ್ ಸೈನ್ಸ್ ಮತ್ತು ಎಂಜಿನಿಯರಿಂಗ್", ["Ground", "1", "2"]),
+    ("ISE", "Information Science & Engineering", "इन्फ़ॉर्मेशन साइंस एवं इंजीनियरिंग", "ಇನ್ಫರ್ಮೇಶನ್ ಸೈನ್ಸ್ ಮತ್ತು ಎಂಜಿನಿಯರಿಂಗ್", ["Ground", "1", "2"]),
+    ("ECE", "Electronics & Communication", "इलेक्ट्रॉनिक्स एवं कम्युनिकेशन", "ಎಲೆಕ್ಟ್ರಾನಿಕ್ಸ್ ಮತ್ತು ಕಮ್ಯುನಿಕೇಶನ್", ["Ground", "1", "2"]),
     ("EEE", "Electrical & Electronics", "इलेक्ट्रिकल एवं इलेक्ट्रॉनिक्स", "ಎಲೆಕ್ಟ್ರಿಕಲ್ ಮತ್ತು ಎಲೆಕ್ಟ್ರಾನಿಕ್ಸ್", ["Ground", "1", "2"]),
-    ("AI", "AI & ML / AI & Data Science", "एआई एवं एमएल / एआई एवं डेटा साइंस", "ಎಐ ಮತ್ತು ಎಂಎಲ್ / ಎಐ ಮತ್ತು ಡೇಟಾ ಸೈನ್ಸ್", ["Ground", "1", "2", "3"]),
+    ("AI", "AI & ML / AI & Data Science", "एआई एवं एमएल / एआई एवं डेटा साइंस", "ಎಐ ಮತ್ತು ಎಂಎಲ್ / ಎಐ ಮತ್ತು ಡೇಟಾ ಸೈನ್ಸ್", ["Ground", "1", "2"]),
     ("MECH", "Mechanical Engineering & Workshops", "मैकेनिकल इंजीनियरिंग एवं वर्कशॉप", "ಮೆಕ್ಯಾನಿಕಲ್ ಎಂಜಿನಿಯರಿಂಗ್ ಮತ್ತು ವರ್ಕ್ಶಾಪ್ಗಳು", ["Ground", "1", "2"]),
     ("CIVIL", "Civil Engineering", "सिविल इंजीनियरिंग", "ಸಿವಿಲ್ ಎಂಜಿನಿಯರಿಂಗ್", ["Ground", "1", "2"]),
     ("BSH", "Basic Sciences (Physics, Chemistry, Maths)", "मूल विज्ञान (भौतिकी, रसायन, गणित)", "ಮೂಲ ವಿಜ್ಞಾನ (ಭೌತಶಾಸ್ತ್ರ, ರಸಾಯನಶಾಸ್ತ್ರ, ಗಣಿತ)", ["Ground", "1", "2"]),
@@ -67,7 +67,7 @@ LEGACY_BUILDINGS = [
     ("LIB", "Library and Information Centre", "पुस्तकालय एवं सूचना केंद्र", "ಗ್ರಂಥಾಲಯ ಮತ್ತು ಮಾಹಿತಿ ಕೇಂದ್ರ", ["Ground", "1"]),
     ("AUD", "Auditorium and Seminar Halls", "सभागार एवं सेमिनार हॉल", "ಸಭಾಂಗಣ ಮತ್ತು ಸೆಮಿನಾರ್ ಹಾಲ್ಗಳು", ["Ground", "1"]),
     ("FOOD", "Food Court", "फ़ूड कोर्ट", "ಫುಡ್ ಕೋರ್ಟ್", ["Ground"]),
-    ("HOSTEL", "Hostel", "छात्रावास", "ಹಾಸ್ಟೆಲ್", ["Ground", "1", "2", "3"]),
+    ("HOSTEL", "Hostel", "छात्रावास", "ಹಾಸ್ಟೆಲ್", ["Ground", "1", "2"]),
     ("SPORTS", "Physical Education and Sports", "शारीरिक शिक्षा एवं खेल", "ದೈಹಿಕ ಶಿಕ್ಷಣ ಮತ್ತು ಕ್ರೀಡೆ", ["Ground"]),
     ("TRANS", "Transport and Parking", "परिवहन एवं पार्किंग", "ಸಾರಿಗೆ ಮತ್ತು ಪಾರ್ಕಿಂಗ್", ["Ground"]),
 ]
@@ -148,20 +148,21 @@ BLOCK_B_DEPARTMENTS_KN = [
     "ಗ್ರಂಥಾಲಯ",
 ]
 
-# Every building with upper floors also has a terrace (DBIT, 2026-10-30).
+# Every building with upper floors also has a terrace (DBIT, 2026-10-30). No building has a 3rd floor
+# (DBIT, 2026-11-05); migration 0015 removed it from existing databases.
 BUILDINGS = [
-    ("BLOCK_A", "Block A", "ब्लॉक ए", "ಬ್ಲಾಕ್ ಎ", ["Ground", "1", "2", "3", "Terrace"],
+    ("BLOCK_A", "Block A", "ब्लॉक ए", "ಬ್ಲಾಕ್ ಎ", ["Ground", "1", "2", "Terrace"],
      BLOCK_A_DEPARTMENTS, BLOCK_A_DEPARTMENTS_KN),
-    ("BLOCK_B", "Block B", "ब्लॉक बी", "ಬ್ಲಾಕ್ ಬಿ", ["Ground", "1", "2", "3", "Terrace"],
+    ("BLOCK_B", "Block B", "ब्लॉक बी", "ಬ್ಲಾಕ್ ಬಿ", ["Ground", "1", "2", "Terrace"],
      BLOCK_B_DEPARTMENTS, BLOCK_B_DEPARTMENTS_KN),
     ("MBA", "PG Block (MBA & Research)", "पीजी ब्लॉक (एमबीए और अनुसंधान)", "ಪಿಜಿ ಬ್ಲಾಕ್ (ಎಂಬಿಎ ಮತ್ತು ಸಂಶೋಧನೆ)",
      ["Ground", "1", "2", "Terrace"],
      ["MBA Department", "Research Area", "Other Area"],
      ["ಎಂಬಿಎ ವಿಭಾಗ", "ಸಂಶೋಧನಾ ವಿಭಾಗ", "ಇತರ ಪ್ರದೇಶ"]),
-    ("PU", "PU Block", "पीयू ब्लॉक", "ಪಿಯು ಬ್ಲಾಕ್", ["Ground", "1", "2", "3", "Terrace"],
+    ("PU", "PU Block", "पीयू ब्लॉक", "ಪಿಯು ಬ್ಲಾಕ್", ["Ground", "1", "2", "Terrace"],
      ["PU Classrooms", "Laboratories", "Staff Room", "Office", "Other Area"],
      ["ಪಿಯು ತರಗತಿ ಕೊಠಡಿಗಳು", "ಪ್ರಯೋಗಾಲಯಗಳು", "ಸಿಬ್ಬಂದಿ ಕೊಠಡಿ", "ಕಚೇರಿ", "ಇತರ ಪ್ರದೇಶ"]),
-    ("HOSTEL", "Hostel", "छात्रावास", "ಹಾಸ್ಟೆಲ್", ["Ground", "1", "2", "3", "Terrace"],
+    ("HOSTEL", "Hostel", "छात्रावास", "ಹಾಸ್ಟೆಲ್", ["Ground", "1", "2", "Terrace"],
      ["Boys Hostel", "Girls Hostel"], ["ಬಾಲಕರ ಹಾಸ್ಟೆಲ್", "ಬಾಲಕಿಯರ ಹಾಸ್ಟೆಲ್"]),
     ("ADMIN_BLOCK", "Administrator Block", "प्रशासक ब्लॉक", "ಆಡಳಿತಾಧಿಕಾರಿ ಬ್ಲಾಕ್", ["Ground", "1", "2", "Terrace"],
      ADMIN_AREAS, ADMIN_AREAS_KN),

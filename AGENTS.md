@@ -21,10 +21,11 @@ Start with `docs/ARCHITECTURE.md` for the flow and `docs/SECURITY.md` for the ru
 1. Anyone with an account submits a problem (type, part, "Other" needs a description, place, title, a red/orange/green severity, photos). The token is `<letter><yy>-<serial>`, for example `M26-0001`. Staff reporters, the principal included, follow exactly the same flow as faculty: the report waits for the facility manager.
 2. The facility manager reviews it: **accept**, or **reject** with a reason. There is no manual priority (DBIT, 30 October 2026); the queue sorts and filters by the reporter's severity.
 3. The facility manager **contacts a worker directly** (call, WhatsApp or in person), records an optional worker or vendor name, and marks the ticket Assigned. No message is sent by PCMS.
-4. After the worker looks at it, the facility manager writes a note and, **only if needed**, presses one of two buttons (DBIT, 4 November 2026; there is no up-front I/C/P choice any more):
+4. After the worker looks at it, the facility manager writes a note and, **only if needed**, ticks one of two small checkboxes under it (DBIT, 4 and 5 November 2026; there is no up-front I/C/P choice any more):
    - **Critical**: send it for a spending decision (reason, optional estimate). It goes to the **principal**, who approves, rejects, or escalates it to **institute management** for the final decision (approve, ask for clarification, defer or reject). If the **principal reported** the problem, it goes straight to institute management, because nobody decides spending on their own report.
    - **Postpone**: on hold with a reason and review date.
    - **Neither**: the work is Immediate. **Mark as complete** with an optional note and an optional **exact actual cost**. The server stores flag `I` (or keeps `C` for approved critical work).
+   - **Once spending is approved**, the approval is final: the checkboxes are gone and only Mark as complete remains. The API refuses a new Critical request or a Postpone (`workflow.spending_approved`, 409 `spending_approved`). After a rejection, deferral or clarification a revised request is still allowed.
 5. The reporter confirms the fix, or disputes it within 7 days. After the ticket is closed, the reporter may rate the repair once (1-5 stars and an optional comment).
 
 Team OSSC can **remove** any ticket (with a reason). History stays; the ticket disappears from every list, report and export and returns 404.
