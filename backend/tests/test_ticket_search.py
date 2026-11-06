@@ -65,7 +65,7 @@ async def test_search_matches_title_token_and_room(client):
                              "floor": "1", "room": "101"}))
     await fac.post(f"{API}/tickets", json=ticket_body(title="Flickering light",
                                                        location={"building": "BLOCK_B", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
-                             "floor": "3", "room": "305"}))
+                             "floor": "2", "room": "205"}))
     await fac.post(f"{API}/tickets", json=ticket_body(
         title="Loose cable", location={"building": "CUSTOM", "customLocation": "Workshop annex",
                                        "department": "Workshop", "floor": "Ground", "room": "Store"}))
@@ -97,7 +97,7 @@ async def test_building_and_category_filters(client):
     await fac.post(f"{API}/tickets", json=ticket_body(
         title="Flickering light", categoryCode="mechanical", subtype="Fan / Light / Electrical",
         location={"building": "BLOCK_B", "department": "Artificial Intelligence and Machine Learning (AI/ML)",
-                             "floor": "3", "room": "305"}))
+                             "floor": "2", "room": "205"}))
 
     mc = new_client()
     try:

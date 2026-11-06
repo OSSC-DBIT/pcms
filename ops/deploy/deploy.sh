@@ -50,7 +50,13 @@ PCMS_HEALTH_URL="$(conf PCMS_HEALTH_URL)"
 [[ "$PCMS_PROJECT" =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "PCMS_PROJECT must be lowercase letters, digits, - or _"
 [[ "$PCMS_ENV_FILE" == /* ]] || die "PCMS_ENV_FILE must be an absolute path"
 [[ "$PCMS_HEALTH_URL" =~ ^https?://(127\.0\.0\.1|localhost)(:[0-9]+)?/ ]] || die "PCMS_HEALTH_URL must point at this server (127.0.0.1)"
-[ -r "$PCMS_ENV_FILE" ] || die "env file $PCMS_ENV_FILE not found or not readable"
+if [ ! -e "$PCMS_ENV_FILE" ]; then
+  die "env file $PCMS_ENV_FILE does not exist. Run: sudo bash ops/deploy/setup-environment.sh $ENVIRONMENT"
+elif [ ! -r "$PCMS_ENV_FILE" ]; then
+  # The file is root:pcms 640. A running runner keeps the groups it started with, so after
+  # setup-environment.sh adds gh-runner to pcms the runner service must be restarted once.
+  die "env file $PCMS_ENV_FILE is not readable by $(id -un) (groups: $(id -Gn)). It must be group pcms, mode 640, and the runner must be in group pcms: sudo usermod -aG pcms $(id -un), then restart the runner service (sudo systemctl restart 'actions.runner.*') and re-run this job"
+fi
 
 # Paths inside the env file must be absolute: the checkout directory changes on every run,
 # and a relative ./secrets or ./certs would silently point into it.

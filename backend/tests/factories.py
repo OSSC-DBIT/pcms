@@ -2,10 +2,12 @@
 
 import time
 import uuid
-from datetime import timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pyotp
 
+from app.config import get_settings
 from app.db import sessionmaker
 from app.models.user import User, normalise_email
 from app.security.credentials import encrypt_password
@@ -14,6 +16,13 @@ from app.security.sessions import now
 
 PASSWORD = "Correct-horse-42"
 API = "/api/v1"
+
+
+def ist_today() -> date:
+    """Today in the college time zone. Report date ranges are in that zone, so tests that build
+    one must use this, not date.today() (UTC in the container), or they fail between midnight and
+    05:30 IST."""
+    return datetime.now(ZoneInfo(get_settings().timezone)).date()
 
 
 async def make_user(email: str, role: str, name: str | None = None, password: str | None = PASSWORD,

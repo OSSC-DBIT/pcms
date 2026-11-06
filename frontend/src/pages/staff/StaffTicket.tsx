@@ -3,10 +3,11 @@
  *   1. Review: accept or reject with a reason. The reporter's red/orange/green severity is shown;
  *      there is no manual priority.
  *   2. Contact a worker directly and record the state. PCMS sends no worker messages.
- *   3. After the worker looks at it, write a note and, only if needed, choose:
+ *   3. After the worker looks at it, write a note and, only if needed, tick one box under it:
  *        Critical   -> send to the principal (reason, optional cost)
  *        Postpone   -> on hold with a reason and review date
- *      With neither chosen the work is Immediate: mark it complete, optionally with the exact cost.
+ *      With neither ticked the work is Immediate: mark it complete, optionally with the exact cost.
+ *      Once spending is approved the boxes are gone: the only step left is Mark as complete.
  *   4. The principal approves, rejects or escalates critical spending to institute management,
  *      who decide. The reporter confirms the fix and rates the repair.
  */
@@ -269,13 +270,17 @@ function AssessStep({ ticket, busy, run }: { ticket: Ticket; busy: boolean; run:
 // ---------- 3. next step ----------
 
 /**
- * One note box, and under it two choices: Critical (send to the principal) and Postpone
- * (on hold with a review date). DBIT, 2026-11-04: with neither chosen, the work is
- * Immediate, so the facility manager just marks it complete, optionally with the exact cost.
+ * One note box and, under it, two small checkboxes: Critical (send to the principal) and
+ * Postpone (on hold with a review date). At most one can be ticked. DBIT, 2026-11-04: with
+ * neither ticked the work is Immediate, so the facility manager just marks it complete,
+ * optionally with the exact cost. DBIT, 2026-11-05: once spending is approved the decision is
+ * final, so the checkboxes are not shown and only Mark as complete remains (the API refuses
+ * the other two, workflow.spending_approved).
  */
 function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket: Ticket; busy: boolean; run: Run; managerName: string; approved?: boolean }) {
   const { t } = useT()
-  const [choice, setChoice] = useState<'C' | 'P' | null>(null)
+  const [picked, setChoice] = useState<'C' | 'P' | null>(null)
+  const choice = approved ? null : picked
   const [note, setNote] = useState('')
   const [cost, setCost] = useState('')
   const [actual, setActual] = useState('')
@@ -286,7 +291,7 @@ function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket
   const toggle = (v: 'C' | 'P') => setChoice((c) => (c === v ? null : v))
   const noteLabel = choice === 'C' ? t('ticket.whyCritical') : choice === 'P' ? t('ticket.whyPostpone') : t('ticket.whatDone')
   const choices = [
-    { v: 'C' as const, icon: AlertTriangle, title: t('ticket.critical'), body: approved ? t('ticket.criticalApproved') : t('ticket.criticalBody') },
+    { v: 'C' as const, icon: AlertTriangle, title: t('ticket.critical'), body: t('ticket.criticalBody') },
     { v: 'P' as const, icon: Clock, title: t('ticket.postpone'), body: t('ticket.postponeBody') },
   ]
   return (
@@ -297,21 +302,25 @@ function FlagStep({ ticket, busy, run, managerName, approved = false }: { ticket
             {t('ticket.approvedHelp')}
           </Alert>
         )}
-        <Field label={noteLabel} optional={choice === null} hint={choice === null ? t('ticket.whatDoneHint') : undefined}>
-          {(id, d) => <Textarea id={id} aria-describedby={d} rows={3} maxLength={choice === 'P' ? 500 : 1000} value={note} onChange={(e) => setNote(e.target.value)} />}
-        </Field>
-
         <div>
-          <p className="mb-1.5 text-[13.5px] text-muted">{t('ticket.choiceHelp')}</p>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {choices.map((o) => (
-              <button key={o.v} type="button" aria-pressed={choice === o.v} onClick={() => toggle(o.v)}
-                className={`flex items-start gap-3 rounded-md border px-3.5 py-3 text-left transition-colors ${choice === o.v ? (o.v === 'C' ? 'border-bad bg-bad/10' : 'border-warn bg-warn/10') : 'border-line hover:bg-subtle'}`}>
-                <o.icon size={20} className={`mt-0.5 shrink-0 ${o.v === 'C' ? 'text-bad' : 'text-warn'}`} aria-hidden />
-                <span><span className="block text-[15px] font-semibold">{o.title}</span><span className="block text-[13px] text-muted">{o.body}</span></span>
-              </button>
-            ))}
-          </div>
+          <Field label={noteLabel} optional={choice === null} hint={choice === null ? t('ticket.whatDoneHint') : undefined}>
+            {(id, d) => <Textarea id={id} aria-describedby={d} rows={3} maxLength={choice === 'P' ? 500 : 1000} value={note} onChange={(e) => setNote(e.target.value)} />}
+          </Field>
+          {!approved && (
+            <fieldset className="mt-2">
+              <legend className="sr-only">{t('ticket.choiceHelp')}</legend>
+              <div className="flex flex-wrap gap-x-5 gap-y-1.5">
+                {choices.map((o) => (
+                  <label key={o.v} title={o.body} className="inline-flex cursor-pointer items-center gap-1.5 text-[13.5px]">
+                    <input type="checkbox" className="h-4 w-4 accent-[var(--c-accent)]" checked={choice === o.v} onChange={() => toggle(o.v)} />
+                    <o.icon size={14} className={o.v === 'C' ? 'text-bad' : 'text-warn'} aria-hidden />
+                    <span className="font-medium">{o.title}</span>
+                    <span className="text-muted">({o.body})</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
         </div>
 
         {choice === null && (

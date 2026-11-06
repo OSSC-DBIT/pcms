@@ -69,7 +69,14 @@ put_if_empty() { [ -n "$(get "$1")" ] || { put "$1" "$2"; note "set $1"; }; }
 # stay until you remove them (docs/SERVER.md), so the stack that is running now keeps working until the
 # next deploy recreates it with the new paths.
 groupadd -f pcms
-id gh-runner >/dev/null 2>&1 && usermod -aG pcms gh-runner
+if id gh-runner >/dev/null 2>&1 && ! id -nG gh-runner | tr ' ' '\n' | grep -qx pcms; then
+  usermod -aG pcms gh-runner
+  # A running process keeps the groups it started with: restart the runner so deploys can read
+  # the settings file (root:pcms 640). Without this the deploy fails with "not readable".
+  if systemctl list-units --type=service --all 'actions.runner.*' --no-legend 2>/dev/null | grep -q .; then
+    systemctl restart 'actions.runner.*' && note "restarted the GitHub runner so it is in group pcms"
+  fi
+fi
 install -d -m 755 /srv/server-data "/srv/server-data/$ENVIRONMENT"
 if [ ! -f "$ENV_FILE" ] && [ -n "$OLD_ENV" ] && [ -f "$OLD_ENV" ]; then
   say "moving $ENVIRONMENT to $DATA_DIR (copying; the old files stay until you delete them)"

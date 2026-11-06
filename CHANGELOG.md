@@ -7,6 +7,25 @@ staging and pushes to `main` deploy production, so releases are named by date.
 Each entry says what changed for people, and **Action needed** lists anything an operator must do
 when deploying it.
 
+## Unreleased (DBIT changes of 5 November 2026)
+
+### Changed
+- **Critical and Postpone are small checkboxes** under the note box instead of large buttons. At most one can
+  be ticked; with neither, the work is fixed immediately.
+- **An approved spending request is final.** After the principal (or institute management) approves, the
+  facility manager only sees Mark as complete. The server refuses sending it as Critical again or postponing
+  it. A rejected, deferred or clarification request can still be revised and sent again.
+
+### Removed
+- **The 3rd floor** from every building. Tickets already reported on the 3rd floor keep it.
+
+### Fixed
+- A deploy whose settings file is missing or unreadable now says which, and how to fix it. The setup script
+  restarts the GitHub runner when it adds it to group `pcms`, so it can read the settings file.
+
+### Action needed
+- Migration `0015` removes floor `3` from every building. Team OSSC can add a floor back under Admin, Places.
+
 ## Unreleased (5 November 2026): web push only, continuous deployment
 
 ### Removed

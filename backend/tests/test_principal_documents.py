@@ -15,7 +15,7 @@ import io
 import zipfile
 from datetime import date, timedelta
 
-from tests.factories import API, make_user, new_client, sign_in, ticket_body
+from tests.factories import API, ist_today, make_user, new_client, sign_in, ticket_body
 
 PDF = b"%PDF-1.4\n1 0 obj<<>>endobj\ntrailer<<>>\n%%EOF\n"
 # Staff files are sent with purpose=document; photos and videos are the reporter's.
@@ -359,7 +359,7 @@ async def test_expenditure_report_and_exports_for_a_date_range(client):
         await prin.post(f"{API}/proposals/{p1['id']}/decisions", json=_decision("approved", 1, ceilingPaise=160000))
         t2, p2 = await _critical(fac, mgr, paise=50000, title="Lift door jammed")
         await prin.post(f"{API}/proposals/{p2['id']}/decisions", json=_decision("escalated", 1, reason="Board"))
-        today = date.today()
+        today = ist_today()
         params = {"from": (today - timedelta(days=1)).isoformat(), "to": today.isoformat()}
 
         # The facility manager does not see spending; the approvers and admin do.
@@ -409,9 +409,9 @@ async def test_queue_filters_by_reporter_role_and_dates(client):
         assert await titles(reporter="Principal") == ["Reported by the principal"]
         assert await titles(reporter="faculty@dbit") == ["Reported by faculty"]
         assert await titles(reporterRole="faculty") == ["Reported by faculty"]
-        today = date.today().isoformat()
+        today = ist_today().isoformat()
         assert len(await titles(**{"from": today, "to": today})) == 2
-        assert await titles(**{"to": (date.today() - timedelta(days=1)).isoformat()}) == []
+        assert await titles(**{"to": (ist_today() - timedelta(days=1)).isoformat()}) == []
         assert (await mgr.get(f"{API}/tickets", params={"scope": "queue", "reporterRole": "guest"})).status_code == 400
     finally:
         await _close(clients)
