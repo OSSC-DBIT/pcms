@@ -192,6 +192,8 @@ export const hi: Record<TKey, string> = {
   'form.floor': 'मंज़िल',
   'form.chooseFloor': 'मंज़िल चुनें',
   'form.room': 'कमरा या क्षेत्र',
+  'form.chooseRoom': 'कमरा चुनें',
+  'form.roomOther': 'अन्य (लिखें)',
   'form.outdoors': 'यह बाहर है',
   'form.landmark': 'नज़दीकी स्थान',
   'form.titleLabel': 'छोटा शीर्षक',
@@ -832,4 +834,4 @@ export const hi: Record<TKey, string> = {
   'filter.searchMine': 'शीर्षक, टोकन या कमरा',
   'translate.translate': 'अनुवाद करें',
   'translate.retry': 'अनुवाद नहीं हुआ, फिर कोशिश करें',
-}
+  }
