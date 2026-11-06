@@ -834,4 +834,4 @@ export const hi: Record<TKey, string> = {
   'filter.searchMine': 'शीर्षक, टोकन या कमरा',
   'translate.translate': 'अनुवाद करें',
   'translate.retry': 'अनुवाद नहीं हुआ, फिर कोशिश करें',
-  }
+}
