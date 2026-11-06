@@ -18,7 +18,9 @@ async def test_blocks_a_and_b_have_a_third_floor(client):
         "building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)",
         "floor": "3", "room": "A-301"}))
     assert r.status_code == 201, r.text
-    assert r.json()["location"]["floor"] == "3"
+    # The create response is a slim receipt; the ticket itself carries the location.
+    t = (await fac.get(f"{API}/tickets/{r.json()['id']}")).json()
+    assert t["location"]["floor"] == "3"
 
 
 async def test_first_timeline_entry_reads_trouble_ticket_raised(client):
