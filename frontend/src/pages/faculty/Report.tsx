@@ -19,6 +19,8 @@ const MAX_VIDEOS = 1
 const CUSTOM_BUILDING = 'CUSTOM'
 // DBIT, 2026-11-06: Blocks A and B have numbered rooms; the report form offers them as a dropdown.
 const ROOM_BLOCKS: Record<string, string> = { BLOCK_A: 'A', BLOCK_B: 'B' }
+// DBIT, 2026-11-06: Block A is the administrative block; its offices are on the first floor.
+const FLOOR_PREFILL: Record<string, string> = { BLOCK_A: '1' }
 const OTHER_ROOM = '__OTHER__'
 
 /** Rooms of a block floor: A-001 and A-002 on Ground, A-101 to A-135 on floor 1, and so on. */
@@ -389,8 +391,8 @@ export default function Report() {
                   onChange={(e) => {
                     const v = e.target.value
                     setRoomOther(false)
-                    // DBIT, 2026-11-06: Blocks A and B start on the Ground floor.
-                    setLoc({ building: v, department: '', floor: ROOM_BLOCKS[v] ? 'Ground' : '', room: '', customLocation: '' })
+                    // DBIT, 2026-11-06: the administrative block (Block A) prefills its floor.
+                    setLoc({ building: v, department: '', floor: FLOOR_PREFILL[v] ?? '', room: '', customLocation: '' })
                   }}>
                   <option value="">{t('form.chooseBuilding')}</option>
                   {buildings().map((x) => <option key={x.code} value={x.code}>{buildingName(x, lang)}</option>)}
@@ -565,4 +567,4 @@ export default function Report() {
       </Stack>
     </form>
   )
-}
+                                    }
