@@ -192,6 +192,8 @@ export const kn: Record<TKey, string> = {
   'form.floor': 'ಮಹಡಿ',
   'form.chooseFloor': 'ಮಹಡಿ ಆಯ್ಕೆಮಾಡಿ',
   'form.room': 'ಕೊಠಡಿ ಅಥವಾ ಪ್ರದೇಶ',
+  'form.chooseRoom': 'ಕೊಠಡಿ ಆಯ್ಕೆಮಾಡಿ',
+  'form.roomOther': 'ಇತರೆ (ಬರೆಯಿರಿ)',
   'form.outdoors': 'ಇದು ಹೊರಾಂಗಣದಲ್ಲಿದೆ',
   'form.landmark': 'ಹತ್ತಿರದ ಗುರುತು',
   'form.titleLabel': 'ಸಣ್ಣ ಶೀರ್ಷಿಕೆ',
