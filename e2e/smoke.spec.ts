@@ -51,8 +51,8 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
   await page.getByLabel('Describe the item').fill('Bench')
   await page.getByLabel('Building').selectOption('BLOCK_A')
   await page.getByLabel('Department / Area').selectOption('Computer Science and Engineering (CSE)')
-  // Blocks A and B start on the Ground floor and offer their rooms as a dropdown (DBIT, 2026-11-06).
-  await expect(page.getByLabel('Floor')).toHaveValue('Ground')
+  // Block A is the administrative block, so the floor prefills to the first floor (DBIT, 2026-11-06).
+  await expect(page.getByLabel('Floor')).toHaveValue('1')
   await page.getByLabel('Floor').selectOption('2')
   await page.getByLabel('Room or area').selectOption('A-203')
   await page.getByLabel('Short title').fill('Broken bench near the window')
@@ -187,6 +187,8 @@ test('a problem the principal reports goes through the facility manager, and man
   await page.getByRole('radio', { name: 'Mechanical / Electrical' }).click()
   await page.getByLabel('Specific issue').selectOption('Fan / Light / Electrical')
   await page.getByLabel('Building').selectOption('ADMIN_BLOCK')
+  // The Administrator Block is not the administrative block of the prefill rule: no prefill (DBIT, 2026-11-06).
+  await expect(page.getByLabel('Floor')).toHaveValue('')
   await page.getByLabel('Department / Area').selectOption("Dean's Room")
   await page.getByLabel('Floor').selectOption({ index: 1 })
   await page.getByLabel('Room or area').fill('Dean office')
