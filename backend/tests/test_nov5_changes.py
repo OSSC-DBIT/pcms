@@ -1,6 +1,7 @@
 """DBIT changes of 2026-11-05.
 
-  - No building has a 3rd floor any more.
+  - No building has a 3rd floor any more (updated 2026-11-06: Blocks A and B got it back,
+    see test_nov6_changes.py).
   - Once spending on a Critical ticket is approved, the decision is final: the facility
     manager can only finish the work. Sending it as Critical again or postponing it is refused.
 """
@@ -25,17 +26,19 @@ async def _propose(mgr, tid, remedy="Replace the pump"):
         "lines": [], "requestedDate": date.today().isoformat(), "remedy": remedy, "expectedVersion": v})
 
 
-async def test_no_building_has_a_third_floor(client):
+async def test_only_blocks_a_and_b_have_a_third_floor(client):
     await make_user("faculty@dbit.edu", "faculty")
     fac = await sign_in(client, "faculty@dbit.edu")
     buildings = (await fac.get(f"{API}/catalogs")).json()["buildings"]
     assert buildings
     for b in buildings:
+        if b["code"] in ("BLOCK_A", "BLOCK_B"):
+            continue  # 2026-11-06: Blocks A and B have a 3rd floor again.
         assert "3" not in b["floors"], b["code"]
     block_a = next(b for b in buildings if b["code"] == "BLOCK_A")
-    assert block_a["floors"] == ["Ground", "1", "2", "Terrace"]
+    assert block_a["floors"] == ["Ground", "1", "2", "3", "Terrace"]
     r = await fac.post(f"{API}/tickets", json=ticket_body(location={
-        "building": "BLOCK_A", "department": "Computer Science and Engineering (CSE)", "floor": "3", "room": "301"}))
+        "building": "PU", "department": "Office", "floor": "3", "room": "301"}))
     assert r.status_code == 400, r.text
 
 

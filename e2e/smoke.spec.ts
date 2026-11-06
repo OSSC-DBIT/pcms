@@ -51,8 +51,10 @@ test('faculty reports a problem with Other and a photo; manager sees it with the
   await page.getByLabel('Describe the item').fill('Bench')
   await page.getByLabel('Building').selectOption('BLOCK_A')
   await page.getByLabel('Department / Area').selectOption('Computer Science and Engineering (CSE)')
+  // Block A is the administrative block, so the floor prefills to the first floor (DBIT, 2026-11-06).
+  await expect(page.getByLabel('Floor')).toHaveValue('1')
   await page.getByLabel('Floor').selectOption('2')
-  await page.getByLabel('Room or area').fill('203')
+  await page.getByLabel('Room or area').selectOption('A-203')
   await page.getByLabel('Short title').fill('Broken bench near the window')
   await page.locator('input[type=file][multiple]').setInputFiles({ name: 'bench.png', mimeType: 'image/png', buffer: await pngFromCanvas(page) })
   await expect(page.getByText('Ready')).toBeVisible()
@@ -125,7 +127,7 @@ test('approved critical cost can be finished after the facility manager reloads'
   await page.getByLabel('Building').selectOption('BLOCK_A')
   await page.getByLabel('Department / Area').selectOption('Computer Science and Engineering (CSE)')
   await page.getByLabel('Floor').selectOption('2')
-  await page.getByLabel('Room or area').fill('204')
+  await page.getByLabel('Room or area').selectOption('A-204')
   await page.getByLabel('Short title').fill(title)
   await page.getByRole('button', { name: 'Submit report' }).click()
   const token = page.getByTestId('receipt-token')
@@ -185,6 +187,8 @@ test('a problem the principal reports goes through the facility manager, and man
   await page.getByRole('radio', { name: 'Mechanical / Electrical' }).click()
   await page.getByLabel('Specific issue').selectOption('Fan / Light / Electrical')
   await page.getByLabel('Building').selectOption('ADMIN_BLOCK')
+  // The Administrator Block is not the administrative block of the prefill rule: no prefill (DBIT, 2026-11-06).
+  await expect(page.getByLabel('Floor')).toHaveValue('')
   await page.getByLabel('Department / Area').selectOption("Dean's Room")
   await page.getByLabel('Floor').selectOption({ index: 1 })
   await page.getByLabel('Room or area').fill('Dean office')
@@ -240,7 +244,7 @@ test('faculty edits a submitted report before work starts', async ({ page }) => 
   await page.getByLabel('Building').selectOption('BLOCK_B')
   await page.getByLabel('Department / Area').selectOption('Artificial Intelligence and Machine Learning (AI/ML)')
   await page.getByLabel('Floor').selectOption('1')
-  await page.getByLabel('Room or area').fill('101')
+  await page.getByLabel('Room or area').selectOption('B-101')
   await page.getByLabel('Short title').fill(title)
   await page.getByRole('button', { name: 'Submit report' }).click()
 

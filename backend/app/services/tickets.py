@@ -241,7 +241,7 @@ async def create_ticket(db: AsyncSession, p: Principal, body: TicketCreateIn) ->
             raise conflict("idempotency_conflict", "This request ID was already used for a different report.")
         return found, True
 
-    add_event(db, t, p.user, "Report submitted", to_status="Submitted")
+    add_event(db, t, p.user, "Trouble ticket raised", to_status="Submitted")
     audit.record(db, actor_id=p.user.id, actor_label=p.user.name, action="ticket.created", entity_type="ticket",
                  entity_id=t.id, after={"token": t.token, "category": cat.code, "impact": body.impact})
     await notify.notify_reporter(db, t, template="receipt", title=f"Report received: {t.token}",

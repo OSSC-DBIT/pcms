@@ -41,7 +41,7 @@ async def test_create_returns_token_and_replays(client):
 
     t = (await s.get(f"{API}/tickets/{created['id']}")).json()
     assert t["impact"] == "orange" and t["reporterName"] == "Faculty faculty@dbit.edu"
-    assert t["events"][0]["action"] == "Report submitted"
+    assert t["events"][0]["action"] == "Trouble ticket raised"
 
 
 async def test_validation_errors(client):

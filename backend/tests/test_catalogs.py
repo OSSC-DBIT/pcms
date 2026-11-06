@@ -30,7 +30,7 @@ async def test_catalogs_shape_matches_frontend(client):
     assert all(b["active"] for b in body["buildings"])
     block_a = next(b for b in body["buildings"] if b["code"] == "BLOCK_A")
     assert "Computer Science and Engineering (CSE)" in block_a["departments"]
-    assert block_a["floors"] == ["Ground", "1", "2", "Terrace"]
+    assert block_a["floors"] == ["Ground", "1", "2", "3", "Terrace"]
     sports = next(b for b in body["buildings"] if b["code"] == "SPORTS")
     assert sports["nameEn"] == "Sports Department"
     assert sports["departments"] == [] and sports["departmentsKn"] == []

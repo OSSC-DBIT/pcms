@@ -17,6 +17,22 @@ const DRAFT_KEY = 'pcms.drafts'
 const MAX_PHOTOS = 3
 const MAX_VIDEOS = 1
 const CUSTOM_BUILDING = 'CUSTOM'
+// DBIT, 2026-11-06: Blocks A and B have numbered rooms; the report form offers them as a dropdown.
+const ROOM_BLOCKS: Record<string, string> = { BLOCK_A: 'A', BLOCK_B: 'B' }
+// DBIT, 2026-11-06: Block A is the administrative block; its offices are on the first floor.
+const FLOOR_PREFILL: Record<string, string> = { BLOCK_A: '1' }
+const OTHER_ROOM = '__OTHER__'
+
+/** Rooms of a block floor: A-001 and A-002 on Ground, A-101 to A-135 on floor 1, and so on. */
+function roomOptions(building: string, floor: string): string[] | null {
+  const prefix = ROOM_BLOCKS[building]
+  if (!prefix) return null
+  if (floor === 'Ground') return [`${prefix}-001`, `${prefix}-002`]
+  if (floor === '1' || floor === '2' || floor === '3') {
+    return Array.from({ length: 35 }, (_, i) => `${prefix}-${floor}${String(i + 1).padStart(2, '0')}`)
+  }
+  return null
+}
 const EDITABLE: Status[] = ['Submitted', 'Triaged']
 
 const CATEGORY_ICON = { it_services: Monitor, civil: Building2, mechanical: Wrench }
@@ -135,6 +151,7 @@ export default function Report() {
   const [ticketId, setTicketId] = useState<string | null>(null)
   const [dups, setDups] = useState<{ token: string; title: string; status: Status }[]>([])
   const [more, setMore] = useState(!!(d.accessNote || d.altContact))
+  const [roomOther, setRoomOther] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
   const mediaRef = useRef(media)
   mediaRef.current = media
@@ -143,6 +160,9 @@ export default function Report() {
   const b = buildings().find((x) => x.code === d.location.building)
   const isCustom = d.location.building === CUSTOM_BUILDING
   const departmentOptions = b ? buildingDepartments(b, lang) : []
+  const rooms = isCustom ? null : roomOptions(d.location.building, d.location.floor)
+  // Other: a room the list does not have (or one an old ticket already carries) is typed by hand.
+  const roomIsOther = rooms !== null && (roomOther || (d.location.room !== '' && !rooms.includes(d.location.room)))
   const departmentLabel = b?.code === 'HOSTEL' ? t('form.hostelSection') : t('form.department')
   const sub = (d.subtype ?? '').toLowerCase()
   const needsOther = !!cat && (sub === 'other' || sub.startsWith('other ') || (cat.code === 'other' && !d.subtype))
@@ -368,7 +388,12 @@ export default function Report() {
             <Field label={t('form.building')}>
               {(fieldId) => (
                 <Select id={fieldId} value={d.location.building} invalid={!!errors.location && !d.location.building}
-                  onChange={(e) => setLoc({ building: e.target.value, department: '', floor: '', room: '', customLocation: '' })}>
+                  onChange={(e) => {
+                    const v = e.target.value
+                    setRoomOther(false)
+                    // DBIT, 2026-11-06: the administrative block (Block A) prefills its floor.
+                    setLoc({ building: v, department: '', floor: FLOOR_PREFILL[v] ?? '', room: '', customLocation: '' })
+                  }}>
                   <option value="">{t('form.chooseBuilding')}</option>
                   {buildings().map((x) => <option key={x.code} value={x.code}>{buildingName(x, lang)}</option>)}
                   <option value={CUSTOM_BUILDING}>{t('form.customLocation')}</option>
@@ -410,15 +435,27 @@ export default function Report() {
                       invalid={!!errors.location && !d.location.floor.trim()} onChange={(e) => setLoc({ floor: e.target.value })} />
                   ) : (
                     <Select id={fieldId} value={d.location.floor} disabled={!b} invalid={!!errors.location && !d.location.floor}
-                      onChange={(e) => setLoc({ floor: e.target.value })}>
+                      onChange={(e) => { setRoomOther(false); setLoc({ floor: e.target.value, room: '' }) }}>
                       <option value="">{t('form.chooseFloor')}</option>
                       {b?.floors.map((f) => <option key={f} value={f}>{floorLabel(f, t)}</option>)}
                     </Select>
                   )}
                 </Field>
                 <Field label={t('form.room')}>
-                  {(fieldId) => <Input id={fieldId} value={d.location.room} maxLength={60} placeholder={t('form.roomPlaceholder')}
-                    invalid={!!errors.location && !d.location.room.trim()} onChange={(e) => setLoc({ room: e.target.value })} />}
+                  {(fieldId) => rooms && !roomIsOther ? (
+                    <Select id={fieldId} value={d.location.room} invalid={!!errors.location && !d.location.room}
+                      onChange={(e) => {
+                        if (e.target.value === OTHER_ROOM) { setRoomOther(true); setLoc({ room: '' }) }
+                        else setLoc({ room: e.target.value })
+                      }}>
+                      <option value="">{t('form.chooseRoom')}</option>
+                      {rooms.map((r) => <option key={r} value={r}>{r}</option>)}
+                      <option value={OTHER_ROOM}>{t('form.roomOther')}</option>
+                    </Select>
+                  ) : (
+                    <Input id={fieldId} value={d.location.room} maxLength={60} placeholder={t('form.roomPlaceholder')}
+                      invalid={!!errors.location && !d.location.room.trim()} onChange={(e) => setLoc({ room: e.target.value })} />
+                  )}
                 </Field>
                 <Field label={t('form.landmark')} optional>
                   {(fieldId) => <Input id={fieldId} value={d.location.landmark ?? ''} maxLength={120} onChange={(e) => setLoc({ landmark: e.target.value })} />}
