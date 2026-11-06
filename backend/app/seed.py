@@ -148,12 +148,12 @@ BLOCK_B_DEPARTMENTS_KN = [
     "ಗ್ರಂಥಾಲಯ",
 ]
 
-# Every building with upper floors also has a terrace (DBIT, 2026-10-30). No building has a 3rd floor
-# (DBIT, 2026-11-05); migration 0015 removed it from existing databases.
+# Every building with upper floors also has a terrace (DBIT, 2026-10-30). Only Blocks A and B
+# have a 3rd floor (DBIT, 2026-11-06); migration 0016 adds it to existing databases.
 BUILDINGS = [
-    ("BLOCK_A", "Block A", "ब्लॉक ए", "ಬ್ಲಾಕ್ ಎ", ["Ground", "1", "2", "Terrace"],
+    ("BLOCK_A", "Block A", "ब्लॉक ए", "ಬ್ಲಾಕ್ ಎ", ["Ground", "1", "2", "3", "Terrace"],
      BLOCK_A_DEPARTMENTS, BLOCK_A_DEPARTMENTS_KN),
-    ("BLOCK_B", "Block B", "ब्लॉक बी", "ಬ್ಲಾಕ್ ಬಿ", ["Ground", "1", "2", "Terrace"],
+    ("BLOCK_B", "Block B", "ब्लॉक बी", "ಬ್ಲಾಕ್ ಬಿ", ["Ground", "1", "2", "3", "Terrace"],
      BLOCK_B_DEPARTMENTS, BLOCK_B_DEPARTMENTS_KN),
     ("MBA", "PG Block (MBA & Research)", "पीजी ब्लॉक (एमबीए और अनुसंधान)", "ಪಿಜಿ ಬ್ಲಾಕ್ (ಎಂಬಿಎ ಮತ್ತು ಸಂಶೋಧನೆ)",
      ["Ground", "1", "2", "Terrace"],
