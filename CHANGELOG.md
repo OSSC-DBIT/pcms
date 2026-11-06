@@ -7,6 +7,22 @@ staging and pushes to `main` deploy production, so releases are named by date.
 Each entry says what changed for people, and **Action needed** lists anything an operator must do
 when deploying it.
 
+## Unreleased (DBIT changes of 6 November 2026)
+
+### Added
+- **Blocks A and B have a 3rd floor again.** Choosing Block A or Block B on the report form fills the
+  floor as Ground, and the room becomes a dropdown: A-001 and A-002 on Ground, A-101 to A-135 on floor 1,
+  A-201 to A-235 on floor 2 and A-301 to A-335 on floor 3 (B block with B instead of A), plus Other to
+  type a room that is not listed. Other buildings and the Terrace keep the free-text room.
+
+### Changed
+- The first timeline entry on a new ticket reads **"Trouble ticket raised"** instead of "Report submitted".
+  Tickets reported before this change keep the old wording: timeline history is append-only.
+
+### Action needed
+- Migration `0016` adds floor `3` to Blocks A and B where the floor list is still the seeded one. Team
+  OSSC can add the floor to more buildings under Admin, Places.
+
 ## Unreleased (DBIT changes of 5 November 2026)
 
 ### Changed
