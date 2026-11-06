@@ -190,6 +190,8 @@ export const en = {
   'form.floor': 'Floor',
   'form.chooseFloor': 'Choose a floor',
   'form.room': 'Room or area',
+  'form.chooseRoom': 'Choose a room',
+  'form.roomOther': 'Other (type it)',
   'form.outdoors': 'This issue is outdoors',
   'form.landmark': 'Nearby landmark',
   'form.titleLabel': 'Short title',
