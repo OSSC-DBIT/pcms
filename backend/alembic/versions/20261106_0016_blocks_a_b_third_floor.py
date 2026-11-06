@@ -26,7 +26,7 @@ def upgrade() -> None:
     op.execute(
         f"""
         UPDATE building
-        SET floors = floors[:array_position(floors, 'Terrace') - 1]
+        SET floors = floors[1:array_position(floors, 'Terrace') - 1]
                      || ARRAY['3']
                      || floors[array_position(floors, 'Terrace'):]
         WHERE code IN ('BLOCK_A', 'BLOCK_B') AND floors = {SEEDED}::text[]
